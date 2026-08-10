@@ -1054,6 +1054,31 @@ class ThumbnailDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class NoFlickerComboBox(QComboBox):
+    """QComboBox whose dropdown popup is shown without the Windows DWM
+    entrance animation (slide/fade) that flickers on Windows 10/11. Marking
+    the popup frameless exempts it from DWM animation, while the rest of the
+    UI keeps the native look. A thin border is added to the (now borderless)
+    popup so it stays visually defined."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.view().setStyleSheet(
+            "QAbstractItemView { border: 1px solid palette(mid); "
+            "background: palette(base); }"
+        )
+
+    def showPopup(self):
+        super().showPopup()
+        container = self.view().parentWidget()
+        if container is not None:
+            geo = container.geometry()
+            container.setWindowFlag(Qt.FramelessWindowHint, True)
+            container.setWindowFlag(Qt.NoDropShadowWindowHint, True)
+            container.setGeometry(geo)
+            container.show()
+
+
 class HistoryRowWidget(QWidget):
     """One row inside the custom-folder history menu: a clickable path label
     plus a per-row "✕" delete button. Clicking the label selects the folder;
@@ -1456,7 +1481,7 @@ class MainWindow(QMainWindow):
 
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel("动作类型："))
-        self.action_combo = QComboBox()
+        self.action_combo = NoFlickerComboBox()
         self.action_combo.addItems(
             ["调整大小", "旋转", "水印", "亮度/对比度", "锐化", "裁剪"]
         )
@@ -1481,7 +1506,7 @@ class MainWindow(QMainWindow):
 
         src_row = QHBoxLayout()
         src_row.addWidget(QLabel("预览源："))
-        self.preview_source_combo = QComboBox()
+        self.preview_source_combo = NoFlickerComboBox()
         self.preview_source_combo.setMinimumWidth(160)
         src_row.addWidget(self.preview_source_combo, stretch=1)
         right_layout.addLayout(src_row)
@@ -1562,9 +1587,9 @@ class MainWindow(QMainWindow):
 
         fmt_row = QHBoxLayout()
         fmt_row.addWidget(QLabel("输出格式："))
-        # 用普通 QComboBox（与动作标签页「动作类型」同款，Windows 下不闪、
-        # 框更大、支持鼠标滚轮选择）。
-        self.format_combo = QComboBox()
+        # NoFlickerComboBox：普通 QComboBox 行为（框更大、支持鼠标滚轮），
+        # 但下拉弹窗去掉 Windows DWM 入场动画，避免展开时闪烁。
+        self.format_combo = NoFlickerComboBox()
         self.format_combo.addItems(["JPEG XL (*.jxl)", "PNG (*.png)"])
         fmt_row.addWidget(self.format_combo)
         fmt_row.addStretch(1)
@@ -1608,10 +1633,10 @@ class MainWindow(QMainWindow):
         enc_layout.addLayout(qual_row)
 
         # 速度/质量权衡（--effort，1-9，默认 7）：三种模式通用。
-        # 普通 QComboBox（同动作类型，不闪、支持滚轮）。
+        # NoFlickerComboBox（同 format_combo，去 Windows 弹窗动画闪烁）。
         effort_row = QHBoxLayout()
         effort_row.addWidget(QLabel("速度/质量权衡 (--effort)："))
-        self.effort_combo = QComboBox()
+        self.effort_combo = NoFlickerComboBox()
         self.effort_combo.addItems([str(i) for i in range(1, 10)])
         self.effort_combo.setCurrentText("7")
         effort_row.addWidget(self.effort_combo)
@@ -1649,13 +1674,14 @@ class MainWindow(QMainWindow):
         dest_layout.addWidget(self.custom_folder_radio)
 
         custom_row = QHBoxLayout()
-        # Current custom-folder field (editable) + a dropdown arrow whose
-        # QMenu lists the history with a per-row "✕" delete. The edit and the
-        # arrow are wrapped in one bordered widget so they visually merge (no
-        # gap) like a QComboBox, while still using a QMenu for the list — this
-        # avoids QComboBox's flickering popup on Windows (the same reason the
-        # input tab's "查看" button uses a menu). The popup is anchored to the
-        # bottom-left of the input field (see _position_folder_menu).
+        # Editable field + a dropdown arrow that opens a QMenu listing the
+        # folder history with a per-row "✕" delete. The edit and the arrow are
+        # wrapped in one bordered widget so they visually merge (no gap), like a
+        # QComboBox, while the list itself is a plain QMenu (no Windows popup
+        # animation / flicker). The menu is opened manually on click and
+        # anchored to the field's bottom-left (see _open_folder_menu) — using
+        # setMenu() would render the button as a split button (double arrow)
+        # and override our positioning.
         self._folder_history = []
         self.custom_folder_edit = QLineEdit()
         self.custom_folder_edit.setPlaceholderText(
@@ -1663,13 +1689,11 @@ class MainWindow(QMainWindow):
         )
         self.custom_folder_edit.setEnabled(False)
         self.folder_menu = QMenu(self)
-        self.folder_menu.aboutToShow.connect(self._position_folder_menu)
         self.custom_folder_dropdown = QToolButton()
-        self.custom_folder_dropdown.setPopupMode(QToolButton.InstantPopup)
         self.custom_folder_dropdown.setArrowType(Qt.DownArrow)
         self.custom_folder_dropdown.setFixedWidth(22)
-        self.custom_folder_dropdown.setMenu(self.folder_menu)
         self.custom_folder_dropdown.setEnabled(False)
+        self.custom_folder_dropdown.clicked.connect(self._open_folder_menu)
         folder_combo = QWidget()
         folder_combo.setObjectName("folder_combo")
         folder_hbox = QHBoxLayout(folder_combo)
@@ -1678,7 +1702,7 @@ class MainWindow(QMainWindow):
         folder_hbox.addWidget(self.custom_folder_edit, stretch=1)
         folder_hbox.addWidget(self.custom_folder_dropdown)
         folder_combo.setStyleSheet(
-            "QWidget#folder_combo { border: 1px solid palette(mid); "
+            "QWidget#folder_combo { border: 1px solid #a0a0a0; "
             "border-radius: 4px; background: palette(base); }"
         )
         self.custom_folder_edit.setStyleSheet(
@@ -1686,8 +1710,11 @@ class MainWindow(QMainWindow):
             "padding-left: 4px; }"
         )
         self.custom_folder_dropdown.setStyleSheet(
-            "QToolButton { border: none; background: transparent; }"
+            "QToolButton { border: none; border-left: 1px solid #c8c8c8; "
+            "background: transparent; }"
+            "QToolButton:hover { background: rgba(0,0,0,0.04); }"
         )
+        self._folder_combo = folder_combo
         self._rebuild_folder_menu()
         self.browse_folder_button = QPushButton("浏览...")
         self.browse_folder_button.setEnabled(False)
@@ -3134,15 +3161,19 @@ class MainWindow(QMainWindow):
         self.custom_folder_edit.setText(path)
         self.folder_menu.hide()
 
-    def _position_folder_menu(self):
-        """Anchor the history popup to the bottom-left of the input field and
-        match its width, so it opens like a QComboBox dropdown (aligned to the
-        field, not to the narrow arrow button on the right)."""
-        pos = self.custom_folder_edit.mapToGlobal(
-            QPoint(0, self.custom_folder_edit.height())
+    def _open_folder_menu(self):
+        """Open the folder-history menu manually (triggered by the arrow
+        button's clicked signal). Positioning it here — instead of via
+        setMenu()/aboutToShow — gives us full control so the popup anchors to
+        the bottom-left of the whole combo unit and matches its width, like a
+        QComboBox dropdown (not to the narrow arrow button on the right)."""
+        if not self.folder_menu.actions():
+            self._rebuild_folder_menu()
+        pos = self._folder_combo.mapToGlobal(
+            QPoint(0, self._folder_combo.height())
         )
-        self.folder_menu.move(pos)
-        self.folder_menu.setMinimumWidth(self.custom_folder_edit.width())
+        self.folder_menu.setMinimumWidth(self._folder_combo.width())
+        self.folder_menu.popup(pos)
 
     # ---- output location / filename persistence (QSettings) ----------
 
@@ -3670,10 +3701,10 @@ class ActionParamDialog(QDialog):
             op = QSpinBox()
             op.setRange(0, 255)
             op.setValue(128)
-            pos = QComboBox()
+            pos = NoFlickerComboBox()
             pos.addItems(processor.WATERMARK_POSITIONS)
             pos.setCurrentText("右下")
-            col = QComboBox()
+            col = NoFlickerComboBox()
             col.addItems(["white", "black"])
             col.setCurrentText("white")
             form.addRow("水印文字:", t)
