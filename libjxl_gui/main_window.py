@@ -1818,11 +1818,6 @@ class MainWindow(QMainWindow):
         self.custom_folder_edit.setPlaceholderText(
             "选择或输入自定义输出文件夹，下拉可查看历史路径"
         )
-        # Remove the native 2px sunken frame so it does not draw on top of (and
-        # double up with) the single border painted on the folder_combo
-        # container -- otherwise the bottom / right / top-left edges look
-        # thicker than the rest.
-        self.custom_folder_edit.setFrame(False)
         self.custom_folder_edit.setEnabled(False)
         self.folder_menu = FolderMenu(self)
         fusion = _fusion_style()
@@ -1831,52 +1826,25 @@ class MainWindow(QMainWindow):
         self.custom_folder_dropdown = QToolButton()
         self.custom_folder_dropdown.setArrowType(Qt.DownArrow)
         self.custom_folder_dropdown.setFixedWidth(22)
-        # Both children stretch vertically so the arrow matches the line edit
-        # height; the shared rounded border is drawn on the wrapper container
-        # (folder_combo) so the two controls look like one QComboBox.
-        self.custom_folder_edit.setSizePolicy(
-            QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        )
-        self.custom_folder_dropdown.setSizePolicy(
-            QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        )
         self.custom_folder_dropdown.setEnabled(False)
         self.custom_folder_dropdown.clicked.connect(self._open_folder_menu)
-        # Wrap the editable field + arrow in ONE bordered container. The border
-        # is painted a single time on the container (not on each child), which
-        # removes the uneven / doubled edge thickness that appeared when every
-        # child widget drew its own 1px border on top of its native frame. The
-        # vertical separator between field and arrow is the arrow's left border,
-        # coloured with the SAME colour as the container border (per request, so
-        # it is always visible). Colours come from concrete values read out of
-        # the live QApplication palette (see _apply_folder_style); we avoid the
-        # QSS `palette(...)` role, which resolves inverted here and does not
-        # re-resolve on theme switch.
-        self.folder_combo = QWidget()
-        self.folder_combo.setObjectName("folderCombo")
-        self.folder_combo.setAttribute(Qt.WA_StyledBackground, True)
-        combo_inner = QHBoxLayout(self.folder_combo)
-        combo_inner.setContentsMargins(0, 0, 0, 0)
-        combo_inner.setSpacing(0)
-        combo_inner.addWidget(self.custom_folder_edit, stretch=1)
-        combo_inner.addWidget(self.custom_folder_dropdown)
-        self._apply_folder_style()
         self._rebuild_folder_menu()
         self.browse_folder_button = QPushButton("浏览...")
         self.browse_folder_button.setEnabled(False)
-        # No gap between the edit field and the arrow button so they look like
-        # one seamless QComboBox; keep a small gap before the separate
-        # "浏览..." button so it does not touch the dropdown arrow.
-        custom_row.setSpacing(0)
-        custom_row.addWidget(self.folder_combo, stretch=1)
+        # Native controls: a plain QLineEdit next to a plain QToolButton arrow.
+        # No custom border / container / stylesheet, so the pair follows the
+        # system light/dark theme automatically (no white-on-white, no inverted
+        # colours). The menu is opened on click -- NOT via setMenu(), which would
+        # render the button as a split "double-arrow" control. Default layout
+        # spacing leaves a small gap before the separate "浏览..." button.
+        custom_row.addWidget(self.custom_folder_edit, stretch=1)
+        custom_row.addWidget(self.custom_folder_dropdown)
         custom_row.addSpacing(6)
         custom_row.addWidget(self.browse_folder_button)
-        custom_row.addSpacing(6)
         dest_layout.addLayout(custom_row)
 
         self.custom_folder_radio.toggled.connect(
             lambda checked: (
-                self.folder_combo.setEnabled(checked),
                 self.custom_folder_edit.setEnabled(checked),
                 self.custom_folder_dropdown.setEnabled(checked),
                 self.browse_folder_button.setEnabled(checked),
@@ -3290,57 +3258,6 @@ class MainWindow(QMainWindow):
         self._folder_history.pop(row)
         self._rebuild_folder_menu()
         self._save_output_settings()
-
-    def _apply_folder_style(self):
-        """Theme the custom-folder combo unit.
-
-        The unit is a single rounded-border container (folder_combo) holding a
-        borderless QLineEdit and a borderless QToolButton arrow. Painting the
-        border ONCE on the container (instead of on each child) avoids the
-        uneven / doubled edge thickness that results from every child widget
-        drawing its own 1px border plus its native frame. The vertical
-        separator between the field and the arrow is the arrow's left border,
-        coloured with the SAME border colour as the container (per the user's
-        request) so it is always visible.
-
-        Colours are concrete values read from the LIVE QApplication palette
-        (never the QSS `palette(...)` role, which here resolves inverted and does
-        not re-resolve on theme switch). Re-applied from changeEvent() on
-        PaletteChange so the control tracks a live theme switch.
-        """
-        pal = QApplication.palette()
-        base = pal.color(QPalette.Base).name()
-        text = pal.color(QPalette.Text).name()
-        btn_text = pal.color(QPalette.ButtonText).name()
-        midlight = pal.color(QPalette.Midlight).name()
-        # Border colour is the pre-problem grey #a0a0a0 (requested): clearly
-        # visible on both a white light-mode base and a dark dark-mode base.
-        # The separator reuses this exact colour so it matches the outline.
-        border = "#a0a0a0"
-        self.folder_combo.setStyleSheet(
-            "QWidget#folderCombo { border: 1px solid %s; "
-            "border-radius: 4px; background: %s; }" % (border, base)
-        )
-        self.custom_folder_edit.setStyleSheet(
-            "QLineEdit { border: none; background: transparent; "
-            "color: %s; padding-left: 4px; }" % text
-        )
-        self.custom_folder_dropdown.setStyleSheet(
-            "QToolButton { border: none; border-left: 1px solid %s; "
-            "background: transparent; color: %s; border-radius: 0; }"
-            "QToolButton:hover { background: %s; }"
-            % (border, btn_text, midlight)
-        )
-
-    def changeEvent(self, event):
-        # Live OS light/dark switch: re-theme controls whose colours were baked
-        # from the palette. The QSS `palette(...)` role syntax does not re-resolve
-        # on a runtime theme change (and here even resolved inverted), so we
-        # re-apply concrete palette colours when Qt posts PaletteChange.
-        if event.type() == QEvent.PaletteChange:
-            if getattr(self, "custom_folder_edit", None) is not None:
-                self._apply_folder_style()
-        super().changeEvent(event)
 
     def _rebuild_folder_menu(self):
         """Rebuild the custom-folder history menu from self._folder_history.
