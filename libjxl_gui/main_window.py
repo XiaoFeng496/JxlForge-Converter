@@ -3295,8 +3295,14 @@ class MainWindow(QMainWindow):
         button's clicked signal). Positioning it here — instead of via
         setMenu()/aboutToShow — lets the popup anchor to the bottom-left of the
         whole combo unit and match its width, like a QComboBox dropdown."""
-        if not self.folder_menu.actions():
-            self._rebuild_folder_menu()
+        # Keep the popup's colours in sync with the current system light/dark
+        # theme. Fusion caches its palette and only re-reads it on a theme
+        # change event, which can arrive *after* the first open following a
+        # switch — leaving the list showing the previous theme's colours.
+        # Re-applying the live application palette and rebuilding the rows on
+        # every open guarantees the text always uses the current theme.
+        self.folder_menu.setPalette(QApplication.palette())
+        self._rebuild_folder_menu()
         combined_w = (
             self.custom_folder_edit.width() + self.custom_folder_dropdown.width()
         )
@@ -3305,6 +3311,16 @@ class MainWindow(QMainWindow):
         )
         self.folder_menu.setMinimumWidth(combined_w)
         self.folder_menu.popup(pos)
+
+    def changeEvent(self, event):
+        """React to a system light/dark theme switch while the app is running:
+        refresh the custom-folder history popup's colours (live, if it is open,
+        otherwise on the next open)."""
+        if event.type() == QEvent.PaletteChange:
+            self.folder_menu.setPalette(QApplication.palette())
+            if self.folder_menu.isVisible():
+                self._rebuild_folder_menu()
+        super().changeEvent(event)
 
     # ---- output location / filename persistence (QSettings) ----------
 
