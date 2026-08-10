@@ -1308,6 +1308,7 @@ class MainWindow(QMainWindow):
         # Output-location / filename persistence state.
         self._folder_history = []      # historical custom output folders (most recent first)
         self._output_loading = False   # guard to suppress saves while restoring
+        self._conversion_loading = False  # guard for CPU-priority restore
         self._build_ui()
         # Restore persisted JXL encode parameters (mode / quality / effort) onto
         # the freshly-built output-tab widgets.
@@ -1315,6 +1316,8 @@ class MainWindow(QMainWindow):
         # Restore persisted output location / filename settings (and the history
         # dropdown of custom folders).
         self._load_output_settings()
+        # Restore the persisted conversion-process CPU priority.
+        self._load_conversion_settings()
         self._refresh_environment()
 
     def keyPressEvent(self, event):
@@ -1932,8 +1935,44 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
+        layout.addWidget(QLabel("转换进程"))
+
+        # CPU priority class applied to every spawned cjxl / djxl child process.
+        # Default is "低于正常" (below normal) so a large batch does not starve
+        # the foreground UI of CPU time. Restored from QSettings on launch.
+        cpu_hint = QLabel(
+            "设置 cjxl / djxl 转换进程的 CPU 优先级（默认低于正常，"
+            "减少对前台操作的影响）。"
+        )
+        cpu_hint.setWordWrap(True)
+        layout.addWidget(cpu_hint)
+
+        cpu_row = QHBoxLayout()
+        cpu_row.addWidget(QLabel("CPU 优先级"))
+        self.cpu_priority_combo = QComboBox()
+        for key, label in (
+            ("idle", "空闲"),
+            ("below_normal", "低于正常"),
+            ("normal", "正常"),
+            ("above_normal", "高于正常"),
+            ("high", "高"),
+        ):
+            self.cpu_priority_combo.addItem(label, key)
+        self.cpu_priority_combo.setCurrentIndex(
+            self.cpu_priority_combo.findData(converter.DEFAULT_PRIORITY)
+        )
+        self.cpu_priority_combo.currentIndexChanged.connect(
+            self._on_cpu_priority_changed
+        )
+        cpu_row.addWidget(self.cpu_priority_combo, 1)
+        layout.addLayout(cpu_row)
+
         layout.addStretch(1)
         return widget
+
+    def _on_cpu_priority_changed(self, _index):
+        """Persist the CPU-priority choice whenever the user changes it."""
+        self._save_conversion_settings()
 
     def _on_center_window(self):
         """Move the window to the centre of the primary screen (keep size)."""
@@ -2031,6 +2070,8 @@ class MainWindow(QMainWindow):
         self._save_jxl_output()
         # Persist the output-location / filename settings.
         self._save_output_settings()
+        # Persist the conversion-process CPU priority.
+        self._save_conversion_settings()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -3413,6 +3454,35 @@ class MainWindow(QMainWindow):
 
         self._output_loading = False
 
+    # ---- conversion-process settings persistence (QSettings) ----------
+    def _save_conversion_settings(self):
+        """Persist the conversion-process CPU priority to QSettings.
+
+        Guarded by ``_conversion_loading`` so restoring on launch does not
+        immediately re-save (and clobber) the stored value.
+        """
+        if getattr(self, "_conversion_loading", False):
+            return
+        settings = QSettings()
+        settings.beginGroup("conversion")
+        settings.setValue("cpu_priority", self.cpu_priority_combo.currentData())
+        settings.endGroup()
+
+    def _load_conversion_settings(self):
+        """Restore the persisted CPU-priority choice onto the settings-tab combo.
+        Safe to call only after the settings tab (and thus the combo) is built."""
+        self._conversion_loading = True
+        settings = QSettings()
+        settings.beginGroup("conversion")
+        key = settings.value("cpu_priority", converter.DEFAULT_PRIORITY)
+        settings.endGroup()
+        if not isinstance(key, str) or self.cpu_priority_combo.findData(key) < 0:
+            key = converter.DEFAULT_PRIORITY
+        self.cpu_priority_combo.setCurrentIndex(
+            self.cpu_priority_combo.findData(key)
+        )
+        self._conversion_loading = False
+
     def _current_encode_mode(self):
         """Return the active JXL encode mode as one of the keys used by the
         converter: 'lossy', 'lossless', or 'lossless_jpeg'."""
@@ -3538,7 +3608,8 @@ class MainWindow(QMainWindow):
         # Jump to the 状态 tab so the user can watch progress live.
         self.tabs.setCurrentWidget(self.status_tab)
         self._convert_worker = ConvertWorker(
-            jobs, actions, effort, distance, quality_arg, lossless_jpeg
+            jobs, actions, effort, distance, quality_arg, lossless_jpeg,
+            self.cpu_priority_combo.currentData(),
         )
         self._convert_worker.log_signal.connect(self.log_edit.appendPlainText)
         self._convert_worker.status_signal.connect(self.statusBar().showMessage)
@@ -3645,7 +3716,8 @@ class ConvertWorker(QThread):
     finished_signal = Signal()
 
     def __init__(self, jobs, actions, effort=7, distance=None,
-                 quality=None, lossless_jpeg=False):
+                 quality=None, lossless_jpeg=False,
+                 priority=converter.DEFAULT_PRIORITY):
         super().__init__()
         self.jobs = jobs
         self.actions = actions  # possibly empty list
@@ -3653,6 +3725,7 @@ class ConvertWorker(QThread):
         self.distance = distance
         self.quality = quality
         self.lossless_jpeg = lossless_jpeg
+        self.priority = priority
         self._stopped = False
 
     def _encode_kwargs(self):
@@ -3662,6 +3735,7 @@ class ConvertWorker(QThread):
             "distance": self.distance,
             "quality": self.quality,
             "lossless_jpeg": self.lossless_jpeg,
+            "priority": self.priority,
         }
 
     def request_stop(self):
@@ -3687,7 +3761,7 @@ class ConvertWorker(QThread):
         if src.lower().endswith(".jxl"):
             tmp_src = self._make_temp(".png")
             tmp_files.append(tmp_src)
-            ok, msg = converter.decode(src, tmp_src)
+            ok, msg = converter.decode(src, tmp_src, priority=self.priority)
             if not ok:
                 return False, "djxl 解码失败：%s" % msg
             img = Image.open(tmp_src)
@@ -3801,7 +3875,9 @@ class ConvertWorker(QThread):
                             ok, message = converter.encode(src, out_path, **kw)
                         else:
                             # Decoding a JXL into a raster (PNG) needs djxl.
-                            ok, message = converter.decode(src, out_path)
+                            ok, message = converter.decode(
+                                src, out_path, priority=self.priority
+                            )
                     else:
                         ok, message = self._encode_source(src, out_path, tmp_files)
                 except Exception as exc:

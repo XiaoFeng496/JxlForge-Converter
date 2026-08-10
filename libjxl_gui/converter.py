@@ -23,6 +23,20 @@ _current_process = None
 # fall back to 0 (a no-op flag).
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+# Windows process-priority classes, used to throttle the cjxl/djxl child
+# processes so a large batch does not hog the CPU. The constants only exist
+# on Windows; elsewhere they fall back to 0 (a no-op) and the priority is
+# simply ignored. Keyed by a stable string so the value can be persisted in
+# QSettings and stay readable across platforms.
+_PRIORITY_FLAGS = {
+    "idle": getattr(subprocess, "IDLE_PRIORITY_CLASS", 0),
+    "below_normal": getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0),
+    "normal": getattr(subprocess, "NORMAL_PRIORITY_CLASS", 0),
+    "above_normal": getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0),
+    "high": getattr(subprocess, "HIGH_PRIORITY_CLASS", 0),
+}
+DEFAULT_PRIORITY = "below_normal"
+
 
 def terminate_current():
     """Terminate the child process started by the most recent _run() call.
@@ -79,6 +93,7 @@ def encode(
     distance=None,
     quality=None,
     lossless_jpeg=False,
+    priority=DEFAULT_PRIORITY,
 ):
     """Run cjxl to encode ``input_path`` into a JPEG XL file at ``output_path``.
 
@@ -93,6 +108,9 @@ def encode(
 
     ``lossless_jpeg`` adds ``--lossless_jpeg=1`` so JPEG inputs are re-encoded
     losslessly (bit-identical decode) instead of being re-quantised.
+
+    ``priority`` (one of the ``_PRIORITY_FLAGS`` keys) sets the Windows CPU
+    priority class of the spawned cjxl process. Default: ``below_normal``.
     """
     args = ["cjxl", input_path, output_path, "-e", str(effort)]
     if distance is not None:
@@ -101,16 +119,20 @@ def encode(
         args += ["--quality", str(quality)]
     if lossless_jpeg:
         args += ["--lossless_jpeg=1"]
-    return _run(args)
+    return _run(args, priority=priority)
 
 
-def decode(input_path, output_path):
-    """Run djxl to decode a JPEG XL file into output_path."""
+def decode(input_path, output_path, priority=DEFAULT_PRIORITY):
+    """Run djxl to decode a JPEG XL file into output_path.
+
+    ``priority`` sets the Windows CPU priority class of the spawned djxl
+    process. Default: ``below_normal``.
+    """
     args = ["djxl", input_path, output_path]
-    return _run(args)
+    return _run(args, priority=priority)
 
 
-def _run(args):
+def _run(args, priority=DEFAULT_PRIORITY):
     """Execute a command and return (success: bool, message: str).
 
     Uses :class:`subprocess.Popen` so the child process is spawned explicitly;
@@ -120,13 +142,14 @@ def _run(args):
     ``_current_process`` so it can be interrupted via :func:`terminate_current`.
     """
     global _current_process
+    flag = _PRIORITY_FLAGS.get(priority, _PRIORITY_FLAGS[DEFAULT_PRIORITY])
     try:
         proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            creationflags=_CREATE_NO_WINDOW,
+            creationflags=_CREATE_NO_WINDOW | flag,
         )
         _current_process = proc
     except FileNotFoundError:
