@@ -1,0 +1,24 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ===== 本地 WorkBuddy 工作区元数据（非项目代码，勿提交） =====
+.workbuddy/
+
+# ===== 对比/差异工具（临时 A/B 测试用副本，非主程序） =====
+compare_old/
+run2.bat
+
+# ===== 打包 / 构建产物 =====
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ===== 虚拟环境 =====
+venv/
+.venv/
+env/
+ENV/
