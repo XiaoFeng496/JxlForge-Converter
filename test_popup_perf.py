@@ -3,14 +3,16 @@
 
 1. The settings tab's CPU-priority combo is sized to its widest label instead
    of a hard-coded 120 px, so it is visibly narrower.
-2. The custom-folder history popup is pre-warmed once after the window is
-   shown (and Windows menu entrance animations are off), so the FIRST click on
-   the drop-down arrow is as fast as every later one.
+2. The custom-folder history popup is pre-warmed OFF the startup critical
+   path (on first hover of the drop-down arrow, plus an idle fallback), and
+   Windows menu entrance animations are off -- so the FIRST click on the
+   arrow is as fast as every later one WITHOUT making application startup
+   stutter.
 """
 
 import sys
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QEvent
 from PySide6.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -52,20 +54,30 @@ check("menu slide animation disabled",
 check("menu fade animation disabled",
       not QApplication.isEffectEnabled(Qt.UIEffect.UI_FadeMenu))
 
-# ---- 3. Pre-warm is scheduled on first show ------------------------------
+# ---- 3. Warm-up is DEFERRED off the startup path -------------------------
 check("not warmed before the window is shown", window._menu_warmed is False)
 window.show()
-check("warm-up scheduled on first show", window._menu_warmed is True)
-# Let the queued singleShot(0) callbacks run.
-QTimer.singleShot(150, _app.quit)
+# Crucially, showing the window must NOT pay the warm-up cost synchronously:
+# the flag stays False and only an idle fallback timer is armed.
+check("warm-up NOT paid at show() (startup stays instant)",
+      window._menu_warmed is False)
+check("idle fallback timer armed on first show",
+      window._warm_fallback_scheduled is True)
+
+# ---- 4. Hover on the arrow triggers the warm-up --------------------------
+hover = QEvent(QEvent.Enter)
+window.eventFilter(window.custom_folder_dropdown, hover)
+# _maybe_prewarm defers the real work one loop turn; let it run.
+QTimer.singleShot(80, _app.quit)
 _app.exec()
 
-# ---- 4. Warm-up left the popup fully usable ------------------------------
+check("hover triggered the warm-up", window._menu_warmed is True)
 menu = window.folder_menu
 check("popup is not visible after warm-up", not menu.isVisible())
 check("WA_DontShowOnScreen was reset",
       not menu.testAttribute(Qt.WA_DontShowOnScreen))
 
+# ---- 5. Warm-up left the popup fully usable ------------------------------
 window._folder_history = [r"C:\Users\Demo\Pictures", r"D:\out"]
 window._rebuild_folder_menu()
 window._open_folder_menu()
@@ -73,8 +85,9 @@ check("popup opens after the warm-up", menu.isVisible())
 check("popup still lists every history row", len(menu.actions()) == 2)
 menu.hide()
 
-# Calling the warm-up twice must stay harmless (idempotent, no exception).
+# Calling the warm-up twice (hover again) must stay harmless.
 try:
+    window._maybe_prewarm()
     window._prewarm_folder_menu()
     window._prewarm_folder_menu()
     ok = not menu.isVisible()

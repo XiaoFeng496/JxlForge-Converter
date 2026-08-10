@@ -1263,7 +1263,8 @@ class MainWindow(QMainWindow):
         self._thumb_timer = None  # batch timer for async thumbnail generation
         self._thumb_queue = []   # pending (item, path, box_square) batches
         self._sized = False     # resize-to-fit (6x3) once, on first show
-        self._menu_warmed = False  # folder-history popup pre-warmed once
+        self._menu_warmed = False  # folder-history popup pre-warm DONE
+        self._warm_fallback_scheduled = False  # idle fallback timer armed
         # Cached window "chrome" (title bar + borders + tab bar + status bar +
         # input-tab padding) measured once on first show when the input tab is
         # visible. Constant regardless of window size, so the 6x3 fit uses it
@@ -1389,11 +1390,38 @@ class MainWindow(QMainWindow):
             # current tab on first show) is visible, so the "一键 6×3 排版"
             # button stays correct even when clicked from another tab.
             QTimer.singleShot(0, self._cache_window_frame)
-        # Pay the folder-history popup's one-off setup cost now (idle, right
-        # after the window appears) instead of on the user's first click.
-        if not self._menu_warmed:
-            self._menu_warmed = True
-            QTimer.singleShot(0, self._prewarm_folder_menu)
+        # Warm the folder-history popup OFF the startup critical path. The
+        # one-off native-popup creation (HWND + drop shadow + style polish) is
+        # what used to make the first click stutter -- and what moving it to
+        # "right after show" turned into a startup stutter. Instead we trigger
+        # it on first hover of the dropdown arrow (idle, just before a likely
+        # click, via the button's Enter event filter), with a delayed idle
+        # fallback so it still happens even if the user never hovers. Startup
+        # itself stays instant: the cost never lands on the open/show path.
+        if not self._menu_warmed and not self._warm_fallback_scheduled:
+            self._warm_fallback_scheduled = True
+            QTimer.singleShot(1500, self._maybe_prewarm)
+
+    def _maybe_prewarm(self):
+        """Idempotent gate for the one-off popup warm-up.
+
+        Sets the 'done' flag so the hover trigger and the idle fallback can
+        both call it without double-warming. The actual work is deferred one
+        event-loop turn (via _prewarm_folder_menu's own singleShot) so the
+        triggering hover-Enter event finishes painting before we build the
+        native popup window off-screen."""
+        if self._menu_warmed:
+            return
+        self._menu_warmed = True
+        QTimer.singleShot(0, self._prewarm_folder_menu)
+
+    def eventFilter(self, obj, event):
+        # Warm the folder-history popup the moment the cursor enters the
+        # dropdown arrow -- the natural pre-click idle moment. This keeps the
+        # first click fast without paying the cost at application startup.
+        if obj is self.custom_folder_dropdown and event.type() == QEvent.Enter:
+            self._maybe_prewarm()
+        return super().eventFilter(obj, event)
 
     def _prewarm_folder_menu(self):
         """Make the FIRST click on the custom-folder arrow as fast as the rest.
@@ -1402,11 +1430,13 @@ class MainWindow(QMainWindow):
         menu and every row widget, parse their style sheets, run the layout,
         create the native popup window (HWND + drop shadow) and allocate its
         backing store. All of that landed on the first click, which is why it
-        felt sluggish once and was instant afterwards. Doing the same work here
-        — one event-loop turn after the main window is shown — moves the cost
-        off the click path. Nothing is ever put on screen: WA_DontShowOnScreen
-        suppresses the mapping, so the show/hide pair only triggers the polish
-        and layout, and winId() then creates the native popup up front.
+        felt sluggish once and was instant afterwards. We run the same work
+        here -- triggered on first hover of the drop-down arrow (or, if the
+        user never hovers, by a 1.5 s idle fallback) -- so the cost is paid
+        during a natural pre-click idle moment and NOT at application startup.
+        Nothing is ever put on screen: WA_DontShowOnScreen suppresses the
+        mapping, so the show/hide pair only triggers the polish and layout,
+        and winId() then creates the native popup up front.
         """
         menu = getattr(self, "folder_menu", None)
         if menu is None:
@@ -1879,6 +1909,11 @@ class MainWindow(QMainWindow):
         self.custom_folder_dropdown.setFixedWidth(22)
         self.custom_folder_dropdown.setEnabled(False)
         self.custom_folder_dropdown.clicked.connect(self._open_folder_menu)
+        # Warm the popup on first hover (see MainWindow.eventFilter), so the
+        # one-off native-window creation happens just before a likely click
+        # rather than during application startup.
+        self.custom_folder_dropdown.setMouseTracking(True)
+        self.custom_folder_dropdown.installEventFilter(self)
         # Equal height: stretch both to the row height so the arrow button
         # lines up with the editable field (native controls otherwise pick
         # their own heights and look misaligned).
