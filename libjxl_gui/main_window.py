@@ -1054,60 +1054,6 @@ class ThumbnailDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-class DropdownButton(QToolButton):
-    """A QToolButton whose InstantPopup menu acts as a simple single-selection
-    dropdown. Used in place of QComboBox because QComboBox's popup opens with
-    an animated / flickering show on Windows; QMenu (the same mechanism the
-    input tab's "查看" button already uses) opens cleanly. The chosen value is
-    mirrored in the button text and exposed via combo-like currentText() /
-    setCurrentText() so call sites stay simple."""
-
-    selectionChanged = Signal(str)
-
-    def __init__(self, parent=None, options=None):
-        super().__init__(parent)
-        self.setPopupMode(QToolButton.InstantPopup)
-        self._options = []
-        self._current = ""
-        self._menu = QMenu(self)
-        self.setMenu(self._menu)
-        if options:
-            self.set_options(options)
-
-    def set_options(self, options):
-        self._menu.clear()
-        self._options = list(options)
-        for opt in self._options:
-            act = self._menu.addAction(opt)
-            act.triggered.connect(
-                lambda _checked=False, o=opt: self._select(o))
-        if self._options and self._current not in self._options:
-            self._select(self._options[0], emit=False)
-
-    def _select(self, opt, emit=True):
-        if opt not in self._options:
-            return
-        self._current = opt
-        self.setText(opt)
-        if emit:
-            self.selectionChanged.emit(opt)
-
-    def currentText(self):
-        return self._current
-
-    def setCurrentText(self, text):
-        # Accept a value that matches an option; otherwise register it as a new
-        # option (e.g. a restored setting) so it can still be displayed.
-        if text in self._options:
-            self._select(text, emit=False)
-        else:
-            self._options.append(text)
-            act = self._menu.addAction(text)
-            act.triggered.connect(
-                lambda _checked=False, o=text: self._select(o))
-            self._select(text, emit=False)
-
-
 class HistoryRowWidget(QWidget):
     """One row inside the custom-folder history menu: a clickable path label
     plus a per-row "✕" delete button. Clicking the label selects the folder;
@@ -1616,9 +1562,11 @@ class MainWindow(QMainWindow):
 
         fmt_row = QHBoxLayout()
         fmt_row.addWidget(QLabel("输出格式："))
-        self.format_button = DropdownButton(
-            options=["JPEG XL (*.jxl)", "PNG (*.png)"])
-        fmt_row.addWidget(self.format_button)
+        # 用普通 QComboBox（与动作标签页「动作类型」同款，Windows 下不闪、
+        # 框更大、支持鼠标滚轮选择）。
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(["JPEG XL (*.jxl)", "PNG (*.png)"])
+        fmt_row.addWidget(self.format_combo)
         fmt_row.addStretch(1)
         layout.addLayout(fmt_row)
 
@@ -1660,12 +1608,13 @@ class MainWindow(QMainWindow):
         enc_layout.addLayout(qual_row)
 
         # 速度/质量权衡（--effort，1-9，默认 7）：三种模式通用。
+        # 普通 QComboBox（同动作类型，不闪、支持滚轮）。
         effort_row = QHBoxLayout()
         effort_row.addWidget(QLabel("速度/质量权衡 (--effort)："))
-        self.effort_button = DropdownButton(
-            options=[str(i) for i in range(1, 10)])
-        self.effort_button.setCurrentText("7")
-        effort_row.addWidget(self.effort_button)
+        self.effort_combo = QComboBox()
+        self.effort_combo.addItems([str(i) for i in range(1, 10)])
+        self.effort_combo.setCurrentText("7")
+        effort_row.addWidget(self.effort_combo)
         effort_row.addStretch(1)
         enc_layout.addLayout(effort_row)
 
@@ -1683,7 +1632,7 @@ class MainWindow(QMainWindow):
         )
         # Persist any manual change to quality / effort immediately.
         self.quality_spin.valueChanged.connect(lambda _=None: self._save_jxl_output())
-        self.effort_button.selectionChanged.connect(
+        self.effort_combo.currentTextChanged.connect(
             lambda _=None: self._save_jxl_output()
         )
         layout.addWidget(enc_group)
@@ -1700,10 +1649,13 @@ class MainWindow(QMainWindow):
         dest_layout.addWidget(self.custom_folder_radio)
 
         custom_row = QHBoxLayout()
-        # Current custom-folder field (editable) + a dropdown button whose
-        # QMenu lists the history with a per-row "✕" delete. Splitting the
-        # editable field from the menu avoids QComboBox's flickering popup on
-        # Windows (the same reason the input tab's "查看" button uses a menu).
+        # Current custom-folder field (editable) + a dropdown arrow whose
+        # QMenu lists the history with a per-row "✕" delete. The edit and the
+        # arrow are wrapped in one bordered widget so they visually merge (no
+        # gap) like a QComboBox, while still using a QMenu for the list — this
+        # avoids QComboBox's flickering popup on Windows (the same reason the
+        # input tab's "查看" button uses a menu). The popup is anchored to the
+        # bottom-left of the input field (see _position_folder_menu).
         self._folder_history = []
         self.custom_folder_edit = QLineEdit()
         self.custom_folder_edit.setPlaceholderText(
@@ -1711,17 +1663,35 @@ class MainWindow(QMainWindow):
         )
         self.custom_folder_edit.setEnabled(False)
         self.folder_menu = QMenu(self)
+        self.folder_menu.aboutToShow.connect(self._position_folder_menu)
         self.custom_folder_dropdown = QToolButton()
         self.custom_folder_dropdown.setPopupMode(QToolButton.InstantPopup)
         self.custom_folder_dropdown.setArrowType(Qt.DownArrow)
-        self.custom_folder_dropdown.setFixedWidth(28)
+        self.custom_folder_dropdown.setFixedWidth(22)
         self.custom_folder_dropdown.setMenu(self.folder_menu)
         self.custom_folder_dropdown.setEnabled(False)
+        folder_combo = QWidget()
+        folder_combo.setObjectName("folder_combo")
+        folder_hbox = QHBoxLayout(folder_combo)
+        folder_hbox.setContentsMargins(0, 0, 0, 0)
+        folder_hbox.setSpacing(0)
+        folder_hbox.addWidget(self.custom_folder_edit, stretch=1)
+        folder_hbox.addWidget(self.custom_folder_dropdown)
+        folder_combo.setStyleSheet(
+            "QWidget#folder_combo { border: 1px solid palette(mid); "
+            "border-radius: 4px; background: palette(base); }"
+        )
+        self.custom_folder_edit.setStyleSheet(
+            "QLineEdit { border: none; background: transparent; "
+            "padding-left: 4px; }"
+        )
+        self.custom_folder_dropdown.setStyleSheet(
+            "QToolButton { border: none; background: transparent; }"
+        )
         self._rebuild_folder_menu()
         self.browse_folder_button = QPushButton("浏览...")
         self.browse_folder_button.setEnabled(False)
-        custom_row.addWidget(self.custom_folder_edit, stretch=1)
-        custom_row.addWidget(self.custom_folder_dropdown)
+        custom_row.addWidget(folder_combo, stretch=1)
         custom_row.addWidget(self.browse_folder_button)
         dest_layout.addLayout(custom_row)
 
@@ -1862,7 +1832,7 @@ class MainWindow(QMainWindow):
         settings.beginGroup("jxl_output")
         settings.setValue("mode", self._current_encode_mode())
         settings.setValue("quality", self.quality_spin.value())
-        settings.setValue("effort", self.effort_button.currentText())
+        settings.setValue("effort", self.effort_combo.currentText())
         settings.endGroup()
 
     def _load_jxl_output(self):
@@ -1891,8 +1861,8 @@ class MainWindow(QMainWindow):
         # its value so returning to 有损 reuses it.
         self.quality_spin.setValue(quality)
         self.quality_slider.setValue(quality)
-        if effort in self.effort_button._options:
-            self.effort_button.setCurrentText(effort)
+        if self.effort_combo.findText(effort) >= 0:
+            self.effort_combo.setCurrentText(effort)
 
     def closeEvent(self, event):
         # Persist the window layout so "where I left it" survives a restart.
@@ -3164,6 +3134,16 @@ class MainWindow(QMainWindow):
         self.custom_folder_edit.setText(path)
         self.folder_menu.hide()
 
+    def _position_folder_menu(self):
+        """Anchor the history popup to the bottom-left of the input field and
+        match its width, so it opens like a QComboBox dropdown (aligned to the
+        field, not to the narrow arrow button on the right)."""
+        pos = self.custom_folder_edit.mapToGlobal(
+            QPoint(0, self.custom_folder_edit.height())
+        )
+        self.folder_menu.move(pos)
+        self.folder_menu.setMinimumWidth(self.custom_folder_edit.width())
+
     # ---- output location / filename persistence (QSettings) ----------
 
     def _save_output_settings(self):
@@ -3298,7 +3278,7 @@ class MainWindow(QMainWindow):
         # modes are mutually exclusive: only 有损 uses --quality; 无损 forces
         # distance 0; JPG 无损重编码 adds --lossless_jpeg=1. Effort is shared.
         mode = self._current_encode_mode()
-        effort = int(self.effort_button.currentText())
+        effort = int(self.effort_combo.currentText())
         quality = self.quality_spin.value()
         if mode == "lossy":
             distance, quality_arg, lossless_jpeg = None, quality, False
@@ -3414,7 +3394,7 @@ class MainWindow(QMainWindow):
 
     def _build_output_path(self, src):
         base, _ = os.path.splitext(src)
-        lower = self.format_button.currentText().lower()
+        lower = self.format_combo.currentText().lower()
         out_ext = ".png" if "png" in lower else ".jxl"
 
         if self.custom_folder_radio.isChecked():

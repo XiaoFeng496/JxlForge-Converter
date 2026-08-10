@@ -14,7 +14,7 @@ Covers:
   * starting a conversion with a valid custom folder records it into history;
   * the history menu (QMenu with per-row delete) rebuilds correctly and the
     per-row delete removes a single entry while keeping typed text;
-  * format dropdown (DropdownButton) drives _build_output_path.
+  * format dropdown (QComboBox) drives _build_output_path.
 """
 
 import sys
@@ -385,12 +385,12 @@ check("repeated 6x3 clicks keep minimum size constant",
 # Only djxl emitting a .jxl is invalid, and the worker avoids that by routing
 # JXL->JXL through cjxl instead of djxl.
 bop = MainWindow()
-bop.format_button.setCurrentText("JPEG XL (*.jxl)")
+bop.format_combo.setCurrentText("JPEG XL (*.jxl)")
 check("jxl input -> jxl output when format=JXL (re-compress)",
       bop._build_output_path("x/y/photo.jxl").lower().endswith(".jxl"))
 check("non-jxl input honors JXL format choice",
       bop._build_output_path("x/y/photo.png").lower().endswith(".jxl"))
-bop.format_button.setCurrentText("PNG (*.png)")
+bop.format_combo.setCurrentText("PNG (*.png)")
 check("jxl input -> png output when format=PNG (decode)",
       bop._build_output_path("x/y/photo.jxl").lower().endswith(".png"))
 check("non-jxl input honors PNG format choice",

@@ -82,7 +82,7 @@ def run_convert_and_capture(window):
     open(src, "w").close()
     window.input_files = [src]
     window.custom_folder_radio.setChecked(True)
-    window.custom_folder_combo.setEditText(tmpdir)
+    window.custom_folder_edit.setText(tmpdir)
     window.format_combo.setCurrentText("JPEG XL (*.jxl)")
     window._on_convert()
     worker = window._convert_worker

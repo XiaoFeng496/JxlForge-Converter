@@ -58,8 +58,8 @@ for p in (src_a, src_b):
 window.input_files = [src_a, src_b]
 # Override output dir to tmpdir so files land somewhere writable & observable.
 window.custom_folder_radio.setChecked(True)
-window.custom_folder_combo.setEditText(tmpdir)
-window.format_combo.setCurrentText("JXL")
+window.custom_folder_edit.setText(tmpdir)
+window.format_combo.setCurrentText("JPEG XL (*.jxl)")
 
 # --- Drive the conversion and wait for the worker thread -------------------
 collected_logs = []
@@ -128,8 +128,8 @@ _PILImage.new("RGB", (8, 8), (255, 0, 0)).save(src_c, "PNG")
 window2 = MainWindow()
 window2.input_files = [src_c]
 window2.custom_folder_radio.setChecked(True)
-window2.custom_folder_combo.setEditText(tmpdir2)
-window2.format_combo.setCurrentText("JXL")
+window2.custom_folder_edit.setText(tmpdir2)
+window2.format_combo.setCurrentText("JPEG XL (*.jxl)")
 # Inject a single action so the worker takes the _process_with_actions path.
 window2._collect_actions = lambda: [{"type": "旋转", "params": {"angle": 90, "expand": True}}]
 logs_b = []
@@ -157,8 +157,8 @@ for p in (src_jpg, src_png, src_webp):
 window3 = MainWindow()
 window3.input_files = [src_jpg, src_png, src_webp]
 window3.custom_folder_radio.setChecked(True)
-window3.custom_folder_combo.setEditText(tmpdir3)
-window3.format_combo.setCurrentText("JXL")
+window3.custom_folder_edit.setText(tmpdir3)
+window3.format_combo.setCurrentText("JPEG XL (*.jxl)")
 window3.lossless_jpeg_radio.setChecked(True)  # JPG 无损重编码 模式
 logs_c = []
 status_c = []
@@ -199,8 +199,8 @@ with open(src_jxl, "wb") as f:
 window4 = MainWindow()
 window4.input_files = [src_jxl]
 window4.custom_folder_radio.setChecked(True)
-window4.custom_folder_combo.setEditText(tmpdir4)
-window4.format_combo.setCurrentText("JXL")
+window4.custom_folder_edit.setText(tmpdir4)
+window4.format_combo.setCurrentText("JPEG XL (*.jxl)")
 logs_d = []
 window4.log_edit.appendPlainText = lambda s: logs_d.append(s)
 window4.statusBar().showMessage = lambda s: None
@@ -228,7 +228,7 @@ os.makedirs(outdir5, exist_ok=True)
 window5 = MainWindow()
 window5.input_files = [src_e]
 window5.custom_folder_radio.setChecked(True)
-window5.custom_folder_combo.setEditText(outdir5)
+window5.custom_folder_edit.setText(outdir5)
 window5.format_combo.setCurrentText("PNG (*.png)")
 logs_e = []
 window5.log_edit.appendPlainText = lambda s: logs_e.append(s)

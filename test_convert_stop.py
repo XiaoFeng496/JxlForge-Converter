@@ -78,8 +78,8 @@ for i in range(5):
 window = MainWindow()
 window.input_files = files
 window.custom_folder_radio.setChecked(True)
-window.custom_folder_combo.setEditText(tmpdir)
-window.format_combo.setCurrentText("JXL")
+window.custom_folder_edit.setText(tmpdir)
+window.format_combo.setCurrentText("JPEG XL (*.jxl)")
 
 logs = []
 window.log_edit.appendPlainText = lambda s: logs.append(s)
