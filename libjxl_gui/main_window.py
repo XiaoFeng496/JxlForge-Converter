@@ -1247,6 +1247,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("JXL 转换器")
         self.resize(880, 640)
 
+        # Windows animates menus into view (slide / fade). That entrance effect
+        # is the same one the combo boxes go frameless to escape: it delays the
+        # popup and can flicker. Turning it off app-wide makes every menu --
+        # including the custom-folder history list -- appear instantly.
+        QApplication.setEffectEnabled(Qt.UIEffect.UI_AnimateMenu, False)
+        QApplication.setEffectEnabled(Qt.UIEffect.UI_FadeMenu, False)
+
         self.input_files = []   # list of absolute file paths
         self._convert_worker = None  # background conversion thread (or None)
         self._stop_requested = False  # True while a user-initiated stop is pending
@@ -1256,6 +1263,7 @@ class MainWindow(QMainWindow):
         self._thumb_timer = None  # batch timer for async thumbnail generation
         self._thumb_queue = []   # pending (item, path, box_square) batches
         self._sized = False     # resize-to-fit (6x3) once, on first show
+        self._menu_warmed = False  # folder-history popup pre-warmed once
         # Cached window "chrome" (title bar + borders + tab bar + status bar +
         # input-tab padding) measured once on first show when the input tab is
         # visible. Constant regardless of window size, so the 6x3 fit uses it
@@ -1381,6 +1389,42 @@ class MainWindow(QMainWindow):
             # current tab on first show) is visible, so the "一键 6×3 排版"
             # button stays correct even when clicked from another tab.
             QTimer.singleShot(0, self._cache_window_frame)
+        # Pay the folder-history popup's one-off setup cost now (idle, right
+        # after the window appears) instead of on the user's first click.
+        if not self._menu_warmed:
+            self._menu_warmed = True
+            QTimer.singleShot(0, self._prewarm_folder_menu)
+
+    def _prewarm_folder_menu(self):
+        """Make the FIRST click on the custom-folder arrow as fast as the rest.
+
+        The first time a QMenu is shown, Qt/Windows has to style-polish the
+        menu and every row widget, parse their style sheets, run the layout,
+        create the native popup window (HWND + drop shadow) and allocate its
+        backing store. All of that landed on the first click, which is why it
+        felt sluggish once and was instant afterwards. Doing the same work here
+        — one event-loop turn after the main window is shown — moves the cost
+        off the click path. Nothing is ever put on screen: WA_DontShowOnScreen
+        suppresses the mapping, so the show/hide pair only triggers the polish
+        and layout, and winId() then creates the native popup up front.
+        """
+        menu = getattr(self, "folder_menu", None)
+        if menu is None:
+            return
+        try:
+            menu.setAttribute(Qt.WA_DontShowOnScreen, True)
+            try:
+                menu.show()
+                menu.hide()
+            finally:
+                menu.setAttribute(Qt.WA_DontShowOnScreen, False)
+            menu.ensurePolished()
+            menu.adjustSize()
+            menu.winId()
+        except Exception:
+            # A warm-up must never break the UI: worst case the first popup is
+            # simply as slow as it used to be.
+            pass
 
     def _cache_window_frame(self):
         """Measure and cache the window chrome (frame) once, using the input
@@ -1950,17 +1994,24 @@ class MainWindow(QMainWindow):
         cpu_label = QLabel("CPU 优先级")
         cpu_label.setToolTip(cpu_tip)
         cpu_row.addWidget(cpu_label)
-        self.cpu_priority_combo = NoFlickerComboBox()
-        self.cpu_priority_combo.setToolTip(cpu_tip)
-        self.cpu_priority_combo.setFixedWidth(120)
-        for key, label in (
+        priorities = (
             ("idle", "空闲"),
             ("below_normal", "低于正常"),
             ("normal", "正常"),
             ("above_normal", "高于正常"),
             ("high", "高"),
-        ):
+        )
+        self.cpu_priority_combo = NoFlickerComboBox()
+        self.cpu_priority_combo.setToolTip(cpu_tip)
+        for key, label in priorities:
             self.cpu_priority_combo.addItem(label, key)
+        # Snug width: the widest label as actually measured in the live font,
+        # plus room for the drop-down arrow and the frame padding. Measuring
+        # beats a hard-coded 120 px (which left a lot of dead space after the
+        # text) and still stays correct at other DPI / font sizes.
+        fm = self.cpu_priority_combo.fontMetrics()
+        widest = max(fm.horizontalAdvance(label) for _key, label in priorities)
+        self.cpu_priority_combo.setFixedWidth(widest + 34)
         self.cpu_priority_combo.setCurrentIndex(
             self.cpu_priority_combo.findData(converter.DEFAULT_PRIORITY)
         )
