@@ -1832,11 +1832,14 @@ class MainWindow(QMainWindow):
         self.browse_folder_button = QPushButton("浏览...")
         self.browse_folder_button.setEnabled(False)
         # Native controls: a plain QLineEdit next to a plain QToolButton arrow.
-        # No custom border / container / stylesheet, so the pair follows the
+        # No custom border / container / stylesheet -- the pair follows the
         # system light/dark theme automatically (no white-on-white, no inverted
-        # colours). The menu is opened on click -- NOT via setMenu(), which would
-        # render the button as a split "double-arrow" control. Default layout
-        # spacing leaves a small gap before the separate "浏览..." button.
+        # colours). They sit with NO gap (setSpacing(0)) so they read as one
+        # unit, like a native combo box; the arrow is simply a native button
+        # attached to the field. The menu opens on click -- NOT via setMenu(),
+        # which would render a split "double-arrow" button. A small gap is kept
+        # before the separate "浏览..." button.
+        custom_row.setSpacing(0)
         custom_row.addWidget(self.custom_folder_edit, stretch=1)
         custom_row.addWidget(self.custom_folder_dropdown)
         custom_row.addSpacing(6)
