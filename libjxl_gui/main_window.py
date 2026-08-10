@@ -1517,6 +1517,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("就绪")
         self.setAcceptDrops(True)
 
+        # Radio buttons keep their selected (blue) colour even when the window
+        # loses focus instead of dimming to gray (see _sync_radio_inactive_palette).
+        self._sync_radio_inactive_palette()
+
     def _build_input_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -3312,14 +3316,36 @@ class MainWindow(QMainWindow):
         self.folder_menu.setMinimumWidth(combined_w)
         self.folder_menu.popup(pos)
 
+    def _sync_radio_inactive_palette(self):
+        """Keep every radio button's Inactive palette group equal to its Active
+        group, so a selected radio does not dim to gray when the window loses
+        focus (Qt otherwise draws inactive controls with the QPalette.Inactive
+        palette). Re-derived from the live application palette so it also tracks
+        theme switches."""
+        app_pal = QApplication.palette()
+        synced = QPalette(app_pal)
+        for role_int in range(
+            QPalette.ColorRole.Window.value,
+            QPalette.ColorRole.PlaceholderText.value + 1,
+        ):
+            role = QPalette.ColorRole(role_int)
+            synced.setColor(
+                QPalette.ColorGroup.Inactive, role,
+                app_pal.color(QPalette.ColorGroup.Active, role),
+            )
+        for rb in self.findChildren(QRadioButton):
+            rb.setPalette(synced)
+
     def changeEvent(self, event):
         """React to a system light/dark theme switch while the app is running:
         refresh the custom-folder history popup's colours (live, if it is open,
-        otherwise on the next open)."""
+        otherwise on the next open), and keep radio buttons from dimming when
+        the window is unfocused."""
         if event.type() == QEvent.PaletteChange:
             self.folder_menu.setPalette(QApplication.palette())
             if self.folder_menu.isVisible():
                 self._rebuild_folder_menu()
+            self._sync_radio_inactive_palette()
         super().changeEvent(event)
 
     # ---- output location / filename persistence (QSettings) ----------
