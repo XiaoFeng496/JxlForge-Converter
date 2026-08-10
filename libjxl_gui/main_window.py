@@ -39,6 +39,7 @@ import tempfile
 
 from PySide6.QtCore import (
     QEvent,
+    QPoint,
     QRect,
     QSize,
     Qt,
@@ -90,6 +91,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStyle,
+    QStyleFactory,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTableWidget,
@@ -1054,15 +1056,32 @@ class ThumbnailDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+# A single Fusion style instance, shared by every combobox / popup so they
+# render with Qt's own (non-native, non-DWM-animated) engine. On Windows 10/11
+# the native combobox popup gets a DWM slide/fade entrance animation that
+# flickers; Fusion-drawn popups are painted immediately and do not animate.
+_FUSION_STYLE = None
+
+
+def _fusion_style():
+    global _FUSION_STYLE
+    if _FUSION_STYLE is None:
+        _FUSION_STYLE = QStyleFactory.create("Fusion")
+    return _FUSION_STYLE
+
+
 class NoFlickerComboBox(QComboBox):
-    """QComboBox whose dropdown popup is shown without the Windows DWM
-    entrance animation (slide/fade) that flickers on Windows 10/11. Marking
-    the popup frameless exempts it from DWM animation, while the rest of the
-    UI keeps the native look. A thin border is added to the (now borderless)
-    popup so it stays visually defined."""
+    """QComboBox that does not flicker on Windows 10/11. The dropdown popup
+    is shown frameless: a frameless (caption-less) top-level window is exempt
+    from the DWM slide/fade entrance animation that otherwise flickers. A solid
+    background is forced on the popup container so no black flash appears, and
+    the Fusion style is applied for clean, native-free rendering."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        fusion = _fusion_style()
+        if fusion is not None:
+            self.setStyle(fusion)
         self.view().setStyleSheet(
             "QAbstractItemView { border: 1px solid palette(mid); "
             "background: palette(base); }"
@@ -1070,13 +1089,25 @@ class NoFlickerComboBox(QComboBox):
 
     def showPopup(self):
         super().showPopup()
-        container = self.view().parentWidget()
-        if container is not None:
-            geo = container.geometry()
-            container.setWindowFlag(Qt.FramelessWindowHint, True)
-            container.setWindowFlag(Qt.NoDropShadowWindowHint, True)
-            container.setGeometry(geo)
-            container.show()
+        # The popup is the top-level window that owns the view. Mark it
+        # frameless so Windows does not run the DWM entrance animation.
+        container = self.view().window()
+        if container is None:
+            return
+        geo = container.geometry()
+        container.setWindowFlags(
+            container.windowFlags()
+            | Qt.FramelessWindowHint
+            | Qt.NoDropShadowWindowHint
+        )
+        # Solid background on the container (not just the view) so the area
+        # around the list never shows through as black during the show.
+        container.setStyleSheet(
+            "QFrame { background: palette(base); "
+            "border: 1px solid palette(mid); }"
+        )
+        container.setGeometry(geo)
+        container.show()
 
 
 class HistoryRowWidget(QWidget):
@@ -1676,9 +1707,9 @@ class MainWindow(QMainWindow):
         custom_row = QHBoxLayout()
         # Editable field + a dropdown arrow that opens a QMenu listing the
         # folder history with a per-row "✕" delete. The edit and the arrow are
-        # wrapped in one bordered widget so they visually merge (no gap), like a
-        # QComboBox, while the list itself is a plain QMenu (no Windows popup
-        # animation / flicker). The menu is opened manually on click and
+        # laid out with no gap and share one rounded border so they look like a
+        # single QComboBox. The list itself is a plain QMenu (Fusion-styled, no
+        # Windows popup animation / flicker) opened manually on click and
         # anchored to the field's bottom-left (see _open_folder_menu) — using
         # setMenu() would render the button as a split button (double arrow)
         # and override our positioning.
@@ -1689,36 +1720,33 @@ class MainWindow(QMainWindow):
         )
         self.custom_folder_edit.setEnabled(False)
         self.folder_menu = QMenu(self)
+        fusion = _fusion_style()
+        if fusion is not None:
+            self.folder_menu.setStyle(fusion)
         self.custom_folder_dropdown = QToolButton()
         self.custom_folder_dropdown.setArrowType(Qt.DownArrow)
         self.custom_folder_dropdown.setFixedWidth(22)
         self.custom_folder_dropdown.setEnabled(False)
         self.custom_folder_dropdown.clicked.connect(self._open_folder_menu)
-        folder_combo = QWidget()
-        folder_combo.setObjectName("folder_combo")
-        folder_hbox = QHBoxLayout(folder_combo)
-        folder_hbox.setContentsMargins(0, 0, 0, 0)
-        folder_hbox.setSpacing(0)
-        folder_hbox.addWidget(self.custom_folder_edit, stretch=1)
-        folder_hbox.addWidget(self.custom_folder_dropdown)
-        folder_combo.setStyleSheet(
-            "QWidget#folder_combo { border: 1px solid #a0a0a0; "
-            "border-radius: 4px; background: palette(base); }"
-        )
+        # Merged border: edit + arrow share one rounded border, both with a
+        # solid (non-transparent) background so nothing behind shows through
+        # (no black flash). Separator line divides the arrow from the field.
         self.custom_folder_edit.setStyleSheet(
-            "QLineEdit { border: none; background: transparent; "
-            "padding-left: 4px; }"
+            "QLineEdit { border: 1px solid #a0a0a0; border-right: none; "
+            "border-top-left-radius: 4px; border-bottom-left-radius: 4px; "
+            "background: #ffffff; padding-left: 4px; }"
         )
         self.custom_folder_dropdown.setStyleSheet(
-            "QToolButton { border: none; border-left: 1px solid #c8c8c8; "
-            "background: transparent; }"
-            "QToolButton:hover { background: rgba(0,0,0,0.04); }"
+            "QToolButton { border: 1px solid #a0a0a0; border-left: none; "
+            "border-top-right-radius: 4px; border-bottom-right-radius: 4px; "
+            "background: #ffffff; }"
+            "QToolButton:hover { background: #e8e8e8; }"
         )
-        self._folder_combo = folder_combo
         self._rebuild_folder_menu()
         self.browse_folder_button = QPushButton("浏览...")
         self.browse_folder_button.setEnabled(False)
-        custom_row.addWidget(folder_combo, stretch=1)
+        custom_row.addWidget(self.custom_folder_edit, stretch=1)
+        custom_row.addWidget(self.custom_folder_dropdown)
         custom_row.addWidget(self.browse_folder_button)
         dest_layout.addLayout(custom_row)
 
@@ -3164,15 +3192,17 @@ class MainWindow(QMainWindow):
     def _open_folder_menu(self):
         """Open the folder-history menu manually (triggered by the arrow
         button's clicked signal). Positioning it here — instead of via
-        setMenu()/aboutToShow — gives us full control so the popup anchors to
-        the bottom-left of the whole combo unit and matches its width, like a
-        QComboBox dropdown (not to the narrow arrow button on the right)."""
+        setMenu()/aboutToShow — lets the popup anchor to the bottom-left of the
+        whole combo unit and match its width, like a QComboBox dropdown."""
         if not self.folder_menu.actions():
             self._rebuild_folder_menu()
-        pos = self._folder_combo.mapToGlobal(
-            QPoint(0, self._folder_combo.height())
+        combined_w = (
+            self.custom_folder_edit.width() + self.custom_folder_dropdown.width()
         )
-        self.folder_menu.setMinimumWidth(self._folder_combo.width())
+        pos = self.custom_folder_edit.mapToGlobal(
+            QPoint(0, self.custom_folder_edit.height())
+        )
+        self.folder_menu.setMinimumWidth(combined_w)
         self.folder_menu.popup(pos)
 
     # ---- output location / filename persistence (QSettings) ----------
