@@ -1828,6 +1828,11 @@ class MainWindow(QMainWindow):
         self.custom_folder_dropdown.setFixedWidth(22)
         self.custom_folder_dropdown.setEnabled(False)
         self.custom_folder_dropdown.clicked.connect(self._open_folder_menu)
+        # Equal height: stretch both to the row height so the arrow button
+        # lines up with the editable field (native controls otherwise pick
+        # their own heights and look misaligned).
+        self.custom_folder_edit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.custom_folder_dropdown.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._rebuild_folder_menu()
         self.browse_folder_button = QPushButton("浏览...")
         self.browse_folder_button.setEnabled(False)
