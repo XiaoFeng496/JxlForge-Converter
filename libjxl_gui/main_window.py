@@ -1911,25 +1911,24 @@ class MainWindow(QMainWindow):
     def _build_settings_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         layout.addWidget(QLabel("窗口布局"))
 
-        # "一键居中": move the window to the centre of the screen, keeping its
-        # current size. Purely a position change — the 6x3 size is untouched.
+        # Two layout helpers in a single compact row (native button height
+        # instead of the oversized 40px ones).
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
         btn_center = QPushButton("一键居中")
-        btn_center.setMinimumHeight(40)
         btn_center.setToolTip("将窗口移动到屏幕中央（不改变窗口大小）")
         btn_center.clicked.connect(self._on_center_window)
-        layout.addWidget(btn_center)
-
-        # "一键 6×3 排版": restore the default startup window size (exactly 6
-        # columns x 3 rows of thumbnails), keeping the current position.
         btn_fit = QPushButton("一键 6×3 排版")
-        btn_fit.setMinimumHeight(40)
         btn_fit.setToolTip("将窗口恢复为默认的 6 列 × 3 行尺寸（不改变位置）")
         btn_fit.clicked.connect(self._on_fit_window)
-        layout.addWidget(btn_fit)
+        btn_row.addWidget(btn_center)
+        btn_row.addWidget(btn_fit)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
 
         hint = QLabel("窗口的大小与位置会自动保存，下次打开时原样恢复。")
         hint.setWordWrap(True)
@@ -1937,18 +1936,10 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(QLabel("转换进程"))
 
-        # CPU priority class applied to every spawned cjxl / djxl child process.
-        # Default is "低于正常" (below normal) so a large batch does not starve
-        # the foreground UI of CPU time. Restored from QSettings on launch.
-        cpu_hint = QLabel(
-            "设置 cjxl / djxl 转换进程的 CPU 优先级（默认低于正常，"
-            "减少对前台操作的影响）。"
-        )
-        cpu_hint.setWordWrap(True)
-        layout.addWidget(cpu_hint)
-
         cpu_row = QHBoxLayout()
-        cpu_row.addWidget(QLabel("CPU 优先级"))
+        cpu_row.setSpacing(8)
+        self.cpu_label = QLabel("CPU 优先级")
+        cpu_row.addWidget(self.cpu_label)
         self.cpu_priority_combo = QComboBox()
         for key, label in (
             ("idle", "空闲"),
@@ -1967,8 +1958,40 @@ class MainWindow(QMainWindow):
         cpu_row.addWidget(self.cpu_priority_combo, 1)
         layout.addLayout(cpu_row)
 
+        # The explanatory note is hidden by default and only revealed while the
+        # pointer hovers the CPU-priority row, keeping the page compact.
+        self.cpu_hint = QLabel(
+            "设置 cjxl / djxl 转换进程的 CPU 优先级（默认低于正常，"
+            "减少对前台操作的影响）。"
+        )
+        self.cpu_hint.setWordWrap(True)
+        self.cpu_hint.setVisible(False)
+        layout.addWidget(self.cpu_hint)
+
+        self.cpu_label.installEventFilter(self)
+        self.cpu_priority_combo.installEventFilter(self)
+
         layout.addStretch(1)
         return widget
+
+    def eventFilter(self, obj, event):
+        """Reveal the CPU-priority note while the pointer is over its row."""
+        if obj in (self.cpu_label, self.cpu_priority_combo):
+            etype = event.type()
+            if etype == QEvent.Enter:
+                self.cpu_hint.setVisible(True)
+            elif etype == QEvent.Leave:
+                # Moving between the label and the combo fires Leave on one of
+                # them while the cursor is still in the row — only hide once the
+                # pointer has truly left both (and the dropdown is closed).
+                if not (
+                    self.cpu_label.underMouse()
+                    or self.cpu_priority_combo.underMouse()
+                    or self.cpu_priority_combo.view().isVisible()
+                ):
+                    self.cpu_hint.setVisible(False)
+            return False
+        return super().eventFilter(obj, event)
 
     def _on_cpu_priority_changed(self, _index):
         """Persist the CPU-priority choice whenever the user changes it."""
