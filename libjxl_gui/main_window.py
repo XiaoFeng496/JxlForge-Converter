@@ -1936,11 +1936,23 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(QLabel("转换进程"))
 
+        # The CPU-priority explanation is surfaced as a native tooltip on the
+        # row (the same box that appears when hovering a thumbnail): a small
+        # box pops up while the pointer rests on the control and disappears on
+        # move-away — no layout shift, and it matches the rest of the UI.
+        cpu_tip = (
+            "设置 cjxl / djxl 转换进程的 CPU 优先级（默认低于正常，"
+            "减少对前台操作的影响）。"
+        )
+
         cpu_row = QHBoxLayout()
         cpu_row.setSpacing(8)
-        self.cpu_label = QLabel("CPU 优先级")
-        cpu_row.addWidget(self.cpu_label)
-        self.cpu_priority_combo = QComboBox()
+        cpu_label = QLabel("CPU 优先级")
+        cpu_label.setToolTip(cpu_tip)
+        cpu_row.addWidget(cpu_label)
+        self.cpu_priority_combo = NoFlickerComboBox()
+        self.cpu_priority_combo.setToolTip(cpu_tip)
+        self.cpu_priority_combo.setFixedWidth(120)
         for key, label in (
             ("idle", "空闲"),
             ("below_normal", "低于正常"),
@@ -1955,43 +1967,12 @@ class MainWindow(QMainWindow):
         self.cpu_priority_combo.currentIndexChanged.connect(
             self._on_cpu_priority_changed
         )
-        cpu_row.addWidget(self.cpu_priority_combo, 1)
+        cpu_row.addWidget(self.cpu_priority_combo)
+        cpu_row.addStretch(1)
         layout.addLayout(cpu_row)
-
-        # The explanatory note is hidden by default and only revealed while the
-        # pointer hovers the CPU-priority row, keeping the page compact.
-        self.cpu_hint = QLabel(
-            "设置 cjxl / djxl 转换进程的 CPU 优先级（默认低于正常，"
-            "减少对前台操作的影响）。"
-        )
-        self.cpu_hint.setWordWrap(True)
-        self.cpu_hint.setVisible(False)
-        layout.addWidget(self.cpu_hint)
-
-        self.cpu_label.installEventFilter(self)
-        self.cpu_priority_combo.installEventFilter(self)
 
         layout.addStretch(1)
         return widget
-
-    def eventFilter(self, obj, event):
-        """Reveal the CPU-priority note while the pointer is over its row."""
-        if obj in (self.cpu_label, self.cpu_priority_combo):
-            etype = event.type()
-            if etype == QEvent.Enter:
-                self.cpu_hint.setVisible(True)
-            elif etype == QEvent.Leave:
-                # Moving between the label and the combo fires Leave on one of
-                # them while the cursor is still in the row — only hide once the
-                # pointer has truly left both (and the dropdown is closed).
-                if not (
-                    self.cpu_label.underMouse()
-                    or self.cpu_priority_combo.underMouse()
-                    or self.cpu_priority_combo.view().isVisible()
-                ):
-                    self.cpu_hint.setVisible(False)
-            return False
-        return super().eventFilter(obj, event)
 
     def _on_cpu_priority_changed(self, _index):
         """Persist the CPU-priority choice whenever the user changes it."""
