@@ -64,10 +64,20 @@ check("warm-up NOT paid at show() (startup stays instant)",
 check("idle fallback timer armed on first show",
       window._warm_fallback_scheduled is True)
 
-# ---- 4. Hover on the arrow triggers the warm-up --------------------------
+# ---- 4. Hover on the arrow triggers the warm-up SYNCHRONOUSLY ------------
 hover = QEvent(QEvent.Enter)
 window.eventFilter(window.custom_folder_dropdown, hover)
-# _maybe_prewarm defers the real work one loop turn; let it run.
+# Unlike the old singleShot(0) deferral, the warm-up now completes inside the
+# Enter handler, so the click never pays the native-window creation cost even
+# when the user rushes the button right after launch.
+check("hover warms synchronously (before any event loop turn)",
+      window._menu_warmed is True)
+menu = window.folder_menu
+check("popup is not visible after warm-up", not menu.isVisible())
+check("WA_DontShowOnScreen was reset",
+      not menu.testAttribute(Qt.WA_DontShowOnScreen))
+
+# Let the idle fallback timer (if still pending) expire harmlessly.
 QTimer.singleShot(80, _app.quit)
 _app.exec()
 

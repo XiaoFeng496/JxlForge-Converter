@@ -1400,27 +1400,41 @@ class MainWindow(QMainWindow):
         # itself stays instant: the cost never lands on the open/show path.
         if not self._menu_warmed and not self._warm_fallback_scheduled:
             self._warm_fallback_scheduled = True
-            QTimer.singleShot(1500, self._maybe_prewarm)
+            # Short idle fallback for the no-hover case (e.g. keyboard open):
+            # well after the window has painted, so it never reads as startup.
+            QTimer.singleShot(600, self._maybe_prewarm)
 
-    def _maybe_prewarm(self):
-        """Idempotent gate for the one-off popup warm-up.
+    def _warm_now(self):
+        """Warm the popup right now, exactly once.
 
-        Sets the 'done' flag so the hover trigger and the idle fallback can
-        both call it without double-warming. The actual work is deferred one
-        event-loop turn (via _prewarm_folder_menu's own singleShot) so the
-        triggering hover-Enter event finishes painting before we build the
-        native popup window off-screen."""
+        Builds the native popup off-screen synchronously. Called from the
+        drop-down arrow's hover-Enter so the work lands on the hover moment
+        (a barely-noticeable hitch while the cursor sits on the button) rather
+        than on the click itself -- the click then opens an already-built
+        popup and feels instant even if the user rushes the button straight
+        after launch."""
         if self._menu_warmed:
             return
         self._menu_warmed = True
-        QTimer.singleShot(0, self._prewarm_folder_menu)
+        self._prewarm_folder_menu()
+
+    def _maybe_prewarm(self):
+        """Idle-fallback gate for the one-off popup warm-up.
+
+        Used only when the user never hovers the arrow (e.g. keyboard-driven
+        open). Defers one event-loop turn so the triggering timer callback
+        returns before we build the native popup window."""
+        if self._menu_warmed:
+            return
+        QTimer.singleShot(0, self._warm_now)
 
     def eventFilter(self, obj, event):
-        # Warm the folder-history popup the moment the cursor enters the
-        # dropdown arrow -- the natural pre-click idle moment. This keeps the
-        # first click fast without paying the cost at application startup.
+        # Warm the folder-history popup the instant the cursor ENTERS the
+        # dropdown arrow -- synchronously, before the click. This keeps the
+        # first click fast even if the user rushes the button straight after
+        # launch, without paying the cost at application startup.
         if obj is self.custom_folder_dropdown and event.type() == QEvent.Enter:
-            self._maybe_prewarm()
+            self._warm_now()
         return super().eventFilter(obj, event)
 
     def _prewarm_folder_menu(self):
