@@ -1318,6 +1318,7 @@ class MainWindow(QMainWindow):
         self._folder_history = []      # historical custom output folders (most recent first)
         self._output_loading = False   # guard to suppress saves while restoring
         self._conversion_loading = False  # guard for CPU-priority restore
+        self._view_loading = True      # suppress view-mode saves during build + restore
         self._build_ui()
         # Restore persisted JXL encode parameters (mode / quality / effort) onto
         # the freshly-built output-tab widgets.
@@ -1327,6 +1328,9 @@ class MainWindow(QMainWindow):
         self._load_output_settings()
         # Restore the persisted conversion-process CPU priority.
         self._load_conversion_settings()
+        # Restore the persisted Input-tab "查看" view mode (after the input
+        # tab is built and the default view applied during build).
+        self._load_view_mode()
         self._refresh_environment()
 
     def keyPressEvent(self, event):
@@ -2176,6 +2180,8 @@ class MainWindow(QMainWindow):
         self._save_output_settings()
         # Persist the conversion-process CPU priority.
         self._save_conversion_settings()
+        # Persist the Input-tab "查看" view mode.
+        self._save_view_mode()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -3003,6 +3009,11 @@ class MainWindow(QMainWindow):
         self._last_view = text
         if getattr(self, "view_button", None) is not None:
             self.view_button.setText(text)
+        # Persist immediately so the choice survives even an abnormal exit.
+        # Must run before the per-mode early returns below (the "详细信息"
+        # branch returns early and would otherwise skip the save).
+        # The guard inside _save_view_mode blocks the load-time restore.
+        self._save_view_mode()
         if text == "详细信息":
             self.input_stack.setCurrentWidget(self.input_table)
             self._refresh_table()
@@ -3586,6 +3597,42 @@ class MainWindow(QMainWindow):
             self.cpu_priority_combo.findData(key)
         )
         self._conversion_loading = False
+
+    # ---- Input-tab view-mode persistence (QSettings) --------------------
+    def _save_view_mode(self):
+        """Persist the current Input-tab "查看" view mode to QSettings.
+
+        Guarded by ``_view_loading`` so the default applied during build and
+        the restore on launch do not clobber the stored value before it is
+        read.
+        """
+        if getattr(self, "_view_loading", False):
+            return
+        settings = QSettings()
+        settings.beginGroup("input_view")
+        settings.setValue("mode", getattr(self, "_last_view", "缩略图"))
+        settings.endGroup()
+        # Flush immediately so the choice survives even an abnormal exit
+        # (the other settings rely on the closeEvent flush; view mode is
+        # changed interactively and should be durable the moment it changes).
+        settings.sync()
+
+    def _load_view_mode(self):
+        """Restore the persisted Input-tab "查看" view mode.
+
+        Safe only after the input tab (and thus view_button / _on_view_changed)
+        is built. Mirrors the conversion-settings restore: the save guard is
+        held while applying so the restore itself never re-writes the value.
+        """
+        self._view_loading = True
+        settings = QSettings()
+        settings.beginGroup("input_view")
+        mode = settings.value("mode", "缩略图")
+        settings.endGroup()
+        if mode not in VIEW_MODES:
+            mode = "缩略图"
+        self._on_view_changed(mode)
+        self._view_loading = False
 
     def _current_encode_mode(self):
         """Return the active JXL encode mode as one of the keys used by the
