@@ -109,6 +109,15 @@ def encode(
     ``lossless_jpeg`` adds ``--lossless_jpeg=1`` so JPEG inputs are re-encoded
     losslessly (bit-identical decode) instead of being re-quantised.
 
+    When the input is a JPEG *and* we are targeting lossy output (``quality`` is
+    set but ``lossless_jpeg`` is not), we explicitly pass ``--lossless_jpeg=0``.
+    Newer cjxl (>= 0.12) flips the default of that flag to 1 and additionally
+    forbids ``quality < 100`` while it is 1, so a JPEG fed to lossy mode with the
+    default would crash with zero output. Forcing 0 tells cjxl to decode the JPEG
+    to pixels first and run a real VarDCT encode. Older cjxl defaulted to 0
+    anyway, so the explicit flag is redundant but harmless there — making the
+    behaviour identical across versions.
+
     ``priority`` (one of the ``_PRIORITY_FLAGS`` keys) sets the Windows CPU
     priority class of the spawned cjxl process. Default: ``below_normal``.
     """
@@ -119,7 +128,15 @@ def encode(
         args += ["--quality", str(quality)]
     if lossless_jpeg:
         args += ["--lossless_jpeg=1"]
+    elif _is_jpeg(input_path) and quality is not None:
+        # 见上方 docstring：有损模式遇到 JPG 输入显式传 0，规避新版默认 1 的崩溃。
+        args += ["--lossless_jpeg=0"]
     return _run(args, priority=priority)
+
+
+def _is_jpeg(path):
+    """Return True if ``path`` looks like a JPEG file by extension."""
+    return str(path).lower().endswith((".jpg", ".jpeg"))
 
 
 def decode(input_path, output_path, priority=DEFAULT_PRIORITY):
