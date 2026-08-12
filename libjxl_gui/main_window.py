@@ -1830,6 +1830,8 @@ class MainWindow(QMainWindow):
         enc_layout = QVBoxLayout(enc_group)
 
         # 编码模式：有损 / 无损 / JPG 无损重编码（互斥单选）。
+        # effort（--effort，1-9，默认 7）放在模式右侧，三种模式通用，
+        # 给下方高级参数预留垂直空间。
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel("编码模式："))
         self.lossy_radio = QRadioButton("有损")
@@ -1844,6 +1846,11 @@ class MainWindow(QMainWindow):
         mode_row.addWidget(self.lossless_radio)
         mode_row.addWidget(self.lossless_jpeg_radio)
         mode_row.addStretch(1)
+        mode_row.addWidget(QLabel("速度/质量权衡 (--effort)："))
+        self.effort_combo = NoFlickerComboBox()
+        self.effort_combo.addItems([str(i) for i in range(1, 10)])
+        self.effort_combo.setCurrentText("7")
+        mode_row.addWidget(self.effort_combo)
         enc_layout.addLayout(mode_row)
 
         # 质量滑块（--quality，0-100，默认 90）：仅「有损」模式可用。
@@ -1861,17 +1868,6 @@ class MainWindow(QMainWindow):
         qual_row.addWidget(self.quality_slider, stretch=1)
         qual_row.addWidget(self.quality_spin)
         enc_layout.addLayout(qual_row)
-
-        # 速度/质量权衡（--effort，1-9，默认 7）：三种模式通用。
-        # NoFlickerComboBox（同 format_combo，去 Windows 弹窗动画闪烁）。
-        effort_row = QHBoxLayout()
-        effort_row.addWidget(QLabel("速度/质量权衡 (--effort)："))
-        self.effort_combo = NoFlickerComboBox()
-        self.effort_combo.addItems([str(i) for i in range(1, 10)])
-        self.effort_combo.setCurrentText("7")
-        effort_row.addWidget(self.effort_combo)
-        effort_row.addStretch(1)
-        enc_layout.addLayout(effort_row)
 
         # 切换模式：非「有损」时禁用质量控件，但保留其显示值，以便切回时沿用。
         # Use each radio's toggled signal (fires on both user clicks and
