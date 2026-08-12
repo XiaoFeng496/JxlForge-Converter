@@ -139,6 +139,32 @@ check("重置后 distance 取消勾选", not w._adv_widgets["distance"][0].isChe
 check("重置后收集为空", w._collect_advanced("lossy") == {})
 check("重置后预览不含 --modular", "--modular" not in w.cmd_preview.text())
 
+# 6b. 命令预览应复刻 encode() 的 --lossless_jpeg 解析：
+#     有损 + 批次含 JPG 输入时，实际命令补 --lossless_jpeg=0（cjxl>=0.12 兼容垫片）。
+#     预览用占位符路径，故改看选中输入是否含 JPG。
+w.lossy_radio.setChecked(True)
+w.input_files = ["C:/x/photo.jpg"]
+w._update_cmd_preview()
+check("有损 + JPG 输入：预览含 --lossless_jpeg=0",
+      "--lossless_jpeg=0" in w.cmd_preview.text())
+w.input_files = ["C:/x/photo.png"]
+w._update_cmd_preview()
+check("有损 + 仅 PNG 输入：预览不含 --lossless_jpeg=0",
+      "--lossless_jpeg=0" not in w.cmd_preview.text())
+w.input_files = ["C:/x/a.png", "C:/x/b.jpg"]  # 混合列表含 JPG
+w._update_cmd_preview()
+check("有损 + 混合输入（含 JPG）：预览含 --lossless_jpeg=0",
+      "--lossless_jpeg=0" in w.cmd_preview.text())
+w.lossless_radio.setChecked(True)
+w.input_files = ["C:/x/photo.jpg"]
+w._update_cmd_preview()
+check("无损模式 + JPG：预览不含 --lossless_jpeg=0（仅 -d 0）",
+      "--lossless_jpeg=0" not in w.cmd_preview.text())
+# 复位输入集合，避免影响后续测试
+w.input_files = []
+w.lossy_radio.setChecked(True)
+w._update_cmd_preview()
+
 
 # ---------------------------------------------------------------------------
 # 7. 持久化：勾选状态 + 值跨窗口恢复

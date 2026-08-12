@@ -2267,7 +2267,16 @@ class MainWindow(QMainWindow):
             # 显式 -d 距离覆盖 --quality（两者互斥）。
             distance = adv.pop("distance")
             quality = None
-        lj_flag = 1 if lj else None
+        # 复刻 converter.encode() 的 --lossless_jpeg 解析（converter.py:208-222）：
+        # 有损 + 批次中含 JPG 输入时，实际命令会补 --lossless_jpeg=0（cjxl>=0.12
+        # 默认翻成 1 且禁止 quality<100 的崩溃修复垫片）。预览用占位符路径，故改
+        # 看选中输入里是否含 JPG，使预览标志位与实际命令保持一致。
+        lj_flag = None
+        if lj:
+            lj_flag = 1
+        elif quality is not None and self.input_files:
+            if any(converter._is_jpeg(p) for p in self.input_files):
+                lj_flag = 0
         args = converter.build_args(
             "<输入>", "<输出>", effort=effort, distance=distance,
             quality=quality, lossless_jpeg=lj_flag, **adv,
@@ -3189,6 +3198,9 @@ class MainWindow(QMainWindow):
     def _refresh_input_views(self):
         self._refresh_table()
         self._refresh_list()
+        # 输入集合变化会影响命令预览里的 --lossless_jpeg=0（有损 + JPG 时），
+        # 这里统一刷新一次，使预览与实际命令保持同步。
+        self._update_cmd_preview()
 
     @staticmethod
     def _reorder_paths(paths, rows, target):
