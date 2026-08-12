@@ -259,16 +259,26 @@ def _safe_getsize(path):
         return 0
 
 
-def _format_size_change(in_bytes, out_bytes):
-    """Indented 'in -> out (±pct%)' summary line for a single file."""
+def _format_size_change(in_bytes, out_bytes, tag=""):
+    """Indented 'in -> out (±pct%)' summary line for a single file.
+
+    ``tag`` is an optional bracketed encoding description (e.g.
+    '[Modular, lossless]') showing how the file was encoded. The leading tab
+    keeps the line indented under its '>>> [n/m]' header; the tag is separated
+    by a fixed run of spaces (not a tab) so the gap stays uniform instead of
+    jumping to the next tab stop with varying byte-size widths.
+    """
     if in_bytes > 0:
         pct = (out_bytes - in_bytes) / in_bytes * 100.0
         pct_str = "%+d%%" % round(pct)
     else:
         pct_str = "--"
-    return "\t%s -> %s (%s)" % (
+    line = "\t%s -> %s (%s)" % (
         _format_bytes(in_bytes), _format_bytes(out_bytes), pct_str
     )
+    if tag:
+        line += "        " + tag
+    return line
 
 
 VIEW_MODES = ["小缩略图", "缩略图", "大缩略图", "列表", "详细信息"]
@@ -4262,6 +4272,30 @@ class ConvertWorker(QThread):
         kw.update(self.advanced)
         return kw
 
+    def _encode_tag(self):
+        """Bracketed, human-readable description of how files are encoded.
+
+        Mirrors the 状态 tab per-file line, e.g. '[Modular, lossless]' for the
+        lossless mode, '[VarDCT, q90]' for lossy, '[JPEG lossless]' for the JPG
+        re-encode mode. The conversion parameters are identical for every job,
+        so this is computed once before the loop.
+        """
+        # 高级参数 -d 会覆盖基础 distance，两者取其一。
+        dist = self.advanced.get("distance", self.distance)
+        if self.lossless_jpeg:
+            return "[JPEG lossless]"
+        if dist == 0:
+            # 无损 JPEG XL 始终走 Modular 模式。
+            return "[Modular, lossless]"
+        # 有损：默认 VarDCT，显式 modular=1 时走 Modular。
+        if self.advanced.get("modular") == 1:
+            codec = "Modular"
+        else:
+            codec = "VarDCT"
+        if self.quality is not None:
+            return "[%s, q%d]" % (codec, self.quality)
+        return "[%s]" % codec
+
     def request_stop(self):
         """Ask the loop to stop. Sets a flag checked between files and kills
         the in-flight cjxl/djxl child process so a long single-file job does
@@ -4374,6 +4408,8 @@ class ConvertWorker(QThread):
             self.log_signal.emit(
                 "开始转换: " + _format_datetime(self._stat_started)
             )
+            self.log_signal.emit("")
+            encode_tag = self._encode_tag()
             for index, (src, out_path, out_is_jxl) in enumerate(self.jobs, start=1):
                 if self._stopped:
                     self.log_signal.emit("已停止。")
@@ -4417,7 +4453,9 @@ class ConvertWorker(QThread):
                     out_size = _safe_getsize(out_path)
                     self._stat_out_bytes += out_size
                     self._stat_ok += 1
-                    self.log_signal.emit(_format_size_change(in_size, out_size))
+                    self.log_signal.emit(
+                        _format_size_change(in_size, out_size, encode_tag)
+                    )
                 else:
                     self._stat_err += 1
                     self.log_signal.emit("处理失败：%s" % message)
