@@ -68,13 +68,16 @@ from PySide6.QtWidgets import (
     QApplication,
     QSizePolicy,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
+    QFrame,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
     QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -1239,6 +1242,62 @@ class FolderMenu(QMenu):
             r.set_hover(r is target)
 
 
+# ---------------------------------------------------------------------------
+# 高级参数 schema（数据驱动构建输出标签的「高级参数」折叠分组）。
+# 每项描述一个 cjxl 调优旋钮：
+#   key     -> converter.encode / build_args 的参数名
+#   flag    -> cjxl 命令行标志（仅用于展示）
+#   label   -> 复选框文字
+#   kind    -> double | int | choice | switch | bool_value
+#              switch/bool_value 无独立值控件（勾选即生效）；
+#              double/int/choice 需额外的值控件（未勾选则不传递该参数）。
+#   default -> 值控件默认值（复选框一律默认不勾选，即不传该参数）
+#   group   -> 所属子组（质量精细 / 编码策略 / 保真合成 / 容器输出）
+#   modes   -> 该参数在哪些编码模式下可用（用于按模式置灰）
+# 仅收录此前对 cjxl v0.12.0 实跑验证「接受」的参数；orientation 等被拒参数不暴露。
+# ---------------------------------------------------------------------------
+_ADVANCED_SCHEMA = [
+    # 质量精细（仅「有损」模式有意义）
+    {"key": "distance", "flag": "-d", "label": "Butteraugli 距离 (-d)",
+     "kind": "double", "default": 1.0, "min": 0.0, "max": 25.0, "step": 0.1,
+     "group": "质量精细", "modes": ("lossy",)},
+    {"key": "progressive", "flag": "--progressive", "label": "渐进式解码 (--progressive)",
+     "kind": "switch", "default": False,
+     "group": "质量精细", "modes": ("lossy",)},
+    {"key": "faster_decoding", "flag": "--faster_decoding", "label": "加速解码 (--faster_decoding)",
+     "kind": "bool_value", "default": False, "value": 1,
+     "group": "质量精细", "modes": ("lossy",)},
+    # 编码策略（全部模式可用）
+    {"key": "modular", "flag": "--modular", "label": "Modular 模式 (--modular)",
+     "kind": "bool_value", "default": False, "value": 1,
+     "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg")},
+    {"key": "num_threads", "flag": "--num_threads", "label": "线程数 (--num_threads)",
+     "kind": "int", "default": 4, "min": 1, "max": 32,
+     "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg")},
+    {"key": "brotli_effort", "flag": "--brotli_effort", "label": "Brotli 压缩强度 (--brotli_effort)",
+     "kind": "int", "default": 9, "min": 0, "max": 11,
+     "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg")},
+    # 保真合成（有损 / 无损可用；JPG 无损重编码会绕过，故置灰）
+    {"key": "epf", "flag": "--epf", "label": "边缘滤波强度 (--epf)",
+     "kind": "int", "default": 3, "min": 0, "max": 3,
+     "group": "保真合成", "modes": ("lossy", "lossless")},
+    {"key": "noise", "flag": "--noise", "label": "噪声合成 (--noise)",
+     "kind": "int", "default": 0, "min": 0, "max": 16,
+     "group": "保真合成", "modes": ("lossy", "lossless")},
+    {"key": "resampling", "flag": "--resampling", "label": "色度重采样 (--resampling)",
+     "kind": "choice", "default": -1,
+     "choices": [(-1, "-1 默认"), (1, "1 八倍"), (2, "2 四倍"), (4, "4 两倍"), (8, "8 无")],
+     "group": "保真合成", "modes": ("lossy", "lossless")},
+    # 容器输出（全部模式可用）
+    {"key": "container", "flag": "--container", "label": "JXL 容器 (--container)",
+     "kind": "bool_value", "default": False, "value": 1,
+     "group": "容器输出", "modes": ("lossy", "lossless", "lossless_jpeg")},
+    {"key": "codestream_level", "flag": "--codestream_level", "label": "码流等级 (--codestream_level)",
+     "kind": "int", "default": 5, "min": 0, "max": 10,
+     "group": "容器输出", "modes": ("lossy", "lossless", "lossless_jpeg")},
+]
+
+
 class MainWindow(QMainWindow):
     """Main application window (XnConvert-style four tabs)."""
 
@@ -1812,8 +1871,21 @@ class MainWindow(QMainWindow):
         return widget
 
     def _build_output_tab(self):
+        # 整页包进 QScrollArea：高级参数展开时只出现滚动条，主窗口尺寸不被撑大。
+        # 关键：滚动区/内容容器/分组框全部保持透明，直接透出 QTabWidget 的面板
+        # 底色——与其它标签页一致，且自动跟随系统深浅色主题（不写死任何颜色、
+        # 不强制 palette 角色，避免"切换主题后输出页不变色"的冻结 bug）。
         widget = QWidget()
-        layout = QVBoxLayout(widget)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setAutoFillBackground(False)
+        scroll.viewport().setAutoFillBackground(False)
+        self.output_scroll = scroll
+        inner = QWidget()
+        inner.setAutoFillBackground(False)
+        layout = QVBoxLayout(inner)
 
         fmt_row = QHBoxLayout()
         fmt_row.addWidget(QLabel("输出格式："))
@@ -1827,6 +1899,7 @@ class MainWindow(QMainWindow):
 
         # ---- JXL 编码参数（仅输出 JXL 时生效；输出 PNG 时由 Pillow 直存）----
         enc_group = QGroupBox("JXL 编码参数")
+        enc_group.setAutoFillBackground(False)
         enc_layout = QVBoxLayout(enc_group)
 
         # 编码模式：有损 / 无损 / JPG 无损重编码（互斥单选）。
@@ -1869,6 +1942,9 @@ class MainWindow(QMainWindow):
         qual_row.addWidget(self.quality_spin)
         enc_layout.addLayout(qual_row)
 
+        # ---- 高级参数（可折叠分组，默认收起；基础参数一律不动）----
+        self._build_advanced_ui(enc_layout)
+
         # 切换模式：非「有损」时禁用质量控件，但保留其显示值，以便切回时沿用。
         # Use each radio's toggled signal (fires on both user clicks and
         # programmatic setChecked) so the enable/disable state is always correct.
@@ -1889,6 +1965,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(enc_group)
 
         dest_group = QGroupBox("输出位置")
+        dest_group.setAutoFillBackground(False)
         dest_layout = QVBoxLayout(dest_group)
         self.same_folder_radio = QRadioButton("保持原文件夹")
         self.custom_folder_radio = QRadioButton("自定义文件夹")
@@ -1965,6 +2042,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(dest_group)
 
         name_group = QGroupBox("文件名")
+        name_group.setAutoFillBackground(False)
         name_layout = QVBoxLayout(name_group)
         self.keep_name_radio = QRadioButton("保持原文件名")
         self.add_suffix_radio = QRadioButton("添加后缀：")
@@ -1989,7 +2067,262 @@ class MainWindow(QMainWindow):
 
         layout.addStretch(1)
         # Note: 开始转换 按钮已移至窗口底部常驻栏，此处不再放置。
+        scroll.setWidget(inner)
+        # QScrollArea.setWidget() 会把内容 widget 的 autoFillBackground 强制打开
+        # （默认填 Base 角色），从而盖住透明、造成输出页变色。这里在 setWidget
+        # 之后再关掉它，让整条透明链透出 QTabWidget 面板色、并跟随主题。
+        inner.setAutoFillBackground(False)
+        outer = QVBoxLayout(widget)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
         return widget
+
+    # ------------------------------------------------------------------
+    # 输出标签：高级参数（可折叠分组 + 命令预览 + 重置）
+    # ------------------------------------------------------------------
+    def _build_advanced_ui(self, enc_layout):
+        """构建「高级参数」折叠分组（4 个语义子组）、命令预览条与重置链接。
+
+        控件由模块级 ``_ADVANCED_SCHEMA`` 数据驱动生成，全部默认不勾选，
+        即不向 cjxl 追加任何额外参数，保持与改动前完全一致的行为。
+
+        折叠用独立的箭头按钮控制内容区显隐（而非 checkable QGroupBox），
+        因为 checkable 分组在未勾选时会自动禁用全部子控件，会与我们按模式
+        的逐项置灰逻辑冲突。
+        """
+        # 非 checkable 的标题框；折叠/展开由 adv_toggle 控制内部内容显隐。
+        self.adv_group = QGroupBox("高级参数")
+        adv_outer = QVBoxLayout(self.adv_group)
+
+        # 折叠头：箭头按钮 + 「已设置 N 项」摘要。
+        header_row = QHBoxLayout()
+        self.adv_toggle = QToolButton()
+        self.adv_toggle.setArrowType(Qt.RightArrow)
+        self.adv_toggle.setAutoRaise(True)
+        self.adv_toggle.setFixedWidth(22)
+        self.adv_toggle.clicked.connect(self._toggle_advanced)
+        self.adv_summary = QLabel("已设置 0 项")
+        header_row.addWidget(self.adv_toggle)
+        header_row.addWidget(self.adv_summary)
+        header_row.addStretch(1)
+        adv_outer.addLayout(header_row)
+
+        # 折叠内容：4 个子组。默认隐藏，点箭头展开。
+        self.adv_content = QWidget()
+        content_layout = QVBoxLayout(self.adv_content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 4 个子组按 2×2 排布：质量精细 / 编码策略（上行）、保真合成 / 容器输出（下行）。
+        grid = QGridLayout()
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        sub_order = ["质量精细", "编码策略", "保真合成", "容器输出"]
+        sub_pos = {
+            "质量精细": (0, 0), "编码策略": (0, 1),
+            "保真合成": (1, 0), "容器输出": (1, 1),
+        }
+        sub_boxes = {}
+        sub_layouts = {}
+        for sg in sub_order:
+            sb = QGroupBox(sg)
+            sub_boxes[sg] = sb
+            sub_layouts[sg] = QVBoxLayout(sb)
+            r, c = sub_pos[sg]
+            grid.addWidget(sb, r, c)
+
+        self._adv_widgets = {}  # key -> (checkbox, value_widget_or_None, schema)
+        for s in _ADVANCED_SCHEMA:
+            row = QHBoxLayout()
+            check = QCheckBox(s["label"])
+            check.setChecked(False)
+            row.addWidget(check)
+            val_w = None
+            if s["kind"] == "double":
+                val_w = QDoubleSpinBox()
+                val_w.setRange(s["min"], s["max"])
+                val_w.setSingleStep(s["step"])
+                val_w.setValue(s["default"])
+                row.addWidget(val_w)
+            elif s["kind"] == "int":
+                val_w = QSpinBox()
+                val_w.setRange(s["min"], s["max"])
+                val_w.setValue(s["default"])
+                row.addWidget(val_w)
+            elif s["kind"] == "choice":
+                val_w = NoFlickerComboBox()
+                for v, t in s["choices"]:
+                    val_w.addItem(t, v)
+                idx = val_w.findData(s["default"])
+                if idx >= 0:
+                    val_w.setCurrentIndex(idx)
+                row.addWidget(val_w)
+            # switch / bool_value：仅复选框，无独立值控件
+            sub_layouts[s["group"]].addLayout(row)
+            self._adv_widgets[s["key"]] = (check, val_w, s)
+            # 值控件随复选框启用/禁用（未勾选则不允许改值，也不传递该参数）。
+            if val_w is not None:
+                val_w.setEnabled(False)
+            check.toggled.connect(
+                lambda checked, vw=val_w: (vw.setEnabled(checked) if vw else None)
+            )
+            # 任一控件变化都刷新命令预览与摘要计数。
+            check.toggled.connect(self._on_any_adv_changed)
+            if val_w is not None:
+                if isinstance(val_w, QDoubleSpinBox):
+                    val_w.valueChanged.connect(self._on_any_adv_changed)
+                elif isinstance(val_w, QSpinBox):
+                    val_w.valueChanged.connect(self._on_any_adv_changed)
+                else:
+                    val_w.currentIndexChanged.connect(self._on_any_adv_changed)
+        content_layout.addLayout(grid)
+        self.adv_content.setVisible(False)
+        adv_outer.addWidget(self.adv_content)
+        enc_layout.addWidget(self.adv_group)
+
+        # 命令预览条：等宽字体，随控件变化即时反映将要执行的 cjxl 命令。
+        preview_row = QHBoxLayout()
+        preview_row.addWidget(QLabel("命令预览："))
+        self.cmd_preview = QLabel()
+        self.cmd_preview.setWordWrap(True)
+        mono = self.cmd_preview.font()
+        mono.setFamily("Consolas")
+        self.cmd_preview.setFont(mono)
+        preview_row.addWidget(self.cmd_preview, stretch=1)
+        enc_layout.addLayout(preview_row)
+
+        # 重置高级参数为默认（全部取消勾选，恢复零额外参数）。
+        self.reset_adv_button = QPushButton("重置高级参数")
+        self.reset_adv_button.setFlat(True)
+        self.reset_adv_button.clicked.connect(self._reset_advanced)
+        enc_layout.addWidget(self.reset_adv_button, alignment=Qt.AlignRight)
+
+        self._update_adv_summary()
+        self._update_cmd_preview()
+
+    def _toggle_advanced(self):
+        """展开/收起高级参数内容区，并同步箭头方向。"""
+        visible = not self.adv_content.isVisible()
+        self.adv_content.setVisible(visible)
+        self.adv_toggle.setArrowType(
+            Qt.DownArrow if visible else Qt.RightArrow
+        )
+
+    def _adv_value(self, s):
+        """读取某高级参数值控件的当前值（double/int/choice）。"""
+        val_w = self._adv_widgets[s["key"]][1]
+        if s["kind"] == "choice":
+            return val_w.currentData()
+        return val_w.value()
+
+    def _collect_advanced(self, mode):
+        """收集当前模式下『已勾选』的高级参数，返回 converter.encode 可接受的 dict。
+
+        不含 distance/quality/effort/lossless_jpeg（由调用方按模式处理）；
+        distance 若被勾选也在此返回（key="distance"），由 _on_convert 取用。
+        当前模式不可用的参数（被置灰）一律跳过。
+        """
+        adv = {}
+        for s in _ADVANCED_SCHEMA:
+            if mode not in s["modes"]:
+                continue
+            check, val_w, _ = self._adv_widgets[s["key"]]
+            if not check.isEnabled() or not check.isChecked():
+                continue
+            if s["kind"] == "switch":
+                adv[s["key"]] = True
+            elif s["kind"] == "bool_value":
+                adv[s["key"]] = s["value"]
+            else:
+                adv[s["key"]] = self._adv_value(s)
+        return adv
+
+    def _on_any_adv_changed(self, *_):
+        self._update_adv_summary()
+        self._update_cmd_preview()
+
+    def _update_adv_summary(self):
+        """更新折叠分组标题中的『已设置 N 项』摘要。"""
+        mode = self._current_encode_mode()
+        n = 0
+        for s in _ADVANCED_SCHEMA:
+            if mode not in s["modes"]:
+                continue
+            check, _, _ = self._adv_widgets[s["key"]]
+            if check.isEnabled() and check.isChecked():
+                n += 1
+        self.adv_summary.setText("已设置 %d 项" % n)
+
+    def _update_cmd_preview(self):
+        """根据当前控件状态刷新底部 cjxl 命令预览（输入/输出用占位符）。"""
+        mode = self._current_encode_mode()
+        effort = int(self.effort_combo.currentText())
+        if mode == "lossy":
+            distance, quality, lj = None, self.quality_spin.value(), False
+        elif mode == "lossless":
+            distance, quality, lj = 0, None, False
+        else:  # lossless_jpeg
+            distance, quality, lj = None, None, True
+        adv = dict(self._collect_advanced(mode))
+        if "distance" in adv:
+            # 显式 -d 距离覆盖 --quality（两者互斥）。
+            distance = adv.pop("distance")
+            quality = None
+        lj_flag = 1 if lj else None
+        args = converter.build_args(
+            "<输入>", "<输出>", effort=effort, distance=distance,
+            quality=quality, lossless_jpeg=lj_flag, **adv,
+        )
+        self.cmd_preview.setText(" ".join(args))
+
+    def _reset_advanced(self):
+        """将所有高级参数复位为默认（不勾选、值回默认、不传递）。"""
+        for s in _ADVANCED_SCHEMA:
+            check, val_w, _ = self._adv_widgets[s["key"]]
+            check.setChecked(False)
+            if val_w is not None:
+                if s["kind"] == "choice":
+                    idx = val_w.findData(s["default"])
+                    if idx >= 0:
+                        val_w.setCurrentIndex(idx)
+                else:
+                    val_w.setValue(s["default"])
+                val_w.setEnabled(False)
+        self._update_adv_summary()
+        self._update_cmd_preview()
+        self._save_jxl_output()
+
+    def _save_advanced(self, settings):
+        """持久化高级参数的『勾选状态 + 值』到已打开的 jxl_output 组。"""
+        for s in _ADVANCED_SCHEMA:
+            key = s["key"]
+            check, val_w, _ = self._adv_widgets[key]
+            settings.setValue("adv_%s_on" % key, check.isChecked())
+            if val_w is not None:
+                settings.setValue("adv_%s_val" % key, self._adv_value(s))
+
+    def _load_advanced(self, settings):
+        """从 jxl_output 组恢复高级参数（调用前须已按模式设置好启用状态）。"""
+        for s in _ADVANCED_SCHEMA:
+            key = s["key"]
+            check, val_w, _ = self._adv_widgets[key]
+            on = settings.value("adv_%s_on" % key, False)
+            check.setChecked(on in (True, "true", "True", "1"))
+            if val_w is not None:
+                raw = settings.value("adv_%s_val" % key, s["default"])
+                try:
+                    val = type(s["default"])(raw)
+                except (TypeError, ValueError):
+                    val = s["default"]
+                if s["kind"] == "choice":
+                    idx = val_w.findData(val)
+                    if idx >= 0:
+                        val_w.setCurrentIndex(idx)
+                else:
+                    val_w.setValue(val)
+                # 值控件是否可用取决于『模式可用且已勾选』。
+                val_w.setEnabled(check.isEnabled() and check.isChecked())
+        self._update_adv_summary()
+        self._update_cmd_preview()
 
     def _build_status_tab(self):
         widget = QWidget()
@@ -2128,14 +2461,19 @@ class MainWindow(QMainWindow):
     # ---- JXL output-parameter persistence (QSettings) -----------------
 
     def _save_jxl_output(self):
-        """Persist the JXL encode mode / quality / effort so they survive a
-        restart of the application. Called whenever any of those controls
-        changes (and on close)."""
+        """Persist the JXL encode mode / quality / effort / advanced params so
+        they survive a restart of the application. Called whenever any of those
+        controls changes (and on close)."""
+        # 加载期间（_load_jxl_output）不写回：否则 _on_encode_mode_changed 会在
+        # 高级参数尚未恢复前先把默认值存回去，把已持久化的勾选状态覆盖掉。
+        if getattr(self, "_jxl_loading", False):
+            return
         settings = QSettings()
         settings.beginGroup("jxl_output")
         settings.setValue("mode", self._current_encode_mode())
         settings.setValue("quality", self.quality_spin.value())
         settings.setValue("effort", self.effort_combo.currentText())
+        self._save_advanced(settings)
         settings.endGroup()
 
     def _load_jxl_output(self):
@@ -2145,12 +2483,12 @@ class MainWindow(QMainWindow):
         has been built. Each mode's own detailed parameters are preserved even
         while disabled, so toggling back reuses the last value.
         """
+        self._jxl_loading = True
         settings = QSettings()
         settings.beginGroup("jxl_output")
         mode = settings.value("mode", "lossy")
         quality = int(settings.value("quality", 90))
         effort = settings.value("effort", "7")
-        settings.endGroup()
 
         if mode == "lossless":
             self.lossless_radio.setChecked(True)
@@ -2160,12 +2498,16 @@ class MainWindow(QMainWindow):
             self.lossy_radio.setChecked(True)
         # Apply the mode-driven enable/disable state (and re-save) first.
         self._on_encode_mode_changed()
+        # Restore the advanced params now that the per-mode enable state is set.
+        self._load_advanced(settings)
         # Restore the displayed values; a disabled quality control still keeps
-        # its value so returning to 有损 reuses it.
+        # its value so returning to 有損 reuses it.
         self.quality_spin.setValue(quality)
         self.quality_slider.setValue(quality)
         if self.effort_combo.findText(effort) >= 0:
             self.effort_combo.setCurrentText(effort)
+        settings.endGroup()
+        self._jxl_loading = False
 
     def closeEvent(self, event):
         # Persist the window layout so "where I left it" survives a restart.
@@ -3647,6 +3989,16 @@ class MainWindow(QMainWindow):
         is_lossy = self.lossy_radio.isChecked()
         self.quality_slider.setEnabled(is_lossy)
         self.quality_spin.setEnabled(is_lossy)
+        # 高级参数：按当前编码模式启用/禁用各旋钮（不可用的自动置灰，且不参与转换）。
+        mode = self._current_encode_mode()
+        for s in _ADVANCED_SCHEMA:
+            check, val_w, _ = self._adv_widgets[s["key"]]
+            enabled = mode in s["modes"]
+            check.setEnabled(enabled)
+            if val_w is not None:
+                val_w.setEnabled(enabled and check.isChecked())
+        self._update_adv_summary()
+        self._update_cmd_preview()
         self._save_jxl_output()
 
     # ------------------------------------------------------------------
@@ -3708,6 +4060,14 @@ class MainWindow(QMainWindow):
         else:  # lossless_jpeg
             distance, quality_arg, lossless_jpeg = None, None, True
 
+        # 收集高级参数（数据驱动）。distance 若被显式勾选，则覆盖 quality
+        # （两者互斥：用 -d 距离时不再传 --quality）。
+        adv = self._collect_advanced(mode)
+        dist_val = adv.pop("distance", None)
+        if dist_val is not None:
+            distance = dist_val
+            quality_arg = None
+
         # Build the job list on the UI thread (reads widget state safely),
         # then hand it to a worker thread so the GUI stays responsive.
         # In JPG 无损重编码 mode only JPG inputs are valid (cjxl's
@@ -3756,7 +4116,7 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.status_tab)
         self._convert_worker = ConvertWorker(
             jobs, actions, effort, distance, quality_arg, lossless_jpeg,
-            self.cpu_priority_combo.currentData(),
+            self.cpu_priority_combo.currentData(), advanced=adv,
         )
         self._convert_worker.log_signal.connect(self.log_edit.appendPlainText)
         self._convert_worker.status_signal.connect(self.statusBar().showMessage)
@@ -3864,7 +4224,7 @@ class ConvertWorker(QThread):
 
     def __init__(self, jobs, actions, effort=7, distance=None,
                  quality=None, lossless_jpeg=False,
-                 priority=converter.DEFAULT_PRIORITY):
+                 priority=converter.DEFAULT_PRIORITY, advanced=None):
         super().__init__()
         self.jobs = jobs
         self.actions = actions  # possibly empty list
@@ -3873,17 +4233,22 @@ class ConvertWorker(QThread):
         self.quality = quality
         self.lossless_jpeg = lossless_jpeg
         self.priority = priority
+        # 高级参数 dict（来自 UI _collect_advanced）；键名与 converter.encode 一致，
+        # 由 _encode_kwargs 直接展开并覆盖同名基础参数（例如显式 -d 距离）。
+        self.advanced = advanced or {}
         self._stopped = False
 
     def _encode_kwargs(self):
         """Encode keyword arguments shared by every cjxl invocation."""
-        return {
+        kw = {
             "effort": self.effort,
             "distance": self.distance,
             "quality": self.quality,
             "lossless_jpeg": self.lossless_jpeg,
             "priority": self.priority,
         }
+        kw.update(self.advanced)
+        return kw
 
     def request_stop(self):
         """Ask the loop to stop. Sets a flag checked between files and kills

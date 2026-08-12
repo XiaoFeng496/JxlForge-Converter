@@ -86,6 +86,74 @@ def check_tools():
     }
 
 
+def build_args(
+    input_path,
+    output_path,
+    effort=7,
+    distance=None,
+    quality=None,
+    lossless_jpeg=None,
+    progressive=False,
+    modular=None,
+    num_threads=None,
+    brotli_effort=None,
+    epf=None,
+    noise=None,
+    resampling=None,
+    container=None,
+    codestream_level=None,
+    faster_decoding=None,
+):
+    """Assemble the cjxl argument list for an encode, WITHOUT running it.
+
+    This is the single source of truth for how UI/worker settings map to cjxl
+    flags. ``encode`` delegates to it, and the GUI's command-preview bar reuses
+    it with placeholder paths so the user sees exactly what will run.
+
+    ``lossless_jpeg`` here is the *resolved* flag value (``None`` / ``0`` / ``1``)
+    — ``None`` means "don't pass the flag". ``encode`` computes that value from
+    its boolean ``lossless_jpeg`` argument plus the JPEG auto-detection rule.
+
+    Every advanced knob defaults to "don't pass" so callers that omit it get the
+    same command as before:
+      * ``progressive`` — pure switch: ``--progressive`` only when truthy.
+      * ``modular`` / ``container`` / ``faster_decoding`` — value-bool switches:
+        pass e.g. ``--modular=1``; never pass ``=0`` (cjxl rejects bare
+        ``--modular`` and ``=0`` is meaningless noise). ``None`` = omit.
+      * ``num_threads`` / ``brotli_effort`` / ``epf`` / ``noise`` /
+        ``resampling`` / ``codestream_level`` — plain value flags, only appended
+        when not ``None``.
+    """
+    args = ["cjxl", input_path, output_path, "-e", str(effort)]
+    if distance is not None:
+        args += ["-d", str(distance)]
+    if quality is not None:
+        args += ["--quality", str(quality)]
+    if lossless_jpeg is not None:
+        args.append("--lossless_jpeg=%s" % lossless_jpeg)
+    if progressive:
+        args.append("--progressive")
+    if modular is not None:
+        args.append("--modular=%s" % modular)
+    if faster_decoding is not None:
+        args.append("--faster_decoding=%s" % faster_decoding)
+    if num_threads is not None:
+        args += ["--num_threads", str(num_threads)]
+    if brotli_effort is not None:
+        args.append("--brotli_effort=%s" % brotli_effort)
+    if epf is not None:
+        args.append("--epf=%s" % epf)
+    if noise is not None:
+        args.append("--noise=%s" % noise)
+    if resampling is not None:
+        args.append("--resampling=%s" % resampling)
+    if container is not None:
+        args.append("--container=%s" % container)
+    if codestream_level is not None:
+        args.append("--codestream_level=%s" % codestream_level)
+    return args
+
+
 def encode(
     input_path,
     output_path,
@@ -94,6 +162,16 @@ def encode(
     quality=None,
     lossless_jpeg=False,
     priority=DEFAULT_PRIORITY,
+    progressive=False,
+    modular=None,
+    num_threads=None,
+    brotli_effort=None,
+    epf=None,
+    noise=None,
+    resampling=None,
+    container=None,
+    codestream_level=None,
+    faster_decoding=None,
 ):
     """Run cjxl to encode ``input_path`` into a JPEG XL file at ``output_path``.
 
@@ -118,19 +196,41 @@ def encode(
     anyway, so the explicit flag is redundant but harmless there — making the
     behaviour identical across versions.
 
+    The remaining keyword args (``progressive``, ``modular``, ``num_threads``,
+    ``brotli_effort``, ``epf``, ``noise``, ``resampling``, ``container``,
+    ``codestream_level``, ``faster_decoding``) are optional cjxl tuning knobs;
+    see :func:`build_args` for how each maps to a flag. All default to "don't
+    pass", so omitting them reproduces the previous behaviour exactly.
+
     ``priority`` (one of the ``_PRIORITY_FLAGS`` keys) sets the Windows CPU
     priority class of the spawned cjxl process. Default: ``below_normal``.
     """
-    args = ["cjxl", input_path, output_path, "-e", str(effort)]
-    if distance is not None:
-        args += ["-d", str(distance)]
-    if quality is not None:
-        args += ["--quality", str(quality)]
+    # Resolve the --lossless_jpeg flag value (None / 0 / 1) from the boolean
+    # argument plus the JPEG auto-detection rule described above.
+    lj_flag = None
     if lossless_jpeg:
-        args += ["--lossless_jpeg=1"]
+        lj_flag = 1
     elif _is_jpeg(input_path) and quality is not None:
-        # 见上方 docstring：有损模式遇到 JPG 输入显式传 0，规避新版默认 1 的崩溃。
-        args += ["--lossless_jpeg=0"]
+        # 有损模式遇到 JPG 输入显式传 0，规避新版默认 1 的崩溃（详见上方说明）。
+        lj_flag = 0
+    args = build_args(
+        input_path,
+        output_path,
+        effort=effort,
+        distance=distance,
+        quality=quality,
+        lossless_jpeg=lj_flag,
+        progressive=progressive,
+        modular=modular,
+        num_threads=num_threads,
+        brotli_effort=brotli_effort,
+        epf=epf,
+        noise=noise,
+        resampling=resampling,
+        container=container,
+        codestream_level=codestream_level,
+        faster_decoding=faster_decoding,
+    )
     return _run(args, priority=priority)
 
 
