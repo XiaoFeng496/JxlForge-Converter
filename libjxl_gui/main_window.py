@@ -35,6 +35,7 @@ import math
 import time
 import atexit
 import shutil
+import shlex
 import tempfile
 
 from PySide6.QtCore import (
@@ -2189,16 +2190,21 @@ class MainWindow(QMainWindow):
         adv_outer.addWidget(self.adv_content)
         enc_layout.addWidget(self.adv_group)
 
-        # 命令预览条：等宽字体，随控件变化即时反映将要执行的 cjxl 命令。
-        preview_row = QHBoxLayout()
-        preview_row.addWidget(QLabel("命令预览："))
-        self.cmd_preview = QLabel()
-        self.cmd_preview.setWordWrap(True)
-        mono = self.cmd_preview.font()
+        # 命令预览 / 自定义命令：复选框控制「只读实时预览」还是「用户自定义命令」。
+        # 未勾选时等同原命令预览（只读、随控件变化即时刷新）；勾选后可编辑，
+        # 转换时直接执行用户编辑的命令（<输入>/<输出> 占位符逐文件替换）。
+        cmd_row = QHBoxLayout()
+        self.custom_cmd_check = QCheckBox("自定义命令：")
+        self.custom_cmd_check.toggled.connect(self._on_custom_cmd_toggled)
+        cmd_row.addWidget(self.custom_cmd_check)
+        self.cmd_edit = QLineEdit()
+        self.cmd_edit.setPlaceholderText("cjxl <输入> <输出> -e 7 ...")
+        mono = self.cmd_edit.font()
         mono.setFamily("Consolas")
-        self.cmd_preview.setFont(mono)
-        preview_row.addWidget(self.cmd_preview, stretch=1)
-        enc_layout.addLayout(preview_row)
+        self.cmd_edit.setFont(mono)
+        self.cmd_edit.setReadOnly(True)  # 默认只读，等同命令预览
+        cmd_row.addWidget(self.cmd_edit, stretch=1)
+        enc_layout.addLayout(cmd_row)
 
         # 重置高级参数为默认（全部取消勾选，恢复零额外参数）。
         self.reset_adv_button = QPushButton("重置高级参数")
@@ -2262,8 +2268,15 @@ class MainWindow(QMainWindow):
                 n += 1
         self.adv_summary.setText("已设置 %d 项" % n)
 
-    def _update_cmd_preview(self):
-        """根据当前控件状态刷新底部 cjxl 命令预览（输入/输出用占位符）。"""
+    def _update_cmd_preview(self, force=False):
+        """根据当前控件状态刷新底部 cjxl 命令预览（输入/输出用占位符）。
+
+        当「自定义命令」被勾选且非强制（force=False）时，不覆盖用户在
+        输入框中已编辑的命令文本。force=True 用于在勾选瞬间预填当前生成的
+        命令，方便用户在此基础上修改。
+        """
+        if self.custom_cmd_check.isChecked() and not force:
+            return
         mode = self._current_encode_mode()
         effort = int(self.effort_combo.currentText())
         if mode == "lossy":
@@ -2291,7 +2304,21 @@ class MainWindow(QMainWindow):
             "<输入>", "<输出>", effort=effort, distance=distance,
             quality=quality, lossless_jpeg=lj_flag, **adv,
         )
-        self.cmd_preview.setText(" ".join(args))
+        self.cmd_edit.setText(" ".join(args))
+
+    def _on_custom_cmd_toggled(self, checked):
+        """勾选「自定义命令」时在只读预览与可编辑自定义命令之间切换。"""
+        if checked:
+            # 勾选：预填当前生成的命令，方便用户在此基础上修改。
+            self._update_cmd_preview(force=True)
+            self.cmd_edit.setReadOnly(False)
+            self.cmd_edit.selectAll()
+            self.cmd_edit.setFocus()
+        else:
+            # 取消勾选：恢复只读，并重新同步为实时生成的预览。
+            self.cmd_edit.setReadOnly(True)
+            self._update_cmd_preview()
+        self._save_jxl_output()
 
     def _reset_advanced(self):
         """将所有高级参数复位为默认（不勾选、值回默认、不传递）。"""
@@ -2493,6 +2520,9 @@ class MainWindow(QMainWindow):
         settings.setValue("quality", self.quality_spin.value())
         settings.setValue("effort", self.effort_combo.currentText())
         self._save_advanced(settings)
+        # 自定义命令：勾选状态 + 已编辑的命令文本。
+        settings.setValue("custom_cmd_on", self.custom_cmd_check.isChecked())
+        settings.setValue("custom_cmd_text", self.cmd_edit.text())
         settings.endGroup()
 
     def _load_jxl_output(self):
@@ -2525,6 +2555,19 @@ class MainWindow(QMainWindow):
         self.quality_slider.setValue(quality)
         if self.effort_combo.findText(effort) >= 0:
             self.effort_combo.setCurrentText(effort)
+        # 恢复自定义命令：用 blockSignals 避免触发 _on_custom_cmd_toggled 的
+        # 预填逻辑覆盖已持久化的命令文本。
+        self.custom_cmd_check.blockSignals(True)
+        self.custom_cmd_check.setChecked(
+            bool(settings.value("custom_cmd_on", False))
+        )
+        self.cmd_edit.setText(str(settings.value("custom_cmd_text", "")))
+        if self.custom_cmd_check.isChecked():
+            self.cmd_edit.setReadOnly(False)
+        else:
+            self.cmd_edit.setReadOnly(True)
+            self._update_cmd_preview()
+        self.custom_cmd_check.blockSignals(False)
         settings.endGroup()
         self._jxl_loading = False
 
@@ -4090,6 +4133,24 @@ class MainWindow(QMainWindow):
             distance = dist_val
             quality_arg = None
 
+        # 自定义命令：勾选时以用户编辑的命令替代自动拼装。命令必须包含
+        # <输入> 与 <输出> 占位符（逐文件替换为真实路径），否则无法正确执行。
+        custom_cmd = None
+        if self.custom_cmd_check.isChecked():
+            raw = self.cmd_edit.text().strip()
+            if not raw:
+                self.statusBar().showMessage("错误：自定义命令为空")
+                self.log_edit.appendPlainText("错误：自定义命令已勾选但内容为空。")
+                return
+            if "<输入>" not in raw or "<输出>" not in raw:
+                QMessageBox.warning(
+                    self, "自定义命令格式",
+                    "自定义命令必须同时包含 <输入> 和 <输出> 占位符"
+                    "（会被替换为每个文件的真实路径）。"
+                )
+                return
+            custom_cmd = raw
+
         # Build the job list on the UI thread (reads widget state safely),
         # then hand it to a worker thread so the GUI stays responsive.
         # In JPG 无损重编码 mode only JPG inputs are valid (cjxl's
@@ -4139,6 +4200,7 @@ class MainWindow(QMainWindow):
         self._convert_worker = ConvertWorker(
             jobs, actions, effort, distance, quality_arg, lossless_jpeg,
             self.cpu_priority_combo.currentData(), advanced=adv,
+            custom_cmd=custom_cmd,
         )
         self._convert_worker.log_signal.connect(self.log_edit.appendPlainText)
         self._convert_worker.status_signal.connect(self.statusBar().showMessage)
@@ -4246,7 +4308,8 @@ class ConvertWorker(QThread):
 
     def __init__(self, jobs, actions, effort=7, distance=None,
                  quality=None, lossless_jpeg=False,
-                 priority=converter.DEFAULT_PRIORITY, advanced=None):
+                 priority=converter.DEFAULT_PRIORITY, advanced=None,
+                 custom_cmd=None):
         super().__init__()
         self.jobs = jobs
         self.actions = actions  # possibly empty list
@@ -4258,6 +4321,9 @@ class ConvertWorker(QThread):
         # 高级参数 dict（来自 UI _collect_advanced）；键名与 converter.encode 一致，
         # 由 _encode_kwargs 直接展开并覆盖同名基础参数（例如显式 -d 距离）。
         self.advanced = advanced or {}
+        # 自定义命令：若提供，逐文件执行该命令（<输入>/<输出> 占位符替换），
+        # 取代自动拼装的 cjxl 调用。None 表示不使用自定义命令。
+        self.custom_cmd = custom_cmd
         self._stopped = False
 
     def _encode_kwargs(self):
@@ -4280,6 +4346,9 @@ class ConvertWorker(QThread):
         re-encode mode. The conversion parameters are identical for every job,
         so this is computed once before the loop.
         """
+        # 自定义命令模式：统一标记为 [自定义命令]。
+        if self.custom_cmd:
+            return "[自定义命令]"
         # 高级参数 -d 会覆盖基础 distance，两者取其一。
         dist = self.advanced.get("distance", self.distance)
         if self.lossless_jpeg:
@@ -4335,6 +4404,23 @@ class ConvertWorker(QThread):
             return converter.encode(tmp_png, out_path, **self._encode_kwargs())
         img.save(out_path)
         return True, "已保存为 PNG。"
+
+    def _run_custom_command(self, src, out_path):
+        """执行用户自定义命令（<输入>/<输出> 占位符替换为真实路径后）。
+
+        返回 (ok, message)，与 converter.encode 的契约一致，便于 run() 复用
+        同一套状态统计逻辑。
+        """
+        cmd = (self.custom_cmd or "").replace("<输入>", src).replace(
+            "<输出>", out_path
+        )
+        try:
+            tokens = shlex.split(cmd, posix=False)
+        except ValueError as exc:
+            return False, "自定义命令解析失败：%s" % exc
+        if not tokens:
+            return False, "自定义命令为空。"
+        return converter._run(tokens, priority=self.priority)
 
     def _encode_source(self, src, out_path, tmp_files):
         """Encode a non-.jxl source into ``out_path`` via cjxl.
@@ -4420,7 +4506,10 @@ class ConvertWorker(QThread):
                 self.log_signal.emit(">>> [%d/%d] %s" % (index, total, src))
                 try:
                     in_size = _safe_getsize(src)
-                    if self.actions:
+                    if self.custom_cmd:
+                        # 自定义命令模式：跳过 Pillow 动作与自动拼装，直接执行用户命令。
+                        ok, message = self._run_custom_command(src, out_path)
+                    elif self.actions:
                         ok, message = self._process_with_actions(
                             src, out_path, out_is_jxl, self.actions, tmp_files
                         )

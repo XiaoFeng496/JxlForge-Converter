@@ -62,7 +62,7 @@ w = MainWindow()
 check("折叠分组 adv_group 存在（非 checkable，避免误禁用子控件）",
       hasattr(w, "adv_group") and not w.adv_group.isCheckable())
 check("折叠箭头 adv_toggle 存在", hasattr(w, "adv_toggle"))
-check("命令预览 cmd_preview 存在", hasattr(w, "cmd_preview"))
+check("命令预览 cmd_edit 存在", hasattr(w, "cmd_edit"))
 check("重置链接 reset_adv_button 存在", hasattr(w, "reset_adv_button"))
 check("11 个高级参数控件全部构建",
       len(w._adv_widgets) == len(_ADVANCED_SCHEMA) == 11)
@@ -74,7 +74,7 @@ check("默认折叠（内容区隐藏）", w.adv_content.isVisible() is False)
 # ---------------------------------------------------------------------------
 check("默认 lossy 收集为空", w._collect_advanced("lossy") == {})
 check("默认 lossless_jpeg 收集为空", w._collect_advanced("lossless_jpeg") == {})
-check("默认预览不含 --modular", "--modular" not in w.cmd_preview.text())
+check("默认预览不含 --modular", "--modular" not in w.cmd_edit.text())
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +88,8 @@ adv = w._collect_advanced("lossy")
 check("modular 勾选 -> modular=1", adv.get("modular") == 1)
 check("num_threads 勾选 -> 8", adv.get("num_threads") == 8)
 check("未勾选的 progressive 不出现", "progressive" not in adv)
-check("预览含 --modular=1", "--modular=1" in w.cmd_preview.text())
-check("预览含 --num_threads 8", "--num_threads" in w.cmd_preview.text() and "8" in w.cmd_preview.text())
+check("预览含 --modular=1", "--modular=1" in w.cmd_edit.text())
+check("预览含 --num_threads 8", "--num_threads" in w.cmd_edit.text() and "8" in w.cmd_edit.text())
 
 
 # ---------------------------------------------------------------------------
@@ -132,12 +132,12 @@ check("distance 模式下仍不出现 quality 键（由 _on_convert 处理）",
 # ---------------------------------------------------------------------------
 w._adv_widgets["modular"][0].setChecked(True)
 w._update_cmd_preview()
-check("勾 modular 后预览出现 --modular=1", "--modular=1" in w.cmd_preview.text())
+check("勾 modular 后预览出现 --modular=1", "--modular=1" in w.cmd_edit.text())
 w._reset_advanced()
 check("重置后 modular 取消勾选", not w._adv_widgets["modular"][0].isChecked())
 check("重置后 distance 取消勾选", not w._adv_widgets["distance"][0].isChecked())
 check("重置后收集为空", w._collect_advanced("lossy") == {})
-check("重置后预览不含 --modular", "--modular" not in w.cmd_preview.text())
+check("重置后预览不含 --modular", "--modular" not in w.cmd_edit.text())
 
 # 6b. 命令预览应复刻 encode() 的 --lossless_jpeg 解析：
 #     有损 + 批次含 JPG 输入时，实际命令补 --lossless_jpeg=0（cjxl>=0.12 兼容垫片）。
@@ -146,24 +146,48 @@ w.lossy_radio.setChecked(True)
 w.input_files = ["C:/x/photo.jpg"]
 w._update_cmd_preview()
 check("有损 + JPG 输入：预览含 --lossless_jpeg=0",
-      "--lossless_jpeg=0" in w.cmd_preview.text())
+      "--lossless_jpeg=0" in w.cmd_edit.text())
 w.input_files = ["C:/x/photo.png"]
 w._update_cmd_preview()
 check("有损 + 仅 PNG 输入：预览不含 --lossless_jpeg=0",
-      "--lossless_jpeg=0" not in w.cmd_preview.text())
+      "--lossless_jpeg=0" not in w.cmd_edit.text())
 w.input_files = ["C:/x/a.png", "C:/x/b.jpg"]  # 混合列表含 JPG
 w._update_cmd_preview()
 check("有损 + 混合输入（含 JPG）：预览含 --lossless_jpeg=0",
-      "--lossless_jpeg=0" in w.cmd_preview.text())
+      "--lossless_jpeg=0" in w.cmd_edit.text())
 w.lossless_radio.setChecked(True)
 w.input_files = ["C:/x/photo.jpg"]
 w._update_cmd_preview()
 check("无损模式 + JPG：预览不含 --lossless_jpeg=0（仅 -d 0）",
-      "--lossless_jpeg=0" not in w.cmd_preview.text())
+      "--lossless_jpeg=0" not in w.cmd_edit.text())
 # 复位输入集合，避免影响后续测试
 w.input_files = []
 w.lossy_radio.setChecked(True)
 w._update_cmd_preview()
+
+
+# ---------------------------------------------------------------------------
+# 6c. 自定义命令：未勾选=只读预览；勾选=可编辑并预填；取消=恢复只读预览
+# ---------------------------------------------------------------------------
+check("默认未勾选『自定义命令』", w.custom_cmd_check.isChecked() is False)
+check("默认 cmd_edit 只读（等同命令预览）", w.cmd_edit.isReadOnly() is True)
+check("默认 cmd_edit 显示命令预览", "cjxl" in w.cmd_edit.text())
+# 勾选后：可编辑 + 预填当前生成的命令
+w.custom_cmd_check.setChecked(True)
+check("勾选后 cmd_edit 可编辑", w.cmd_edit.isReadOnly() is False)
+check("勾选后预填生成命令（含占位符）",
+      "cjxl" in w.cmd_edit.text() and "<输入>" in w.cmd_edit.text())
+w.cmd_edit.setText("cjxl <输入> <输出> -e 9 --my-custom-flag")
+# 改动其它控件不应覆盖用户已编辑的文本
+w._adv_widgets["modular"][0].setChecked(True)
+w._update_cmd_preview()
+check("勾选态下 _update_cmd_preview 不覆盖用户文本",
+      "my-custom-flag" in w.cmd_edit.text())
+# 取消勾选：恢复只读 + 重新同步实时预览
+w.custom_cmd_check.setChecked(False)
+check("取消勾选后 cmd_edit 恢复只读", w.cmd_edit.isReadOnly() is True)
+check("取消勾选后重新同步预览", "<输入>" in w.cmd_edit.text())
+w._reset_advanced()  # 复位，避免影响后续测试
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +197,8 @@ w.lossless_radio.setChecked(True)
 w._adv_widgets["modular"][0].setChecked(True)
 w._adv_widgets["epf"][0].setChecked(True)
 w._adv_widgets["epf"][1].setValue(1)
+w.custom_cmd_check.setChecked(True)
+w.cmd_edit.setText("cjxl <输入> <输出> -e 3 --persisted-flag")
 w._save_jxl_output()
 w2 = MainWindow()
 check("恢复：modular 勾选状态保留", w2._adv_widgets["modular"][0].isChecked())
@@ -180,6 +206,9 @@ check("恢复：epf 勾选状态保留", w2._adv_widgets["epf"][0].isChecked())
 check("恢复：epf 值保留=1", w2._adv_widgets["epf"][1].value() == 1)
 check("恢复：未勾选的 num_threads 仍为 False",
       not w2._adv_widgets["num_threads"][0].isChecked())
+check("恢复：自定义命令勾选状态保留", w2.custom_cmd_check.isChecked())
+check("恢复：自定义命令文本保留", "persisted-flag" in w2.cmd_edit.text())
+check("恢复：勾选态下 cmd_edit 可编辑", w2.cmd_edit.isReadOnly() is False)
 clear_jxl_output()
 
 
@@ -194,6 +223,31 @@ check("worker 合并 epf", ek.get("epf") == 2)
 check("worker 合并 noise", ek.get("noise") == 0)
 check("worker 基础 quality 保留", ek.get("quality") == 90)
 check("worker 基础 effort 保留", ek.get("effort") == 7)
+
+
+# ---------------------------------------------------------------------------
+# 8b. 自定义命令：worker 标记 + 占位符替换 + 交给 converter._run
+# ---------------------------------------------------------------------------
+_captured_cmd = []
+
+
+def _fake_run(args, priority=None):
+    _captured_cmd.append((list(args), priority))
+    return True, "fake cjxl ok"
+
+
+_real_run = conv_mod._run
+conv_mod._run = _fake_run
+cwc = ConvertWorker(
+    [("in.png", "out.jxl", True)], [], custom_cmd="cjxl <输入> <输出> -e 7 --xcustom"
+)
+check("自定义命令：_encode_tag 标记正确", cwc._encode_tag() == "[自定义命令]")
+ok_cc, msg_cc = cwc._run_custom_command("C:/in/photo.jpg", "C:/out/photo.jxl")
+check("自定义命令：占位符已替换",
+      _captured_cmd and _captured_cmd[0][0][1] == "C:/in/photo.jpg"
+      and _captured_cmd[0][0][2] == "C:/out/photo.jxl")
+check("自定义命令：执行返回 ok", ok_cc is True)
+conv_mod._run = _real_run
 
 
 # ---------------------------------------------------------------------------
