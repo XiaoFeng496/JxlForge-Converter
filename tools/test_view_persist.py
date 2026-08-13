@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """持久化：输入标签页「查看」视图模式跨重启恢复。headless 运行。
 
 覆盖：

@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """Regression test: 输出标签「高级参数」折叠分组。
 
 覆盖：

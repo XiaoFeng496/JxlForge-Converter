@@ -5,7 +5,7 @@ action list and the input (image) list."""
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from PySide6.QtWidgets import QApplication, QListWidgetItem
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent

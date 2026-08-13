@@ -1592,6 +1592,17 @@ class MainWindow(QMainWindow):
                 self._fit_frame_w = self.width() - vp.width()
                 self._fit_frame_h = self.height() - vp.height()
             else:
+                # The view isn't laid out yet. This happens when run() calls
+                # app.processEvents() right after show(): the QTimer.singleShot(0)
+                # that triggers this fit fires INSIDE that processEvents(), BEFORE
+                # the first real layout/paint, so the viewport is still 0x0. Don't
+                # bail permanently (that would strand the window at the wrong
+                # size) -- retry on the next event-loop turn, where the view is
+                # sized, so we still land on the correct 6x3. Cap retries so a
+                # never-sized view can't loop forever.
+                self._fit_retry = getattr(self, "_fit_retry", 0) + 1
+                if self._fit_retry <= 30:
+                    QTimer.singleShot(0, lambda: self._fit_window_to_grid(center))
                 return
         frame_w = self._fit_frame_w
         frame_h = self._fit_frame_h

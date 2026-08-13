@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """Headless verification of the Details-view header refactor.
 
 Validates the bug fixes:

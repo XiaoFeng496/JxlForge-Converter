@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """Regression test: 有损模式对 JPG 输入必须显式传 --lossless_jpeg=0。
 
 新版 cjxl (>=0.12) 把 --lossless_jpeg 默认值改成 1，且禁止在 lossless_jpeg=1

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QScrollBar,
 )
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from libjxl_gui.main_window import (
     InputListWidget,
     AUTO_SCROLL_INTERVAL,

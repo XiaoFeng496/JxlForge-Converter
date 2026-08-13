@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """Headless tests for the QThread-based conversion pipeline and Popen backend.
 
 No Qt rendering / no real cjxl needed: we stub converter.encode/decode and

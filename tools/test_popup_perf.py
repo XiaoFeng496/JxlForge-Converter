@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """Headless tests for the two UI-polish fixes:
 
 1. The settings tab's CPU-priority combo is sized to its widest label instead

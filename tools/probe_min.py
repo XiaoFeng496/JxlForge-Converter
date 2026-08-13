@@ -2,7 +2,7 @@
 """Headless probe: verify the default window is pinned to a 6x3 fit even though
 the actions tab is intrinsically wider."""
 import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from PySide6.QtWidgets import QApplication
 from libjxl_gui import main_window as mw
 

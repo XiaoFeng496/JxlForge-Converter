@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """Headless regression: JXL and AVIF images must produce thumbnails and a preview.
 
 Qt's built-in image readers cannot load JPEG XL or AVIF, so such files

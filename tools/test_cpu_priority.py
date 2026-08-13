@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """Headless tests for the conversion-process CPU-priority feature.
 
 Covers: the converter flag mapping, the settings-tab combo default, and that
