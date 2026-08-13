@@ -299,11 +299,12 @@ w3 = MainWindow()
 w3.lossy_radio.setChecked(True)
 w3._adv_widgets["modular"][0].setChecked(True)
 w3._adv_widgets["faster_decoding"][0].setChecked(True)
+w3._adv_widgets["faster_decoding"][1].setValue(2)
 w3._adv_widgets["epf"][0].setChecked(True)
 w3._adv_widgets["epf"][1].setValue(2)
 kw3 = run_convert_and_capture(w3)
 check("端到端：modular=1 进入 encode", kw3.get("modular") == 1)
-check("端到端：faster_decoding=1 进入 encode", kw3.get("faster_decoding") == 1)
+check("端到端：faster_decoding=2 进入 encode（多档位 0–4）", kw3.get("faster_decoding") == 2)
 check("端到端：epf=2 进入 encode", kw3.get("epf") == 2)
 check("端到端：quality 仍为 90", kw3.get("quality") == 90)
 
@@ -320,7 +321,37 @@ check("端到端：distance 后仍保留 effort", kw4.get("effort") == 7)
 
 
 # ---------------------------------------------------------------------------
-# 9. 输出页整页滚动（方案①：高级参数展开不再撑大窗口，靠滚动条）
+# 9. faster_decoding 多档位校验（2026-08-14 纠正：原误作 bool_value 开关，
+# 仅暴露 =1 一档；实测 cjxl v0.12.0 为 --faster_decoding=0..4 整数档位）。
+# ---------------------------------------------------------------------------
+from PySide6.QtWidgets import QSpinBox
+_fd_schema = next(s for s in _ADVANCED_SCHEMA if s["key"] == "faster_decoding")
+check("faster_decoding schema: kind=int", _fd_schema.get("kind") == "int")
+check("faster_decoding schema: min=0, max=4, default=0",
+      _fd_schema.get("min") == 0 and _fd_schema.get("max") == 4
+      and _fd_schema.get("default") == 0)
+_fd_w = w3._adv_widgets["faster_decoding"]
+check("faster_decoding 控件为 QSpinBox（多档位）", isinstance(_fd_w[1], QSpinBox))
+check("faster_decoding 默认不勾选（不传参）", _fd_w[0].isChecked() is False)
+_fd_w[0].setChecked(True)
+check("faster_decoding 档位边界：min=0", _fd_w[1].minimum() == 0)
+check("faster_decoding 档位边界：max=4", _fd_w[1].maximum() == 4)
+# 显式最低档 0：证明 cjxl 接受 --faster_decoding=0（= 默认，合法，与
+# modular/container 的「=0 无意义」不同，这正是本次纠正的核心）。
+_fd_w[1].setValue(0)
+kw_fd0 = run_convert_and_capture(w3)
+check("端到端：faster_decoding=0 进入 encode（cjxl 合法默认档）",
+      kw_fd0.get("faster_decoding") == 0)
+# 最高档 4
+_fd_w[1].setValue(4)
+kw_fd = run_convert_and_capture(w3)
+check("端到端：faster_decoding=4 进入 encode（最高档）",
+      kw_fd.get("faster_decoding") == 4)
+_fd_w[0].setChecked(False)
+
+
+# ---------------------------------------------------------------------------
+# 10. 输出页整页滚动（方案①：高级参数展开不再撑大窗口，靠滚动条）
 # ---------------------------------------------------------------------------
 from PySide6.QtWidgets import QScrollArea, QFrame
 from PySide6.QtCore import Qt

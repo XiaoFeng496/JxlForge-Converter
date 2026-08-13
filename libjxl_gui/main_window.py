@@ -1275,8 +1275,8 @@ _ADVANCED_SCHEMA = [
     {"key": "progressive", "flag": "--progressive", "label": "渐进式解码 (--progressive)",
      "kind": "switch", "default": False,
      "group": "质量精细", "modes": ("lossy",)},
-    {"key": "faster_decoding", "flag": "--faster_decoding", "label": "加速解码 (--faster_decoding)",
-     "kind": "bool_value", "default": False, "value": 1,
+    {"key": "faster_decoding", "flag": "--faster_decoding", "label": "加速解码档位 (--faster_decoding, 0–4)",
+     "kind": "int", "default": 0, "min": 0, "max": 4,
      "group": "质量精细", "modes": ("lossy",)},
     # 编码策略（全部模式可用）
     {"key": "modular", "flag": "--modular", "label": "Modular 模式 (--modular)",

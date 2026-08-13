@@ -117,9 +117,13 @@ def build_args(
     Every advanced knob defaults to "don't pass" so callers that omit it get the
     same command as before:
       * ``progressive`` — pure switch: ``--progressive`` only when truthy.
-      * ``modular`` / ``container`` / ``faster_decoding`` — value-bool switches:
-        pass e.g. ``--modular=1``; never pass ``=0`` (cjxl rejects bare
-        ``--modular`` and ``=0`` is meaningless noise). ``None`` = omit.
+      * ``modular`` / ``container`` — value-bool switches: pass e.g.
+        ``--modular=1``; never pass ``=0`` (cjxl rejects bare ``--modular`` and
+        ``=0`` is meaningless noise). ``None`` = omit.
+      * ``faster_decoding`` — multi-level int flag ``--faster_decoding=0..4``
+        (verified on cjxl v0.12.0): higher values improve decode speed at the
+        expense of quality or density, default 0. Any in-range value is valid,
+        including ``=0`` (it is cjxl's default, not noise); ``None`` = omit.
       * ``num_threads`` / ``brotli_effort`` / ``epf`` / ``noise`` /
         ``resampling`` / ``codestream_level`` — plain value flags, only appended
         when not ``None``.
