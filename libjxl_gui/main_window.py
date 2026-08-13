@@ -1333,6 +1333,7 @@ class MainWindow(QMainWindow):
         self._thumb_timer = None  # batch timer for async thumbnail generation
         self._thumb_queue = []   # pending (item, path, box_square) batches
         self._sized = False     # resize-to-fit (6x3) once, on first show
+        self._env_refreshed = False  # _refresh_environment done once, after show
         self._menu_warmed = False  # folder-history popup pre-warm DONE
         self._warm_fallback_scheduled = False  # idle fallback timer armed
         # Cached window "chrome" (title bar + borders + tab bar + status bar +
@@ -1401,7 +1402,6 @@ class MainWindow(QMainWindow):
         # Restore the persisted Input-tab "查看" view mode (after the input
         # tab is built and the default view applied during build).
         self._load_view_mode()
-        self._refresh_environment()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F9:
@@ -1464,6 +1464,13 @@ class MainWindow(QMainWindow):
             # current tab on first show) is visible, so the "一键 6×3 排版"
             # button stays correct even when clicked from another tab.
             QTimer.singleShot(0, self._cache_window_frame)
+        # Detect cjxl/djxl + write the env log/status line OFF the startup
+        # critical path: it is pure I/O + log/status text, the window does not
+        # need it to paint its first frame. Running it after show() (deferred
+        # one event-loop turn) shaves its cost off the open-to-visible time.
+        if not self._env_refreshed:
+            self._env_refreshed = True
+            QTimer.singleShot(0, self._refresh_environment)
         # Warm the folder-history popup OFF the startup critical path. The
         # one-off native-popup creation (HWND + drop shadow + style polish) is
         # what used to make the first click stutter -- and what moving it to
