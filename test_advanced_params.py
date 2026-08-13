@@ -211,6 +211,16 @@ check("恢复：自定义命令文本保留", "persisted-flag" in w2.cmd_edit.te
 check("恢复：勾选态下 cmd_edit 可编辑", w2.cmd_edit.isReadOnly() is False)
 clear_jxl_output()
 
+# 7b. 回归：取消勾选后重新打开必须保持未勾选
+# （曾因 bool("false") 误判为 True，导致取消勾选又自动勾上）
+w3 = MainWindow()
+w3.custom_cmd_check.setChecked(False)
+w3._save_jxl_output()
+w4 = MainWindow()
+check("回归：取消『自定义命令』后重新打开仍为未勾选",
+      w4.custom_cmd_check.isChecked() is False)
+clear_jxl_output()
+
 
 # ---------------------------------------------------------------------------
 # 8. ConvertWorker._encode_kwargs 合并 advanced

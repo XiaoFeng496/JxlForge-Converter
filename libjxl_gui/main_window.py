@@ -2558,8 +2558,12 @@ class MainWindow(QMainWindow):
         # 恢复自定义命令：用 blockSignals 避免触发 _on_custom_cmd_toggled 的
         # 预填逻辑覆盖已持久化的命令文本。
         self.custom_cmd_check.blockSignals(True)
+        # QSettings(INI) 把 bool 存成字符串 "true"/"false"，必须用字符串显式
+        # 解析——直接 bool(settings.value(...)) 会让 "false" 也判为 True，
+        # 导致「取消勾选后重新打开又变勾选」。
         self.custom_cmd_check.setChecked(
-            bool(settings.value("custom_cmd_on", False))
+            str(settings.value("custom_cmd_on", False)).strip().lower()
+            in ("true", "1", "yes", "on")
         )
         self.cmd_edit.setText(str(settings.value("custom_cmd_text", "")))
         if self.custom_cmd_check.isChecked():
