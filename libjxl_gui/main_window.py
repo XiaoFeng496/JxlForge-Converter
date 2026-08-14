@@ -4126,6 +4126,17 @@ class MainWindow(QMainWindow):
         style = QStyleFactory.create(name)
         if style is not None:
             QApplication.setStyle(style)
+        # Fusion paints the checked radio/checkbox indicator (and other accent
+        # controls) using the QPalette.Accent role, which defaults to blue. For
+        # the Fusion theme we override that accent to black, so the checked
+        # indicator background is black instead of blue. Other themes keep their
+        # native accent unchanged.
+        if theme == "fusion":
+            pal = QApplication.palette()
+            pal.setColor(QPalette.Accent, QColor(0, 0, 0))
+            QApplication.setPalette(pal)
+        else:
+            QApplication.setPalette(QApplication.style().standardPalette())
 
     def _apply_theme(self, theme):
         """Apply a theme in full: update global state, switch the app-wide
