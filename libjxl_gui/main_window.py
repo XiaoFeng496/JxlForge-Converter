@@ -89,6 +89,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QMenu,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -250,6 +251,25 @@ def _format_bytes(num_bytes):
     if n < 1024.0 * 1024.0 * 1024.0:
         return "%.2f" % (n / (1024.0 * 1024.0)) + " MB"
     return "%.2f" % (n / (1024.0 * 1024.0 * 1024.0)) + " GB"
+
+
+def _format_duration(seconds):
+    """Format a duration in seconds as a short Chinese string.
+
+    e.g. '12 秒' / '1 分 5 秒' / '2 时 3 分'. Invalid input returns '--'.
+    """
+    if seconds is None or seconds < 0:
+        return "--"
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return "%d 秒" % seconds
+    minutes = seconds // 60
+    secs = seconds % 60
+    if minutes < 60:
+        return "%d 分 %d 秒" % (minutes, secs)
+    hours = minutes // 60
+    mins = minutes % 60
+    return "%d 时 %d 分" % (hours, mins)
 
 
 def _safe_getsize(path):
@@ -2510,6 +2530,21 @@ class MainWindow(QMainWindow):
         self.log_edit = QPlainTextEdit()
         self.log_edit.setReadOnly(True)
         layout.addWidget(self.log_edit, stretch=1)
+
+        # 进度条 + 当前进度 / 预计剩余时间（位于日志框下方）
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        layout.addWidget(self.progress_bar)
+
+        progress_row = QHBoxLayout()
+        self.progress_label = QLabel("当前进度：0 / 0 文件")
+        self.eta_label = QLabel("预计剩余：--")
+        progress_row.addWidget(self.progress_label)
+        progress_row.addStretch(1)
+        progress_row.addWidget(self.eta_label)
+        layout.addLayout(progress_row)
         return widget
 
     def _build_settings_tab(self):
@@ -2607,12 +2642,84 @@ class MainWindow(QMainWindow):
         cpu_row.addStretch(1)
         layout.addLayout(cpu_row)
 
+        # ---- CPU 核心使用数（转换并行度） ----
+        cores_tip = (
+            "转换时并行使用的 CPU 核心数，决定同时转换的文件数（多文件时）"
+            "或单个大文件的线程数（单文件时）。「自动」等于本机逻辑核心数。"
+        )
+        cores_row = QHBoxLayout()
+        cores_row.setSpacing(8)
+        cores_label = QLabel("CPU 核心使用数")
+        cores_label.setToolTip(cores_tip)
+        cores_row.addWidget(cores_label)
+        self.cpu_cores_combo = NoFlickerComboBox()
+        self.cpu_cores_combo.setToolTip(cores_tip)
+        self.cpu_cores_combo.addItem("自动", "auto")
+        max_cores = os.cpu_count() or 1
+        for n in range(1, max_cores + 1):
+            self.cpu_cores_combo.addItem(str(n), n)
+        # 按当前样式计算最小宽度（原生/Fusion 箭头与边框边距不同），并在切换
+        # 主题时由 _apply_theme 重新计算，避免原生主题下截断。
+        self._set_combo_min_width(self.cpu_cores_combo)
+        self.cpu_cores_combo.setCurrentIndex(self.cpu_cores_combo.findData("auto"))
+        self.cpu_cores_combo.currentIndexChanged.connect(self._on_cpu_cores_changed)
+        cores_row.addWidget(self.cpu_cores_combo)
+        cores_row.addStretch(1)
+        layout.addLayout(cores_row)
+
+        # ---- 启用高级参数（手动设置每文件线程数） ----
+        adv_threads_tip = (
+            "关闭时，每个文件的线程数（--num_threads）由「CPU 核心使用数」自动"
+            "分配；打开后可手动设置每文件线程数，此时并行进程数 = 核心数 ÷ 每文件线程数。"
+        )
+        self.adv_threads_toggle = QCheckBox(
+            "启用高级参数（手动设置每文件线程数 --num_threads）"
+        )
+        self.adv_threads_toggle.setToolTip(adv_threads_tip)
+        self.adv_threads_toggle.setChecked(False)
+        self.adv_threads_toggle.toggled.connect(self._on_adv_threads_toggled)
+        layout.addWidget(self.adv_threads_toggle)
+
         layout.addStretch(1)
         return widget
 
     def _on_cpu_priority_changed(self, _index):
         """Persist the CPU-priority choice whenever the user changes it."""
         self._save_conversion_settings()
+
+    def _on_cpu_cores_changed(self, _index):
+        """Persist the CPU-core-count choice whenever the user changes it."""
+        self._save_conversion_settings()
+
+    def _on_adv_threads_toggled(self, _checked):
+        """开关联动：启用/禁用高级「线程数 (--num_threads)」行，并更新提示文字。"""
+        enabled = self.adv_threads_toggle.isChecked()
+        self._apply_adv_threads_state(enabled)
+        self._save_conversion_settings()
+
+    def _apply_adv_threads_state(self, enabled):
+        """根据「启用高级参数」开关，启用/禁用高级参数里的 num_threads 行，
+        并更新设置页提示文字。相关控件未构建时（输出页/设置页晚于本调用）安全跳过。"""
+        adv_widgets = getattr(self, "_adv_widgets", {})
+        entry = adv_widgets.get("num_threads")
+        if entry is not None:
+            check, val_w, _ = entry
+            check.setEnabled(enabled)
+            if val_w is not None:
+                val_w.setEnabled(enabled and check.isChecked())
+        # 说明文字不再作为独立可见小字（部分主题下 palette(mid) 颜色异常），
+        # 改为并入开关的悬停浮窗，跟随主题原生 tooltip 配色。
+        if hasattr(self, "adv_threads_toggle"):
+            if enabled:
+                self.adv_threads_toggle.setToolTip(
+                    "已启用：可手动设置每文件线程数（--num_threads）；"
+                    "并行进程数 = 核心数 ÷ 每文件线程数。"
+                )
+            else:
+                self.adv_threads_toggle.setToolTip(
+                    "未启用：每文件线程数（--num_threads）由「CPU 核心使用数」自"
+                    "动分配，并行池自动控核。"
+                )
 
     def _on_center_window(self):
         """Move the window to the centre of the primary screen (keep size)."""
@@ -4145,7 +4252,8 @@ class MainWindow(QMainWindow):
 
     # ---- conversion-process settings persistence (QSettings) ----------
     def _save_conversion_settings(self):
-        """Persist the conversion-process CPU priority to QSettings.
+        """Persist the conversion-process settings (CPU priority, core count,
+        advanced-thread toggle) to QSettings.
 
         Guarded by ``_conversion_loading`` so restoring on launch does not
         immediately re-save (and clobber) the stored value.
@@ -4155,21 +4263,31 @@ class MainWindow(QMainWindow):
         settings = QSettings()
         settings.beginGroup("conversion")
         settings.setValue("cpu_priority", self.cpu_priority_combo.currentData())
+        settings.setValue("cpu_cores", self.cpu_cores_combo.currentData())
+        settings.setValue("adv_threads_enabled", self.adv_threads_toggle.isChecked())
         settings.endGroup()
 
     def _load_conversion_settings(self):
-        """Restore the persisted CPU-priority choice onto the settings-tab combo.
-        Safe to call only after the settings tab (and thus the combo) is built."""
+        """Restore the persisted conversion-process settings onto the UI.
+        Safe to call only after the settings tab (and thus the combos) is built."""
         self._conversion_loading = True
         settings = QSettings()
         settings.beginGroup("conversion")
         key = settings.value("cpu_priority", converter.DEFAULT_PRIORITY)
+        cores = settings.value("cpu_cores", "auto")
+        adv_enabled = settings.value("adv_threads_enabled", False, type=bool)
         settings.endGroup()
         if not isinstance(key, str) or self.cpu_priority_combo.findData(key) < 0:
             key = converter.DEFAULT_PRIORITY
         self.cpu_priority_combo.setCurrentIndex(
             self.cpu_priority_combo.findData(key)
         )
+        if self.cpu_cores_combo.findData(cores) < 0:
+            cores = "auto"
+        self.cpu_cores_combo.setCurrentIndex(self.cpu_cores_combo.findData(cores))
+        self.adv_threads_toggle.setChecked(bool(adv_enabled))
+        # 高级参数 num_threads 行受开关控制；此时输出页已构建，可安全联动。
+        self._apply_adv_threads_state(bool(adv_enabled))
         self._conversion_loading = False
 
     # ---- application theme (persisted) --------------------------------
@@ -4219,9 +4337,10 @@ class MainWindow(QMainWindow):
             cb._apply_fusion_style()
         self._apply_theme_to_folder_menu()
         # Native vs Fusion styles have different arrow / frame margins, so the
-        # two explicitly-sized combos need their minimum width recalculated.
+        # explicitly-sized combos need their minimum width recalculated.
         for combo in (getattr(self, "theme_combo", None),
-                      getattr(self, "cpu_priority_combo", None)):
+                      getattr(self, "cpu_priority_combo", None),
+                      getattr(self, "cpu_cores_combo", None)):
             if combo is not None:
                 self._set_combo_min_width(combo)
         self._sync_radio_inactive_palette()
@@ -4465,10 +4584,19 @@ class MainWindow(QMainWindow):
             jobs, actions, effort, distance, quality_arg, lossless_jpeg,
             self.cpu_priority_combo.currentData(), advanced=adv,
             custom_cmd=custom_cmd,
+            cpu_cores=self.cpu_cores_combo.currentData(),
+            adv_threads_enabled=self.adv_threads_toggle.isChecked(),
         )
         self._convert_worker.log_signal.connect(self.log_edit.appendPlainText)
         self._convert_worker.status_signal.connect(self.statusBar().showMessage)
         self._convert_worker.finished_signal.connect(self._on_convert_finished)
+        self._convert_worker.progress_signal.connect(self._on_progress_update)
+        # 重置进度条与文案，并记录起点用于预计剩余时间
+        self.progress_bar.setMaximum(max(1, len(jobs)))
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("当前进度：0 / %d 文件" % len(jobs))
+        self.eta_label.setText("预计剩余：--")
+        self._convert_start_time = time.time()
         self._convert_worker.start()
 
     def _on_convert_finished(self):
@@ -4508,11 +4636,34 @@ class MainWindow(QMainWindow):
                 "转换完成：%d 个文件" % worker._stat_ok
             )
 
+        # 进度条收尾：停在已处理数（正常完成=总数，中止=部分），清除预计剩余。
+        self.progress_bar.setValue(worker._stat_processed)
+        self.eta_label.setText("预计剩余：--")
+
         self.convert_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         if worker is not None:
             worker.deleteLater()
             self._convert_worker = None
+
+    def _on_progress_update(self, processed, total):
+        """Update the progress bar, current count, and ETA from worker progress."""
+        if total <= 0:
+            return
+        self.progress_bar.setMaximum(total)
+        self.progress_bar.setValue(processed)
+        self.progress_label.setText(
+            "当前进度：%d / %d 文件" % (processed, total)
+        )
+        start = getattr(self, "_convert_start_time", None)
+        elapsed = time.time() - start if start else 0.0
+        if processed > 0 and elapsed > 0:
+            avg_per_file = elapsed / processed
+            remaining = total - processed
+            eta = avg_per_file * remaining
+            self.eta_label.setText("预计剩余：%s" % _format_duration(eta))
+        else:
+            self.eta_label.setText("预计剩余：--")
 
     def _on_convert_stop(self):
         if self._convert_worker is None or not self._convert_worker.isRunning():
@@ -4573,11 +4724,12 @@ class ConvertWorker(QThread):
     log_signal = Signal(str)
     status_signal = Signal(str)
     finished_signal = Signal()
+    progress_signal = Signal(int, int)  # (已处理文件数, 总文件数)
 
     def __init__(self, jobs, actions, effort=7, distance=None,
                  quality=None, lossless_jpeg=False,
                  priority=converter.DEFAULT_PRIORITY, advanced=None,
-                 custom_cmd=None):
+                 custom_cmd=None, cpu_cores="auto", adv_threads_enabled=False):
         super().__init__()
         self.jobs = jobs
         self.actions = actions  # possibly empty list
@@ -4592,6 +4744,14 @@ class ConvertWorker(QThread):
         # 自定义命令：若提供，逐文件执行该命令（<输入>/<输出> 占位符替换），
         # 取代自动拼装的 cjxl 调用。None 表示不使用自定义命令。
         self.custom_cmd = custom_cmd
+        # CPU 核心使用数：int（用户选定）或 "auto"（本机逻辑核心数）。决定并行度。
+        self.cpu_cores = cpu_cores
+        # 是否启用高级参数手动设置每文件线程数（--num_threads）。
+        self.adv_threads_enabled = adv_threads_enabled
+        # 由 _resolve_concurrency 在 run() 开头计算；_encode_kwargs 用它统一覆盖
+        # 高级参数里的 num_threads，避免与文件级并行叠加导致超订。
+        self._per_file_threads = None
+        self._total = 0
         self._stopped = False
 
     def _encode_kwargs(self):
@@ -4604,7 +4764,38 @@ class ConvertWorker(QThread):
             "priority": self.priority,
         }
         kw.update(self.advanced)
+        # 并行池统一控制每文件线程数：覆盖高级参数里的 num_threads（若存在），
+        # 防止与文件级并行叠加导致 CPU 超订。单文件时这里会设为全部核心。
+        if getattr(self, "_per_file_threads", None) is not None:
+            kw["num_threads"] = self._per_file_threads
         return kw
+
+    def _resolve_concurrency(self, n_jobs):
+        """把「CPU 核心使用数」解析为 (cores, per_file_threads, pool_size)。
+
+        - 多文件：同时跑 pool_size 个 cjxl 进程；每个进程 --num_threads=1（或
+          高级开关打开时为用户设定值），总核占用 ≈ 设定核心数，不会超订。
+        - 单文件：不开多进程，直接把全部核心交给这一个 cjxl（--num_threads=cores），
+          否则单文件只用 1 核太浪费。
+        """
+        cores = self.cpu_cores
+        if not isinstance(cores, int) or cores < 1:
+            cores = os.cpu_count() or 1
+        adv_num = None
+        if self.adv_threads_enabled:
+            adv_num = self.advanced.get("num_threads")
+            if not isinstance(adv_num, int) or adv_num < 1:
+                adv_num = None
+        if n_jobs <= 1:
+            per_file = adv_num if adv_num else cores
+            pool_size = 1
+        else:
+            per_file = adv_num if adv_num else 1
+            if per_file and per_file > 0:
+                pool_size = max(1, min(n_jobs, cores // per_file))
+            else:
+                pool_size = n_jobs
+        return cores, per_file, pool_size
 
     def _encode_tag(self):
         """Bracketed, human-readable description of how files are encoded.
@@ -4750,80 +4941,161 @@ class ConvertWorker(QThread):
         return False, msg2
 
     def run(self):
+        """Run the conversion as a bounded pool of concurrent cjxl/djxl processes.
+
+        Each job runs in its own worker thread (via ThreadPoolExecutor), so several
+        files convert in parallel. The GIL is released during the subprocess
+        ``communicate()`` wait, so the cjxl/djxl processes truly overlap. The
+        number of concurrent processes (``pool_size``) and the per-file thread
+        count (``per_file_threads``) are derived from the user's "CPU 核心使用数"
+        setting; together they keep total CPU usage near the chosen budget without
+        oversubscription (each child is launched with an explicit ``--num_threads``,
+        overriding any advanced value).
+        """
+        import concurrent.futures as cf
+
         total = len(self.jobs)
+        self._total = total
         self._stat_started = time.time()
         self._stat_processed = 0
         self._stat_ok = 0
         self._stat_err = 0
         self._stat_in_bytes = 0
         self._stat_out_bytes = 0
-        tmp_files = []
+        encode_tag = self._encode_tag()
+        cores, per_file, pool_size = self._resolve_concurrency(total)
+        self._per_file_threads = per_file
+
         try:
             self.log_signal.emit(
                 "开始转换: " + _format_datetime(self._stat_started)
             )
             self.log_signal.emit("")
-            encode_tag = self._encode_tag()
-            for index, (src, out_path, out_is_jxl) in enumerate(self.jobs, start=1):
-                if self._stopped:
-                    self.log_signal.emit("已停止。")
-                    break
-                self.status_signal.emit(
-                    "正在处理 (%d/%d)：%s" % (index, total, os.path.basename(src))
+            self.log_signal.emit(
+                "并发设置：核心数=%s，每文件线程=%d，并行进程=%d"
+                % (self.cpu_cores if isinstance(self.cpu_cores, int) else "自动",
+                   per_file, pool_size)
+            )
+            if total == 0:
+                return
+            executor = cf.ThreadPoolExecutor(max_workers=pool_size)
+            futures = {}  # fut -> (index, src)
+            pending = list(enumerate(self.jobs, start=1))
+
+            def submit_next():
+                while pending and len(futures) < pool_size:
+                    index, job = pending.pop(0)
+                    src = job[0]
+                    fut = executor.submit(self._process_job, index, *job)
+                    futures[fut] = (index, src)
+
+            submit_next()
+            while futures and not self._stopped:
+                done, _ = cf.wait(
+                    list(futures), timeout=0.1,
+                    return_when=cf.FIRST_COMPLETED,
                 )
-                self.log_signal.emit(">>> [%d/%d] %s" % (index, total, src))
-                try:
-                    in_size = _safe_getsize(src)
-                    if self.custom_cmd:
-                        # 自定义命令模式：跳过 Pillow 动作与自动拼装，直接执行用户命令。
-                        ok, message = self._run_custom_command(src, out_path)
-                    elif self.actions:
-                        ok, message = self._process_with_actions(
-                            src, out_path, out_is_jxl, self.actions, tmp_files
-                        )
-                    elif src.lower().endswith(".jxl"):
-                        if out_is_jxl:
-                            # cjxl natively transcodes a JXL input into a JXL
-                            # output — this is the "compress a large JXL into a
-                            # smaller JXL" use case. The --lossless_jpeg flag
-                            # only applies to JPEG inputs, so drop it here.
-                            kw = self._encode_kwargs()
-                            kw.pop("lossless_jpeg", None)
-                            ok, message = converter.encode(src, out_path, **kw)
-                        else:
-                            # Decoding a JXL into a raster (PNG) needs djxl.
-                            ok, message = converter.decode(
-                                src, out_path, priority=self.priority
-                            )
-                    else:
-                        ok, message = self._encode_source(src, out_path, tmp_files)
-                except Exception as exc:
-                    ok, message = False, "处理出错：%s" % exc
-                # 用户在当前文件运行期间中止：丢弃该文件结果，避免把被杀的子
-                # 进程当成真正的转换失败。
-                if self._stopped:
-                    self.log_signal.emit("已停止。")
-                    break
-                self._stat_processed += 1
-                self._stat_in_bytes += in_size
-                if ok:
-                    out_size = _safe_getsize(out_path)
-                    self._stat_out_bytes += out_size
-                    self._stat_ok += 1
-                    self.log_signal.emit(
-                        _format_size_change(in_size, out_size, encode_tag)
-                    )
-                else:
-                    self._stat_err += 1
-                    self.log_signal.emit("处理失败：%s" % message)
+                for fut in done:
+                    rec = futures.pop(fut, None)
+                    if rec is None:
+                        continue
+                    index, src = rec
+                    if fut.cancelled():
+                        continue
+                    try:
+                        res = fut.result()
+                    except Exception as exc:
+                        res = (False, "处理出错：%s" % exc, 0, 0, True)
+                    ok, message, in_size, out_size, stopped = res
+                    if stopped:
+                        # 被用户在运行中中止（子进程被杀）——不计入成功/失败。
+                        continue
+                    self._record_result(index, src, ok, message, in_size,
+                                       out_size, encode_tag)
+                submit_next()
+            if self._stopped:
+                self.log_signal.emit("已停止。")
+                for fut in list(futures):
+                    fut.cancel()
+                executor.shutdown(wait=False, cancel_futures=True)
+            else:
+                executor.shutdown(wait=True)
         finally:
-            for t in tmp_files:
-                try:
-                    if os.path.exists(t):
-                        os.remove(t)
-                except OSError:
-                    pass
-        self.finished_signal.emit()
+            self.finished_signal.emit()
+
+    def _process_job(self, index, src, out_path, out_is_jxl):
+        """Process a single job synchronously (in its own thread) and return a
+        result tuple ``(ok, message, in_size, out_size, stopped)``.
+
+        ``stopped`` is True when the job failed only because the user pressed 停止
+        mid-run (the child cjxl/djxl was terminated); such jobs are not counted as
+        errors by the caller.
+        """
+        try:
+            in_size = _safe_getsize(src)
+            self.status_signal.emit(
+                "正在处理 (%d/%d)：%s" % (index, self._total, os.path.basename(src))
+            )
+            tmp_files = []
+            try:
+                if self.custom_cmd:
+                    # 自定义命令模式：跳过 Pillow 动作与自动拼装，直接执行用户命令。
+                    ok, message = self._run_custom_command(src, out_path)
+                elif self.actions:
+                    ok, message = self._process_with_actions(
+                        src, out_path, out_is_jxl, self.actions, tmp_files
+                    )
+                elif src.lower().endswith(".jxl"):
+                    if out_is_jxl:
+                        # cjxl natively transcodes a JXL input into a JXL
+                        # output — drop --lossless_jpeg (JPEG-only flag).
+                        kw = self._encode_kwargs()
+                        kw.pop("lossless_jpeg", None)
+                        ok, message = converter.encode(src, out_path, **kw)
+                    else:
+                        # Decoding a JXL into a raster (PNG) needs djxl.
+                        ok, message = converter.decode(
+                            src, out_path, priority=self.priority
+                        )
+                else:
+                    ok, message = self._encode_source(src, out_path, tmp_files)
+            finally:
+                for t in tmp_files:
+                    try:
+                        if os.path.exists(t):
+                            os.remove(t)
+                    except OSError:
+                        pass
+            # 若运行过程中被中止，子进程被杀会返回失败；标记为 stopped 不计入统计。
+            if (not ok) and self._stopped:
+                return (False, message, in_size, 0, True)
+            out_size = _safe_getsize(out_path) if ok else 0
+            return (ok, message, in_size, out_size, False)
+        except Exception as exc:
+            stopped = self._stopped
+            return (False, "处理出错：%s" % exc, in_size, 0, stopped)
+
+    def _record_result(self, index, src, ok, message, in_size, out_size,
+                       encode_tag):
+        """Update running statistics and emit the per-file log block.
+
+        The '>>> [n/m] path' header and the size/failure line are emitted here
+        together at job completion (the orchestrator thread), so each file's two
+        lines stay adjacent even under parallel execution — no scrambled order.
+        """
+        self.log_signal.emit(">>> [%d/%d] %s" % (index, self._total, src))
+        self._stat_processed += 1
+        self._stat_in_bytes += in_size
+        self.progress_signal.emit(self._stat_processed, self._total)
+        if ok:
+            self._stat_out_bytes += out_size
+            self._stat_ok += 1
+            self.log_signal.emit(
+                _format_size_change(in_size, out_size, encode_tag)
+            )
+        else:
+            self._stat_err += 1
+            self.log_signal.emit("处理失败：%s" % message)
 
 
 class ActionParamDialog(QDialog):

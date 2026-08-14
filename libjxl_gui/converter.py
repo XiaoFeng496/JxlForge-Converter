@@ -12,10 +12,13 @@ import subprocess
 
 
 # Module-level handle to the process currently spawned by _run(). Lets a
-# caller (e.g. the conversion worker) terminate an in-flight cjxl/djxl run
-# when the user presses 停止. Only one conversion runs at a time, so a single
-# handle is sufficient.
+# Handle(s) to the child process started by the most recent _run() call, so the
+# conversion worker can terminate an in-flight cjxl/djxl run when the user
+# presses 停止. The parallel pool can run several conversions at once, so every
+# live process is tracked in _active_processes and terminate_current() kills all
+# of them; _current_process keeps pointing at the most-recently started one.
 _current_process = None
+_active_processes = set()
 
 # On Windows, console subprocesses (cjxl/djxl) open a visible black console
 # window by default. CREATE_NO_WINDOW spawns them without one. The constant is
@@ -39,12 +42,19 @@ DEFAULT_PRIORITY = "below_normal"
 
 
 def terminate_current():
-    """Terminate the child process started by the most recent _run() call.
+    """Terminate every child process currently spawned by this module.
 
-    Safe to call from a different thread than the one running _run(). If no
-    process is running (or it already exited) this is a no-op.
+    The parallel pool may run several cjxl/djxl processes at once, so this kills
+    all of them (not just the most recent). Safe to call from a different thread
+    than the ones running _run(). Processes that already exited are skipped.
     """
     global _current_process
+    for proc in list(_active_processes):
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
     proc = _current_process
     if proc is not None and proc.poll() is None:
         try:
@@ -292,7 +302,8 @@ def _run(args, priority=DEFAULT_PRIORITY):
     ``communicate()`` blocks until it finishes and captures stdout/stderr
     (functionally equivalent to the old ``subprocess.run`` call, but built on
     Popen as the underlying primitive). The running process is registered in
-    ``_current_process`` so it can be interrupted via :func:`terminate_current`.
+    ``_current_process`` (most-recent) and ``_active_processes`` (all live ones)
+    so the parallel pool can interrupt them via :func:`terminate_current`.
     """
     global _current_process
     flag = _PRIORITY_FLAGS.get(priority, _PRIORITY_FLAGS[DEFAULT_PRIORITY])
@@ -304,17 +315,20 @@ def _run(args, priority=DEFAULT_PRIORITY):
             text=True,
             creationflags=_CREATE_NO_WINDOW | flag,
         )
-        _current_process = proc
     except FileNotFoundError:
         _current_process = None
         return False, "未找到可执行文件：%s（请确认其已加入系统 PATH）" % args[0]
     except OSError as exc:
         _current_process = None
         return False, "执行命令失败：%s" % exc
+    _current_process = proc
+    _active_processes.add(proc)
     try:
         stdout, stderr = proc.communicate()
     finally:
-        _current_process = None
+        _active_processes.discard(proc)
+        if _current_process is proc:
+            _current_process = None
     if proc.returncode != 0:
         detail = (stderr or "").strip() or "未知错误"
         return False, "命令返回错误（退出码 %d）：%s" % (proc.returncode, detail)

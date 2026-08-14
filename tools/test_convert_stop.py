@@ -3,9 +3,11 @@
 
 Verifies:
 - 停止 button is created, disabled at idle, enabled during conversion.
-- Pressing 停止 requests a stop: the loop breaks early (only the first file
-  starts) and the log reports 已停止.
-- The in-flight child process is interrupted via converter.terminate_current().
+- Pressing 停止 requests a stop: the in-flight child process is interrupted via
+  converter.terminate_current() and the loop breaks early (not-yet-started
+  files are skipped); the log reports 已停止 / 转换停止.
+- 并行池下，每个文件的 `>>> [N]` 头在「完成时」才打印，且必紧接其大小/失败行
+  （顺序修复：不串位）。本测试验证此不变量。
 - convert button is re-enabled and stop button disabled once finished.
 """
 import os
@@ -115,9 +117,15 @@ check("convert button re-enabled after stop", window.convert_button.isEnabled() 
 check("stop button disabled after finish", window.stop_button.isEnabled() is False)
 check("log reports 已停止", any("已停止" in s for s in logs))
 check("log reports 转换停止", any("转换停止:" in s for s in logs))
-check("only first file started before stop",
-      sum(">>> [1/5]" in s for s in logs) == 1
-      and sum(">>> [2/5]" in s for s in logs) == 0)
+# 顺序修复不变量：每个 >>> [N] 头必紧接其大小/失败行（头以 \t 或「处理失败」开头）。
+header_idx = [i for i, s in enumerate(logs) if s.startswith(">>> [")]
+orphan = False
+for i in header_idx:
+    nxt = logs[i + 1] if i + 1 < len(logs) else ""
+    if not (nxt.startswith("\t") or nxt.startswith("处理失败")):
+        orphan = True
+        break
+check("每个 >>> [N] 头紧接其大小/失败行（无串位）", not orphan)
 
 # Restore and cleanup
 conv_mod.encode = _real_encode

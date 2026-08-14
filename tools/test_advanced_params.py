@@ -99,9 +99,13 @@ check("默认预览不含 --modular", "--modular" not in w.cmd_edit.text())
 # 3. 勾选后正确收集（含值布尔开关）
 # ---------------------------------------------------------------------------
 w.lossy_radio.setChecked(True)
+# 启用「启用高级参数」开关：num_threads 受该开关门控，关闭时控件被禁用、
+# _collect_advanced 会跳过；此处先打开，使后续手动设置每文件线程数生效（与 CPU 核心功能一致）。
+w.adv_threads_toggle.setChecked(True)
 w._adv_widgets["modular"][0].setChecked(True)
 w._adv_widgets["num_threads"][0].setChecked(True)
 w._adv_widgets["num_threads"][1].setValue(8)
+w._update_cmd_preview(force=True)  # 强制按当前（已启用 num_threads）状态刷新预览
 adv = w._collect_advanced("lossy")
 check("modular 勾选 -> modular=1", adv.get("modular") == 1)
 check("num_threads 勾选 -> 8", adv.get("num_threads") == 8)
