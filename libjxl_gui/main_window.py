@@ -1377,6 +1377,11 @@ class MainWindow(QMainWindow):
         # Capture the native style name BEFORE any setStyle() call so it can be
         # restored for the "native" / "native_noflicker" themes.
         self._native_style_name = QApplication.style().objectName()
+        # Also capture the original system palette. The Fusion theme overrides
+        # QPalette.Accent to black; when switching back to a native theme we
+        # must restore this original palette instead of using standardPalette(),
+        # which can return a generic/beige palette and break native colors.
+        self._original_app_palette = QApplication.palette()
 
         self.input_files = []   # list of absolute file paths
         self._convert_worker = None  # background conversion thread (or None)
@@ -4136,7 +4141,10 @@ class MainWindow(QMainWindow):
             pal.setColor(QPalette.Accent, QColor(0, 0, 0))
             QApplication.setPalette(pal)
         else:
-            QApplication.setPalette(QApplication.style().standardPalette())
+            # Restore the palette captured at startup so native themes keep the
+            # real system colors. standardPalette() can return a generic beige
+            # palette that makes the Windows style look washed out / wrong.
+            QApplication.setPalette(self._original_app_palette)
 
     def _apply_theme(self, theme):
         """Apply a theme in full: update global state, switch the app-wide
