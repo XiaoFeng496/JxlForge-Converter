@@ -1085,6 +1085,41 @@ def _fusion_style():
     return _FUSION_STYLE
 
 
+# Application-wide theme. One of:
+#   "native_noflicker" - mostly native; only the flickering dropdown popups
+#                        (NoFlickerComboBox + folder-history menu) use the
+#                        Fusion style to dodge the Windows DWM popup flicker.
+#   "native"           - fully native; no Fusion anywhere (dropdowns may flicker).
+#   "fusion"           - the entire application uses the Fusion style.
+# Default is "native_noflicker" (the original behaviour of the app).
+_APP_THEME = "native_noflicker"
+_THEME_ORDER = ("native_noflicker", "native", "fusion")
+_THEME_LABELS = {
+    "native_noflicker": "原生（无闪烁）",
+    "native": "原生",
+    "fusion": "Fusion",
+}
+
+
+def app_theme():
+    """Return the active theme key."""
+    return _APP_THEME
+
+
+def set_app_theme(theme):
+    """Set the active theme key (ignored if not a known value)."""
+    global _APP_THEME
+    if theme in _THEME_ORDER:
+        _APP_THEME = theme
+
+
+def dropdowns_use_fusion():
+    """Whether the flickering dropdown popups should be individually styled
+    with Fusion. True for native_noflicker (default) and fusion; False for the
+    pure-native 'native' theme."""
+    return _APP_THEME in ("native_noflicker", "fusion")
+
+
 class NoFlickerComboBox(QComboBox):
     """QComboBox that does not flicker on Windows 10/11. The dropdown popup
     is shown frameless: a frameless (caption-less) top-level window is exempt
@@ -1094,16 +1129,31 @@ class NoFlickerComboBox(QComboBox):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        fusion = _fusion_style()
-        if fusion is not None:
-            self.setStyle(fusion)
+        self._apply_fusion_style()
         self.view().setStyleSheet(
             "QAbstractItemView { border: 1px solid palette(mid); "
             "background: palette(base); }"
         )
 
+    def _apply_fusion_style(self):
+        """Style this combobox's popup to avoid the Windows DWM flicker, but
+        only when the active theme wants dropdowns Fusion-styled. In the pure
+        native theme the combobox follows the application-wide (native) style."""
+        fusion = _fusion_style()
+        if fusion is not None and dropdowns_use_fusion():
+            self.setStyle(fusion)
+        else:
+            # Inherit the application-wide style so the widget reflects the
+            # current theme (native, or global Fusion) instead of staying Fusion.
+            self.setStyle(QApplication.style())
+
     def showPopup(self):
         super().showPopup()
+        # Only the no-flicker themes (原生（无闪烁） / Fusion) render the popup
+        # as a frameless Fusion window; the pure-native theme keeps the system
+        # native popup (which may show the Windows DWM entrance animation).
+        if not dropdowns_use_fusion():
+            return
         # The popup is the top-level window that owns the view. Mark it
         # frameless so Windows does not run the DWM entrance animation.
         container = self.view().window()
@@ -1324,6 +1374,10 @@ class MainWindow(QMainWindow):
         QApplication.setEffectEnabled(Qt.UIEffect.UI_AnimateMenu, False)
         QApplication.setEffectEnabled(Qt.UIEffect.UI_FadeMenu, False)
 
+        # Capture the native style name BEFORE any setStyle() call so it can be
+        # restored for the "native" / "native_noflicker" themes.
+        self._native_style_name = QApplication.style().objectName()
+
         self.input_files = []   # list of absolute file paths
         self._convert_worker = None  # background conversion thread (or None)
         self._stop_requested = False  # True while a user-initiated stop is pending
@@ -1390,6 +1444,8 @@ class MainWindow(QMainWindow):
         self._output_loading = False   # guard to suppress saves while restoring
         self._conversion_loading = False  # guard for CPU-priority restore
         self._view_loading = True      # suppress view-mode saves during build + restore
+        self._theme_loading = False    # suppress theme saves during build / restore
+        self._init_theme()             # apply persisted theme (default 原生（无闪烁）) before UI build
         self._build_ui()
         # Restore persisted JXL encode parameters (mode / quality / effort) onto
         # the freshly-built output-tab widgets.
@@ -2021,9 +2077,7 @@ class MainWindow(QMainWindow):
         )
         self.custom_folder_edit.setEnabled(False)
         self.folder_menu = FolderMenu(self)
-        fusion = _fusion_style()
-        if fusion is not None:
-            self.folder_menu.setStyle(fusion)
+        self._apply_theme_to_folder_menu()
         self.custom_folder_dropdown = QToolButton()
         self.custom_folder_dropdown.setArrowType(Qt.DownArrow)
         self.custom_folder_dropdown.setFixedWidth(22)
@@ -2424,6 +2478,34 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
+        layout.addWidget(QLabel("主题"))
+
+        # Theme choice: 原生（无闪烁）(default) / 原生 / Fusion. Persisted to
+        # QSettings and applied globally (see _init_theme / _apply_theme).
+        theme_row = QHBoxLayout()
+        theme_row.setSpacing(8)
+        theme_label = QLabel("界面主题")
+        theme_tip = (
+            "原生（无闪烁）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单"
+            "单独使用 Fusion 样式以消除 Windows 弹出动画闪烁（默认）。\n"
+            "原生：完全使用系统原生外观，下拉菜单可能出现轻微闪烁。\n"
+            "Fusion：整套界面使用 Qt 自带的 Fusion 样式。"
+        )
+        theme_label.setToolTip(theme_tip)
+        theme_row.addWidget(theme_label)
+        self.theme_combo = NoFlickerComboBox()
+        self.theme_combo.setToolTip(theme_tip)
+        for key in _THEME_ORDER:
+            self.theme_combo.addItem(_THEME_LABELS[key], key)
+        self._set_combo_min_width(self.theme_combo)
+        self._theme_loading = True
+        self.theme_combo.setCurrentIndex(self.theme_combo.findData(app_theme()))
+        self._theme_loading = False
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+        theme_row.addWidget(self.theme_combo)
+        theme_row.addStretch(1)
+        layout.addLayout(theme_row)
+
         layout.addWidget(QLabel("转换进程"))
 
         # The CPU-priority explanation is surfaced as a native tooltip on the
@@ -2451,13 +2533,10 @@ class MainWindow(QMainWindow):
         self.cpu_priority_combo.setToolTip(cpu_tip)
         for key, label in priorities:
             self.cpu_priority_combo.addItem(label, key)
-        # Snug width: the widest label as actually measured in the live font,
-        # plus room for the drop-down arrow and the frame padding. Measuring
-        # beats a hard-coded 120 px (which left a lot of dead space after the
-        # text) and still stays correct at other DPI / font sizes.
-        fm = self.cpu_priority_combo.fontMetrics()
-        widest = max(fm.horizontalAdvance(label) for _key, label in priorities)
-        self.cpu_priority_combo.setFixedWidth(widest + 34)
+        # Size the combo to fit the widest label under its current style
+        # (native vs Fusion have different arrow / frame margins), and keep
+        # it wide enough after a theme switch by recomputing in _apply_theme.
+        self._set_combo_min_width(self.cpu_priority_combo)
         self.cpu_priority_combo.setCurrentIndex(
             self.cpu_priority_combo.findData(converter.DEFAULT_PRIORITY)
         )
@@ -2604,6 +2683,8 @@ class MainWindow(QMainWindow):
         self._save_conversion_settings()
         # Persist the Input-tab "查看" view mode.
         self._save_view_mode()
+        # Persist the chosen UI theme.
+        self._save_theme()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -4022,6 +4103,85 @@ class MainWindow(QMainWindow):
             self.cpu_priority_combo.findData(key)
         )
         self._conversion_loading = False
+
+    # ---- application theme (persisted) --------------------------------
+    def _init_theme(self):
+        """Read the persisted theme and apply it BEFORE the UI is built, so
+        every NoFlickerComboBox constructed during the build uses the correct
+        dropdown style from the start. Default is 原生（无闪烁）."""
+        settings = QSettings()
+        settings.beginGroup("appearance")
+        theme = settings.value("theme", "native_noflicker")
+        settings.endGroup()
+        if theme not in _THEME_ORDER:
+            theme = "native_noflicker"
+        set_app_theme(theme)
+        self._apply_app_style(theme)
+
+    def _apply_app_style(self, theme):
+        """Set the application-wide style: Fusion for the 'fusion' theme, the
+        captured native style otherwise. A fresh style is created each call so
+        re-applying the same QStyle instance never collides on ownership."""
+        name = "Fusion" if theme == "fusion" else self._native_style_name
+        style = QStyleFactory.create(name)
+        if style is not None:
+            QApplication.setStyle(style)
+
+    def _apply_theme(self, theme):
+        """Apply a theme in full: update global state, switch the app-wide
+        style, and re-style every existing dropdown (comboboxes + the folder
+        menu) so the change takes effect immediately, with no restart."""
+        set_app_theme(theme)
+        self._apply_app_style(theme)
+        for cb in self.findChildren(NoFlickerComboBox):
+            cb._apply_fusion_style()
+        self._apply_theme_to_folder_menu()
+        # Native vs Fusion styles have different arrow / frame margins, so the
+        # two explicitly-sized combos need their minimum width recalculated.
+        for combo in (getattr(self, "theme_combo", None),
+                      getattr(self, "cpu_priority_combo", None)):
+            if combo is not None:
+                self._set_combo_min_width(combo)
+        self._sync_radio_inactive_palette()
+        self.statusBar().showMessage(
+            "主题已切换为：%s" % _THEME_LABELS.get(theme, theme))
+
+    def _set_combo_min_width(self, combo):
+        """Set the combo's minimum width to fit its widest item under the
+        current style. This is needed because the native Windows style's arrow
+        button and frame padding are wider than Fusion's, so a width measured
+        for Fusion will truncate text when the user switches to native."""
+        combo.updateGeometry()
+        combo.setMinimumWidth(combo.sizeHint().width() + 8)
+
+    def _apply_theme_to_folder_menu(self):
+        """Style the custom-folder history popup. It uses Fusion only when the
+        active theme wants dropdowns Fusion-styled; otherwise it follows the
+        application-wide (native) style."""
+        if not hasattr(self, "folder_menu"):
+            return
+        if dropdowns_use_fusion():
+            fusion = _fusion_style()
+            if fusion is not None:
+                self.folder_menu.setStyle(fusion)
+        else:
+            self.folder_menu.setStyle(QApplication.style())
+
+    def _on_theme_changed(self, _index):
+        """Persist and apply the newly chosen theme."""
+        self._apply_theme(self.theme_combo.currentData())
+        self._save_theme()
+
+    def _save_theme(self):
+        """Persist the chosen theme. Guarded so restoring on launch / building
+        the settings tab does not clobber the stored value."""
+        if getattr(self, "_theme_loading", False):
+            return
+        settings = QSettings()
+        settings.beginGroup("appearance")
+        settings.setValue("theme", self.theme_combo.currentData())
+        settings.endGroup()
+        settings.sync()
 
     # ---- Input-tab view-mode persistence (QSettings) --------------------
     def _save_view_mode(self):
