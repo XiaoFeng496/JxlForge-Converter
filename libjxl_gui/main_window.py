@@ -1452,14 +1452,17 @@ class MainWindow(QMainWindow):
         self._theme_loading = False    # suppress theme saves during build / restore
         self._init_theme()             # apply persisted theme (default 原生（无闪烁）) before UI build
         self._build_ui()
-        # 持久化的「输出标签 / 输出位置 / 转换优先级」参数恢复移出启动关键路径：
-        # 首屏默认停在输入标签，这些控件不可见，故延后到 showEvent 之后一次性加载，
-        # 缩短「进程启动 -> 首帧绘制」的时长（白屏）。输入标签的「查看」模式影响首屏
-        # 可见视图，必须同步恢复，故保留在此。
-        self._settings_loaded = False
-        # 白屏对比开关：LIBJXL_NO_DEFER=1 时恢复旧版（__init__ 同步加载），
-        # 用于和不延迟版本做白屏对比。
+        # 关键设置（输出标签 / 输出位置 / 转换优先级）必须在首帧前就绪，否则首帧
+        # 画的是不完整的输出/设置标签。经验测：把它们延后到 show 之后（singleShot）
+        # 只会把这段 QSettings 读取+控件填充的耗时暴露在「show→首帧」的白屏窗口里，
+        # 反而加长白屏。故默认在 __init__ 同步加载——窗口 show 时即完整，白屏最短；
+        # 而纯 I/O（检测 cjxl/djxl、窗口尺寸拟合、菜单预热）仍留在 showEvent 之后
+        # 延迟，不阻塞首屏。LIBJXL_NO_DEFER=1 可恢复旧的全延迟行为用于量化对比。
         if os.environ.get("LIBJXL_NO_DEFER") == "1":
+            # 对比用：旧全延迟行为，关键设置留到 showEvent 之后才加载
+            self._settings_loaded = False
+        else:
+            # 默认：关键设置在 __init__ 同步加载，窗口 show 时即完整
             self._load_jxl_output()
             self._load_output_settings()
             self._load_conversion_settings()
@@ -1548,7 +1551,8 @@ class MainWindow(QMainWindow):
         # time.
         if not self._settings_loaded:
             self._settings_loaded = True
-            if os.environ.get("LIBJXL_NO_DEFER") != "1":
+            if os.environ.get("LIBJXL_NO_DEFER") == "1":
+                # 对比用：旧全延迟行为，首帧后才加载关键设置
                 QTimer.singleShot(0, self._deferred_load_settings)
         if self._bench_enabled:
             self._bench_show_ts = time.perf_counter()
@@ -1579,9 +1583,9 @@ class MainWindow(QMainWindow):
             show_ts = self._bench_show_ts or now
             start = self._app_start or show_ts
             if os.environ.get("LIBJXL_NO_DEFER") == "1":
-                mode = "旧版同步"
+                mode = "全延迟(旧V1)"
             else:
-                mode = "延迟优化"
+                mode = "同步关键设置(默认)"
             print(
                 f"[bench] 模式={mode} "
                 f"| 启动→首帧={now - start:.3f}s | 白屏(show→首帧)={now - show_ts:.3f}s",
