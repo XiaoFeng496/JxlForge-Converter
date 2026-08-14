@@ -2992,10 +2992,18 @@ class MainWindow(QMainWindow):
         table.setRowCount(len(rows))
         for r, path in enumerate(rows):
             meta = self._file_metadata(path)
+            # Same hover-info tooltip the list / thumbnail views already show:
+            # cache it in _info_cache so we don't re-read the file on every
+            # refresh (and keep it in sync with the list view's tooltip text).
+            tip = self._info_cache.get(path)
+            if tip is None:
+                tip = self._image_info(path)
+                self._info_cache[path] = tip
             for c, (key, _l, _v, _w, _a) in enumerate(TABLE_COLUMNS):
                 item = QTableWidgetItem(self._table_cell_text(meta, key))
                 item.setTextAlignment(_a)
                 item.setData(Qt.UserRole, path)
+                item.setToolTip(tip)
                 table.setItem(r, c, item)
 
         # Column widths (the last visible column is left to stretch,
@@ -4544,6 +4552,10 @@ class MainWindow(QMainWindow):
             "检测到操作系统：%s | cjxl：%s | djxl：%s"
             % (os_id, cjxl_state, djxl_state)
         )
+        if tools["cjxl"]:
+            version = converter.get_cjxl_version()
+            if version:
+                self.log_edit.appendPlainText(version)
         if not tools["cjxl"] or not tools["djxl"]:
             self.statusBar().showMessage("提示：cjxl / djxl 未完全就绪")
         else:

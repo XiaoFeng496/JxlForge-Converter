@@ -86,6 +86,38 @@ def check_tools():
     }
 
 
+def get_cjxl_version():
+    """Return the cjxl version banner, e.g.
+
+    ``JPEG XL encoder v0.12.0 4128790 [_AVX2_,SSE4,SSE2] {Clang 22.1.3}``
+
+    ``--version`` prints ``cjxl v0.12.0 ...``; we normalize the leading
+    ``cjxl `` to ``JPEG XL encoder `` so the banner matches the first line
+    emitted by running cjxl with no arguments. Returns ``None`` when cjxl is
+    missing or its version cannot be read.
+    """
+    path = find_tool("cjxl")
+    if not path:
+        return None
+    try:
+        result = subprocess.run(
+            [path, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            creationflags=_CREATE_NO_WINDOW,
+        )
+    except (OSError, ValueError):
+        return None
+    line = (result.stdout or result.stderr or "").strip().splitlines()
+    if not line:
+        return None
+    banner = line[0].strip()
+    if banner.startswith("cjxl "):
+        banner = "JPEG XL encoder " + banner[len("cjxl "):]
+    return banner
+
+
 def build_args(
     input_path,
     output_path,
