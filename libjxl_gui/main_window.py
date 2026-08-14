@@ -1457,6 +1457,17 @@ class MainWindow(QMainWindow):
         # 缩短「进程启动 -> 首帧绘制」的时长（白屏）。输入标签的「查看」模式影响首屏
         # 可见视图，必须同步恢复，故保留在此。
         self._settings_loaded = False
+        # 白屏对比开关：LIBJXL_NO_DEFER=1 时恢复旧版（__init__ 同步加载），
+        # 用于和不延迟版本做白屏对比。
+        if os.environ.get("LIBJXL_NO_DEFER") == "1":
+            self._load_jxl_output()
+            self._load_output_settings()
+            self._load_conversion_settings()
+            self._settings_loaded = True
+        self._bench_enabled = os.environ.get("LIBJXL_BENCH") == "1"
+        self._bench_done = False
+        self._bench_show_ts = None
+        self._app_start = None  # 由 __main__ 在 show 前写入（进程启动时刻）
         # Restore the persisted Input-tab "查看" view mode (after the input
         # tab is built and the default view applied during build).
         self._load_view_mode()
@@ -1537,7 +1548,10 @@ class MainWindow(QMainWindow):
         # time.
         if not self._settings_loaded:
             self._settings_loaded = True
-            QTimer.singleShot(0, self._deferred_load_settings)
+            if os.environ.get("LIBJXL_NO_DEFER") != "1":
+                QTimer.singleShot(0, self._deferred_load_settings)
+        if self._bench_enabled:
+            self._bench_show_ts = time.perf_counter()
         # Warm the folder-history popup OFF the startup critical path. The
         # one-off native-popup creation (HWND + drop shadow + style polish) is
         # what used to make the first click stutter -- and what moving it to
@@ -1551,6 +1565,28 @@ class MainWindow(QMainWindow):
             # Short idle fallback for the no-hover case (e.g. keyboard open):
             # well after the window has painted, so it never reads as startup.
             QTimer.singleShot(600, self._maybe_prewarm)
+
+    def paintEvent(self, event):
+        """白屏基准测试：记录 show -> 首帧的时长并打印（仅 LIBJXL_BENCH=1）。
+
+        这段时长即 DWM 本机擦除白帧持续的可观测代理：窗口可见到 Qt 画出
+        第一帧之间，用户看到的就是白屏。
+        """
+        super().paintEvent(event)
+        if self._bench_enabled and not self._bench_done:
+            self._bench_done = True
+            now = time.perf_counter()
+            show_ts = self._bench_show_ts or now
+            start = self._app_start or show_ts
+            if os.environ.get("LIBJXL_NO_DEFER") == "1":
+                mode = "旧版同步"
+            else:
+                mode = "延迟优化"
+            print(
+                f"[bench] 模式={mode} "
+                f"| 启动→首帧={now - start:.3f}s | 白屏(show→首帧)={now - show_ts:.3f}s",
+                flush=True,
+            )
 
     def _deferred_load_settings(self):
         """首屏之后恢复输出标签 / 输出位置 / 转换优先级的持久化设置。

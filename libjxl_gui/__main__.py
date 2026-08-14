@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Application entry point: python -m libjxl_gui"""
 
+import time
+
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
@@ -13,11 +15,13 @@ def run():
     # Must be set before any QSettings object is constructed.
     QSettings.setDefaultFormat(QSettings.IniFormat)
 
+    app_start = time.perf_counter()  # 进程启动时刻（白屏基准用）
     app = QApplication([])
     # Stable identity for QSettings so persisted data survives restarts.
     app.setOrganizationName("libjxl")
     app.setApplicationName("libjxl-gui")
     window = MainWindow()
+    window._app_start = app_start
     window.show()
     return app.exec()
 
