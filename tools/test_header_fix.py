@@ -18,7 +18,7 @@ import os
 import sys
 import tempfile
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication, QTableWidget
 
 from libjxl_gui.main_window import MainWindow, TABLE_COLUMNS
@@ -77,6 +77,26 @@ def main():
 
     # Build the header exactly once (simulates first switch to 详细信息).
     w._refresh_table()
+
+    # --- 0. hover-info tooltip: every table cell must carry the same info
+    #         tooltip the list / thumbnail views show (regression: 详细信息
+    #         view used to set no tooltip, so hovering a file showed nothing).
+    for r in range(w.input_table.rowCount()):
+        for c in range(w.input_table.columnCount()):
+            it = w.input_table.item(r, c)
+            if it is None:
+                failures.append("table cell (%d,%d) is None" % (r, c))
+                continue
+            tip = it.toolTip()
+            base = os.path.basename(w.input_table.item(r, 0).data(
+                Qt.UserRole) if c == 0 else it.data(Qt.UserRole))
+            if not tip:
+                failures.append("table cell (%d,%d) has no tooltip" % (r, c))
+            elif base not in tip:
+                failures.append(
+                    "table cell (%d,%d) tooltip does not name the file: %r"
+                    % (r, c, tip)
+                )
 
     # --- 1. click-to-sort maps correctly, even after a header drag ---
     # Drag column 0 (name) to visual position 2. Logical indices are fixed, so
