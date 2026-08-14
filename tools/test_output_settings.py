@@ -39,6 +39,21 @@ QCoreApplication.setApplicationName("libjxl-gui")
 from libjxl_gui import converter as conv_mod
 from libjxl_gui.main_window import MainWindow, GRID_SIZES
 
+
+def fresh_window():
+    """构造 MainWindow 并触发首帧，使断言环境与真实启动一致。
+
+    showEvent 会延迟恢复持久化的输出/输出位置/转换优先级设置，因此构造后
+    必须 show() + processEvents 让首帧发生，否则这些控件停在 build 默认态、
+    恢复类断言失败。跳过环境探测(_env_refreshed)避免测试内反复 subprocess。
+    """
+    w = MainWindow()
+    w._env_refreshed = True
+    w.show()
+    for _ in range(3):
+        QApplication.instance().processEvents()
+    return w
+
 failures = []
 total = 0
 
@@ -125,7 +140,7 @@ folder_a = os.path.normpath(tempfile.mkdtemp())
 w.custom_folder_edit.setText(folder_a)
 w._save_output_settings()
 
-w2 = MainWindow()  # __init__ calls _load_output_settings()
+w2 = fresh_window()  # __init__ calls _load_output_settings()
 check("persisted dest_mode restored (custom)",
       w2.custom_folder_radio.isChecked() is True)
 check("persisted custom folder text restored",
@@ -140,7 +155,7 @@ w2.add_suffix_radio.setChecked(True)
 w2.suffix_edit.setText("_out")
 w2._save_output_settings()
 
-w3 = MainWindow()
+w3 = fresh_window()
 check("persisted filename mode restored (suffix)",
       w3.add_suffix_radio.isChecked() is True)
 check("persisted suffix text restored (_out)",
@@ -153,7 +168,7 @@ w3._save_output_settings()
 # ---------------------------------------------------------------------------
 # 4. History menu: add / de-dupe / most-recent-first / keep typed text
 # ---------------------------------------------------------------------------
-h = MainWindow()
+h = fresh_window()
 h._folder_history = []  # start clean; this group tests add/dedupe/order only
 h._rebuild_folder_menu()
 folder_b = os.path.normpath(tempfile.mkdtemp())
@@ -183,7 +198,7 @@ check("menu row count matches history",
 # ---------------------------------------------------------------------------
 # 5. Browsing a folder adds to history + persists
 # ---------------------------------------------------------------------------
-b = MainWindow()
+b = fresh_window()
 # Simulate the browse dialog returning a folder by calling the handler's core
 # logic: emulate selection then persist. We exercise _on_browse_folder indirectly
 # by setting the edit text through its real code path (setText + history).
@@ -200,7 +215,7 @@ check("browsed folder recorded in history",
 # ---------------------------------------------------------------------------
 # 6. Conversion with a valid custom folder records it into history
 # ---------------------------------------------------------------------------
-c = MainWindow()
+c = fresh_window()
 c.custom_folder_radio.setChecked(True)
 folder_e = os.path.normpath(tempfile.mkdtemp())
 c.custom_folder_edit.setText(folder_e)
@@ -213,7 +228,7 @@ check("conversion persists history",
 # ---------------------------------------------------------------------------
 # 7. Full round-trip: a distinct state survives a fresh window
 # ---------------------------------------------------------------------------
-r = MainWindow()
+r = fresh_window()
 r.custom_folder_radio.setChecked(True)
 folder_f = os.path.normpath(tempfile.mkdtemp())
 r.custom_folder_edit.setText(folder_f)
@@ -221,7 +236,7 @@ r.add_suffix_radio.setChecked(True)
 r.suffix_edit.setText("_final")
 r._save_output_settings()
 
-r2 = MainWindow()
+r2 = fresh_window()
 check("round-trip: custom mode restored",
       r2.custom_folder_radio.isChecked() is True)
 check("round-trip: custom folder restored",
@@ -237,7 +252,7 @@ check("round-trip: history restored into menu",
 # ---------------------------------------------------------------------------
 # 8. Per-row delete button removes a single history entry (menu rebuilds)
 # ---------------------------------------------------------------------------
-d = MainWindow()
+d = fresh_window()
 d.custom_folder_radio.setChecked(True)
 d._folder_history = []  # start clean; the loaded window may carry prior entries
 fa = os.path.normpath(tempfile.mkdtemp())
@@ -264,7 +279,7 @@ check("delete-test: removed item no longer in menu",
 check("delete-test: typed text preserved after delete",
       d.custom_folder_edit.text() == "keep/this")
 d._save_output_settings()
-d2 = MainWindow()
+d2 = fresh_window()
 check("delete-test: deletion persisted (fb gone)",
       fb not in d2._folder_history)
 check("delete-test: surviving entries persisted (fc, fa)",
@@ -274,7 +289,7 @@ check("delete-test: surviving entries persisted (fc, fa)",
 # 9. Selecting a history row fills the edit field (menu stays open until
 #    _select_history hides it); deleting the last row shows the placeholder.
 # ---------------------------------------------------------------------------
-e = MainWindow()
+e = fresh_window()
 e.custom_folder_radio.setChecked(True)
 e._folder_history = []
 fe1 = os.path.normpath(tempfile.mkdtemp())
@@ -305,7 +320,7 @@ check("select-test: typed text preserved through deletes",
 # hidden (zero-sized) viewport. On real desktops the input list is hidden when
 # the button is clicked from the Settings tab; measuring its viewport then
 # yields frame_h = window_height - 0 = huge -> window jumps up + can't fit.
-win = MainWindow()
+win = fresh_window()
 win._sized = True  # drive the fit manually; don't rely on showEvent
 win._fit_frame_w = 200
 win._fit_frame_h = 100
@@ -366,7 +381,7 @@ check("fit keeps position when center=False (no upward jump / legal clamp)",
 # click to the next (the loop-invariant is what the bug broke), not that it
 # equals the one-time seed value (offscreen platforms may re-clamp once after
 # the seed fit, which is unrelated to the feedback loop).
-win2 = MainWindow()
+win2 = fresh_window()
 win2._sized = True
 win2.show()
 QApplication.instance().processEvents()
@@ -387,7 +402,7 @@ check("repeated 6x3 clicks keep minimum size constant",
 # JXL (large JXL -> smaller JXL); PNG output -> djxl decodes it to a raster.
 # Only djxl emitting a .jxl is invalid, and the worker avoids that by routing
 # JXL->JXL through cjxl instead of djxl.
-bop = MainWindow()
+bop = fresh_window()
 bop.format_combo.setCurrentText("JPEG XL (*.jxl)")
 check("jxl input -> jxl output when format=JXL (re-compress)",
       bop._build_output_path("x/y/photo.jxl").lower().endswith(".jxl"))

@@ -31,6 +31,21 @@ QCoreApplication.setApplicationName("libjxl-gui")
 from libjxl_gui import converter as conv_mod
 from libjxl_gui.main_window import MainWindow
 
+
+def fresh_window():
+    """构造 MainWindow 并触发首帧，使断言环境与真实启动一致。
+
+    showEvent 会延迟恢复持久化的输出/输出位置/转换优先级设置，因此构造后
+    必须 show() + processEvents 让首帧发生，否则这些控件停在 build 默认态、
+    恢复类断言失败。跳过环境探测(_env_refreshed)避免测试内反复 subprocess。
+    """
+    w = MainWindow()
+    w._env_refreshed = True
+    w.show()
+    for _ in range(3):
+        QApplication.instance().processEvents()
+    return w
+
 failures = []
 total = 0
 
@@ -101,7 +116,7 @@ def run_convert_and_capture(window):
 # ---------------------------------------------------------------------------
 # 1. Widget existence + defaults
 # ---------------------------------------------------------------------------
-w = MainWindow()
+w = fresh_window()
 check("mode radios exist",
       hasattr(w, "lossy_radio") and hasattr(w, "lossless_radio")
       and hasattr(w, "lossless_jpeg_radio"))
@@ -179,7 +194,7 @@ w.quality_spin.setValue(42)  # retained even though disabled
 w.effort_combo.setCurrentText("8")
 w._save_jxl_output()
 
-w2 = MainWindow()  # its __init__ calls _load_jxl_output()
+w2 = fresh_window()  # its __init__ calls _load_jxl_output()
 check("persisted mode restored (lossless_jpeg)",
       w2.lossless_jpeg_radio.isChecked() is True)
 check("persisted effort restored (8)",

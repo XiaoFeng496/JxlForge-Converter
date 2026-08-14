@@ -35,6 +35,21 @@ from libjxl_gui.main_window import (
 )
 
 
+def fresh_window():
+    """构造 MainWindow 并触发首帧，使断言环境与真实启动一致。
+
+    showEvent 会延迟恢复持久化的输出/输出位置/转换优先级设置，因此构造后
+    必须 show() + processEvents 让首帧发生，否则这些控件停在 build 默认态、
+    恢复类断言失败。跳过环境探测(_env_refreshed)避免测试内反复 subprocess。
+    """
+    w = MainWindow()
+    w._env_refreshed = True
+    w.show()
+    for _ in range(3):
+        QApplication.instance().processEvents()
+    return w
+
+
 def clear_jxl_output():
     settings = QSettings()
     settings.beginGroup("jxl_output")
@@ -203,7 +218,7 @@ w._adv_widgets["epf"][1].setValue(1)
 w.custom_cmd_check.setChecked(True)
 w.cmd_edit.setText("cjxl <输入> <输出> -e 3 --persisted-flag")
 w._save_jxl_output()
-w2 = MainWindow()
+w2 = fresh_window()
 check("恢复：modular 勾选状态保留", w2._adv_widgets["modular"][0].isChecked())
 check("恢复：epf 勾选状态保留", w2._adv_widgets["epf"][0].isChecked())
 check("恢复：epf 值保留=1", w2._adv_widgets["epf"][1].value() == 1)
@@ -216,10 +231,10 @@ clear_jxl_output()
 
 # 7b. 回归：取消勾选后重新打开必须保持未勾选
 # （曾因 bool("false") 误判为 True，导致取消勾选又自动勾上）
-w3 = MainWindow()
+w3 = fresh_window()
 w3.custom_cmd_check.setChecked(False)
 w3._save_jxl_output()
-w4 = MainWindow()
+w4 = fresh_window()
 check("回归：取消『自定义命令』后重新打开仍为未勾选",
       w4.custom_cmd_check.isChecked() is False)
 clear_jxl_output()
@@ -299,7 +314,7 @@ def run_convert_and_capture(window):
     return _captured[-1][2] if _captured else None
 
 
-w3 = MainWindow()
+w3 = fresh_window()
 w3.lossy_radio.setChecked(True)
 w3._adv_widgets["modular"][0].setChecked(True)
 w3._adv_widgets["faster_decoding"][0].setChecked(True)

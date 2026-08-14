@@ -1452,14 +1452,11 @@ class MainWindow(QMainWindow):
         self._theme_loading = False    # suppress theme saves during build / restore
         self._init_theme()             # apply persisted theme (default 原生（无闪烁）) before UI build
         self._build_ui()
-        # Restore persisted JXL encode parameters (mode / quality / effort) onto
-        # the freshly-built output-tab widgets.
-        self._load_jxl_output()
-        # Restore persisted output location / filename settings (and the history
-        # dropdown of custom folders).
-        self._load_output_settings()
-        # Restore the persisted conversion-process CPU priority.
-        self._load_conversion_settings()
+        # 持久化的「输出标签 / 输出位置 / 转换优先级」参数恢复移出启动关键路径：
+        # 首屏默认停在输入标签，这些控件不可见，故延后到 showEvent 之后一次性加载，
+        # 缩短「进程启动 -> 首帧绘制」的时长（白屏）。输入标签的「查看」模式影响首屏
+        # 可见视图，必须同步恢复，故保留在此。
+        self._settings_loaded = False
         # Restore the persisted Input-tab "查看" view mode (after the input
         # tab is built and the default view applied during build).
         self._load_view_mode()
@@ -1532,6 +1529,15 @@ class MainWindow(QMainWindow):
         if not self._env_refreshed:
             self._env_refreshed = True
             QTimer.singleShot(0, self._refresh_environment)
+        # Restore the output / output-location / conversion-priority settings
+        # OFF the startup critical path. These only touch output/settings-tab
+        # widgets, which are not visible on the first-painted input tab, so
+        # deferring them past the first frame causes no visible flicker while
+        # shaving their QSettings reads + widget fills off the open-to-visible
+        # time.
+        if not self._settings_loaded:
+            self._settings_loaded = True
+            QTimer.singleShot(0, self._deferred_load_settings)
         # Warm the folder-history popup OFF the startup critical path. The
         # one-off native-popup creation (HWND + drop shadow + style polish) is
         # what used to make the first click stutter -- and what moving it to
@@ -1545,6 +1551,18 @@ class MainWindow(QMainWindow):
             # Short idle fallback for the no-hover case (e.g. keyboard open):
             # well after the window has painted, so it never reads as startup.
             QTimer.singleShot(600, self._maybe_prewarm)
+
+    def _deferred_load_settings(self):
+        """首屏之后恢复输出标签 / 输出位置 / 转换优先级的持久化设置。
+
+        这三者只写输出标签与设置标签的控件，首屏默认显示输入标签，用户
+        看不到任何跳变，因此延后到窗口首帧之后执行不会造成可见闪烁，却能把
+        这部分 QSettings 读取 + 控件填充从启动关键路径上移走，缩短白屏到
+        首帧的时长。
+        """
+        self._load_jxl_output()
+        self._load_output_settings()
+        self._load_conversion_settings()
 
     def _warm_now(self):
         """Warm the popup right now, exactly once.
