@@ -2182,7 +2182,7 @@ class MainWindow(QMainWindow):
         self.adv_group = QGroupBox("高级参数")
         adv_outer = QVBoxLayout(self.adv_group)
 
-        # 折叠头：箭头按钮 + 「已设置 N 项」摘要。
+        # 折叠头：箭头按钮 + 「已设置 N 项」摘要 + 右侧「重置高级参数」按钮。
         header_row = QHBoxLayout()
         self.adv_toggle = QToolButton()
         self.adv_toggle.setArrowType(Qt.RightArrow)
@@ -2190,9 +2190,12 @@ class MainWindow(QMainWindow):
         self.adv_toggle.setFixedWidth(22)
         self.adv_toggle.clicked.connect(self._toggle_advanced)
         self.adv_summary = QLabel("已设置 0 项")
+        self.reset_adv_button = QPushButton("重置高级参数")
+        self.reset_adv_button.clicked.connect(self._reset_advanced)
         header_row.addWidget(self.adv_toggle)
         header_row.addWidget(self.adv_summary)
         header_row.addStretch(1)
+        header_row.addWidget(self.reset_adv_button)
         adv_outer.addLayout(header_row)
 
         # 折叠内容：4 个子组。默认隐藏，点箭头展开。
@@ -2282,12 +2285,6 @@ class MainWindow(QMainWindow):
         self.cmd_edit.setReadOnly(True)  # 默认只读，等同命令预览
         cmd_row.addWidget(self.cmd_edit, stretch=1)
         enc_layout.addLayout(cmd_row)
-
-        # 重置高级参数为默认（全部取消勾选，恢复零额外参数）。
-        self.reset_adv_button = QPushButton("重置高级参数")
-        self.reset_adv_button.setFlat(True)
-        self.reset_adv_button.clicked.connect(self._reset_advanced)
-        enc_layout.addWidget(self.reset_adv_button, alignment=Qt.AlignRight)
 
         self._update_adv_summary()
         self._update_cmd_preview()

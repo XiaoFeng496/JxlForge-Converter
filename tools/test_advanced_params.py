@@ -224,6 +224,10 @@ check("回归：取消『自定义命令』后重新打开仍为未勾选",
       w4.custom_cmd_check.isChecked() is False)
 clear_jxl_output()
 
+# 7c. 回归：重置按钮不得 flat（Fusion 主题下 flat 会看不见边框）
+check("重置按钮非 flat（Fusion 主题下需可见边框）",
+      w4.reset_adv_button.isFlat() is False)
+
 
 # ---------------------------------------------------------------------------
 # 8. ConvertWorker._encode_kwargs 合并 advanced
