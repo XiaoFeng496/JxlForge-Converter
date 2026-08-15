@@ -35,6 +35,10 @@ QSettings.setDefaultFormat(QSettings.IniFormat)
 # Mirror __main__.run() so QSettings has a stable, writable location.
 QCoreApplication.setOrganizationName("libjxl")
 QCoreApplication.setApplicationName("libjxl-gui")
+# 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini
+# （%APPDATA%\libjxl\libjxl-gui.ini），否则测试残留值会让 GUI 下次启动异常。
+_tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
 from libjxl_gui import converter as conv_mod
 from libjxl_gui.main_window import MainWindow, GRID_SIZES
@@ -349,6 +353,12 @@ class _FakeVP:
 win.input_list.viewport = lambda: _FakeVP()
 vp_h = 3 * GRID_SIZES["缩略图"].height() + 17
 x0, y0 = win.x(), win.y()
+# fresh_window() 的 show()+processEvents() 会在 offscreen 下先触发一次真实 fit，
+# 把窗口 minimumHeight() 设为基于虚拟几何的大值（~959）。此处显式复位为 0，
+# 否则 _fit_window_to_grid 内部 max(self.minimumHeight(), vp_h+frame_h) 会取旧值，
+# 使断言 minimumHeight()==vp_h+100 失败——这不是 fit 逻辑的缺陷，而是测试上下文
+# 残留。复位后 fit 纯粹按 vp_h+frame_h 计算，才能精确验证「viewport 隐藏时用缓存 frame」。
+win.setMinimumHeight(0)
 win._fit_window_to_grid(center=False)
 check("fit uses cached frame when viewport hidden (no huge height)",
       win.minimumHeight() < 800 and win.minimumHeight() == vp_h + 100)

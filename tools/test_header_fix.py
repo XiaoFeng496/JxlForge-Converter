@@ -32,6 +32,10 @@ def main():
     QSettings.setDefaultFormat(QSettings.IniFormat)
     app.setOrganizationName("libjxl")
     app.setApplicationName("libjxl-gui")
+    # 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini
+    # （%APPDATA%\libjxl\libjxl-gui.ini），否则测试残留值会让 GUI 下次启动异常。
+    _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
     # Start from a clean slate so the persistence feature (which reads
     # QSettings on init) doesn't pollute the default-layout assertions.

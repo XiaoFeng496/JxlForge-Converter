@@ -27,6 +27,10 @@ QSettings.setDefaultFormat(QSettings.IniFormat)
 # writable location — otherwise the round-trip fails under a default name.
 QCoreApplication.setOrganizationName("libjxl")
 QCoreApplication.setApplicationName("libjxl-gui")
+# 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini
+# （%APPDATA%\libjxl\libjxl-gui.ini），否则测试残留值会让 GUI 下次启动异常。
+_tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
 from libjxl_gui import converter as conv_mod
 from libjxl_gui.main_window import MainWindow

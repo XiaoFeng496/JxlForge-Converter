@@ -28,6 +28,11 @@ from PySide6.QtCore import QCoreApplication, QSettings
 QSettings.setDefaultFormat(QSettings.IniFormat)
 QCoreApplication.setOrganizationName("libjxl")
 QCoreApplication.setApplicationName("libjxl-gui")
+# 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini
+# （%APPDATA%\libjxl\libjxl-gui.ini）。此前本测试在 line 104 将 adv_threads_toggle
+# 设 True 后会把 adv_threads_enabled=true 写进真实 ini，导致 GUI 下次启动被自动开启。
+_tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
 from libjxl_gui import converter as conv_mod
 from libjxl_gui.main_window import (
