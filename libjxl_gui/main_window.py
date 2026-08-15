@@ -936,8 +936,9 @@ class PreviewDialog(QDialog):
 
         if self.base_pixmap.isNull():
             self.scroll = None
-            msg = QLabel("无法加载图片：%s" % name)
+            msg = QLabel(self._preview_error_message(path))
             msg.setAlignment(Qt.AlignCenter)
+            msg.setWordWrap(True)
             root.addWidget(msg, stretch=1)
         else:
             self.scroll = PreviewScroll(self)
@@ -949,6 +950,26 @@ class PreviewDialog(QDialog):
         self.zoom_actual_button.clicked.connect(self._zoom_actual)
         self.fit_button.clicked.connect(self._fit)
         self.close_button.clicked.connect(self.close)
+
+    @staticmethod
+    def _preview_error_message(path):
+        """Return a user-friendly failure message for the preview dialog.
+
+        JXL files need djxl; when libjxl is not on PATH we surface a specific
+        hint instead of the generic "cannot load" text.
+        """
+        name = os.path.basename(path)
+        if path.lower().endswith(".jxl"):
+            if converter.find_tool("djxl") is None:
+                return (
+                    "无法预览 JXL 文件：未检测到 libjxl 的 djxl 工具。\n\n"
+                    "请确认 libjxl 已正确安装，并将其所在目录加入系统的 PATH 环境变量。"
+                )
+            return (
+                "无法加载 JXL 图片：%s\n\n"
+                "djxl 解码失败，文件可能损坏或不受支持。" % name
+            )
+        return "无法加载图片：%s" % name
 
     def _zoom(self, factor):
         if self.scroll is not None:
