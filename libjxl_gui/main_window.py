@@ -1488,9 +1488,12 @@ class MainWindow(QMainWindow):
             self._settings_loaded = False
         else:
             # 默认：关键设置在 __init__ 同步加载，窗口 show 时即完整
+            # 注意：先恢复转换设置（含「启用高级参数」），让输出页 effort 可选
+            # 范围（1..9 / 1..10）就绪后，再恢复 JXL 输出设置里的 effort 值，
+            # 否则启用高级参数时持久化的 effort=10 会因组合框尚无该项而被丢弃。
+            self._load_conversion_settings()
             self._load_jxl_output()
             self._load_output_settings()
-            self._load_conversion_settings()
             self._settings_loaded = True
         self._bench_enabled = os.environ.get("LIBJXL_BENCH") == "1"
         self._bench_done = False
@@ -1625,9 +1628,9 @@ class MainWindow(QMainWindow):
         这部分 QSettings 读取 + 控件填充从启动关键路径上移走，缩短白屏到
         首帧的时长。
         """
+        self._load_conversion_settings()
         self._load_jxl_output()
         self._load_output_settings()
-        self._load_conversion_settings()
 
     def _warm_now(self):
         """Warm the popup right now, exactly once.
@@ -2685,11 +2688,12 @@ class MainWindow(QMainWindow):
 
         # ---- 启用高级参数（手动设置每文件线程数） ----
         adv_threads_tip = (
-            "关闭时，每个文件的线程数（--num_threads）由「CPU 核心使用数」自动"
-            "分配；打开后可手动设置每文件线程数，此时并行进程数 = 核心数 ÷ 每文件线程数。"
+            "未启用：每文件线程数（--num_threads）由「CPU 核心使用数」自动分配，"
+            "并行池自动控核；\n输出页「速度/质量权衡 (--effort)」仅可选 1–9。启用后"
+            "可手动设置每文件线程数，并行进程数 = 核心数 ÷ 每文件线程数，并解锁 effort 第 10 档。"
         )
         self.adv_threads_toggle = QCheckBox(
-            "启用高级参数（手动设置每文件线程数 --num_threads）"
+            "启用高级参数"
         )
         self.adv_threads_toggle.setToolTip(adv_threads_tip)
         self.adv_threads_toggle.setChecked(False)
@@ -2708,14 +2712,24 @@ class MainWindow(QMainWindow):
         self._save_conversion_settings()
 
     def _on_adv_threads_toggled(self, _checked):
-        """开关联动：启用/禁用高级「线程数 (--num_threads)」行，并更新提示文字。"""
+        """开关联动：启用/禁用高级「线程数 (--num_threads)」行，扩展/收窄输出页
+        effort 可选范围（启用→1..10，禁用→1..9），更新提示文字，并持久化。"""
         enabled = self.adv_threads_toggle.isChecked()
         self._apply_adv_threads_state(enabled)
         self._save_conversion_settings()
+        # 加载阶段（_conversion_loading / _jxl_loading）不持久化、不刷新预览，
+        # 否则会用「尚未恢复的默认状态」覆盖刚从 QSettings 读取、待恢复的值。
+        if getattr(self, "_conversion_loading", False) or getattr(self, "_jxl_loading", False):
+            return
+        # effort 范围与当前选择可能随开关变化（禁用时若原为 10 会被夹到 9），
+        # 需同步持久化并刷新命令预览。
+        self._save_jxl_output()
+        self._update_cmd_preview()
 
     def _apply_adv_threads_state(self, enabled):
         """根据「启用高级参数」开关，启用/禁用高级参数里的 num_threads 行，
-        并更新设置页提示文字。相关控件未构建时（输出页/设置页晚于本调用）安全跳过。"""
+        扩展/收窄输出页 effort 可选范围（启用→1..10，禁用→1..9），并更新
+        设置页提示文字。相关控件未构建时（输出页/设置页晚于本调用）安全跳过。"""
         adv_widgets = getattr(self, "_adv_widgets", {})
         entry = adv_widgets.get("num_threads")
         if entry is not None:
@@ -2723,19 +2737,42 @@ class MainWindow(QMainWindow):
             check.setEnabled(enabled)
             if val_w is not None:
                 val_w.setEnabled(enabled and check.isChecked())
+        # 启用高级参数后，输出页 effort 可选范围扩展到 1..10；否则仅 1..9。
+        self._set_effort_range(enabled)
         # 说明文字不再作为独立可见小字（部分主题下 palette(mid) 颜色异常），
         # 改为并入开关的悬停浮窗，跟随主题原生 tooltip 配色。
         if hasattr(self, "adv_threads_toggle"):
             if enabled:
                 self.adv_threads_toggle.setToolTip(
-                    "已启用：可手动设置每文件线程数（--num_threads）；"
-                    "并行进程数 = 核心数 ÷ 每文件线程数。"
+                    "已启用：可手动设置每文件线程数（--num_threads），并行进程数 "
+                    "= 核心数 ÷ 每文件线程数；\n同时输出页「速度/质量权衡 (--effort)」"
+                    "解锁第 10 档（最慢、质量最高）。"
                 )
             else:
                 self.adv_threads_toggle.setToolTip(
-                    "未启用：每文件线程数（--num_threads）由「CPU 核心使用数」自"
-                    "动分配，并行池自动控核。"
+                    "未启用：每文件线程数（--num_threads）由「CPU 核心使用数」自动"
+                    "分配，并行池自动控核；\n输出页「速度/质量权衡 (--effort)」仅可选 "
+                    "1–9，启用高级参数后可选用第 10 档（最慢、质量最高）。"
                 )
+
+    def _set_effort_range(self, allow_ten):
+        """按「启用高级参数」开关调整输出页 effort 下拉的可选范围。
+        allow_ten=True -> 1..10；False -> 1..9。重建列表时尽量保留当前选择，
+        越界（如关闭高级参数前选了 10）则夹到范围内最大档。
+        不触发信号，故调用方负责在用户交互后持久化（见 _on_adv_threads_toggled）。"""
+        combo = getattr(self, "effort_combo", None)
+        if combo is None:
+            return
+        cur = combo.currentText()
+        items = [str(i) for i in range(1, 11 if allow_ten else 10)]
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItems(items)
+        if cur in items:
+            combo.setCurrentText(cur)
+        else:
+            combo.setCurrentText(items[-1])
+        combo.blockSignals(False)
 
     def _on_center_window(self):
         """Move the window to the centre of the primary screen (keep size)."""
@@ -4381,7 +4418,8 @@ class MainWindow(QMainWindow):
         # explicitly-sized combos need their minimum width recalculated.
         for combo in (getattr(self, "theme_combo", None),
                       getattr(self, "cpu_priority_combo", None),
-                      getattr(self, "cpu_cores_combo", None)):
+                      getattr(self, "cpu_cores_combo", None),
+                      getattr(self, "effort_combo", None)):
             if combo is not None:
                 self._set_combo_min_width(combo)
         self._sync_radio_inactive_palette()

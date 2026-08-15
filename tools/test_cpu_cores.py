@@ -69,6 +69,8 @@ if toggle is not None:
 num_check = QCheckBox()
 num_val = QSpinBox()
 # 模拟 _collect_advanced 写入的 _adv_widgets 结构：(check, val_w, schema)
+# 先保留真实 _adv_widgets 引用，供第 7 段（effort 门控）恢复，避免误触 save 时缺键。
+real_adv_widgets = window._adv_widgets
 window._adv_widgets = {"num_threads": (num_check, num_val, {})}
 tip_toggle = window.adv_threads_toggle
 
@@ -149,6 +151,32 @@ w_adv_bad = ConvertWorker([], [], 7, None, None, False,
 w_adv_bad.advanced = {"num_threads": "oops"}  # 非 int
 # 高级参数打开但 num_threads 非法 => adv_num 退化为 None => 每文件线程=1。
 check("高级-非法线程数退化为每文件1", w_adv_bad._resolve_concurrency(4)[1] == 1)
+
+
+# 7. 「启用高级参数」联动输出页 effort 可选范围门控。
+#    启用 -> 1..10（含 10 档）；禁用 -> 仅 1..9，且越界值（如 10）被夹到 9。
+# 恢复真实 _adv_widgets，使 setCurrentText 触发的持久化不缺键（避免测试假阳性）。
+window._adv_widgets = real_adv_widgets
+effort = getattr(window, "effort_combo", None)
+check("暴露 effort_combo", effort is not None)
+if effort is not None:
+    window._apply_adv_threads_state(True)
+    items_on = [effort.itemText(i) for i in range(effort.count())]
+    check("启用高级参数：effort 含 1..10",
+          items_on == [str(i) for i in range(1, 11)])
+
+    effort.setCurrentText("10")
+    window._apply_adv_threads_state(False)
+    items_off = [effort.itemText(i) for i in range(effort.count())]
+    check("禁用高级参数：effort 仅 1..9",
+          items_off == [str(i) for i in range(1, 10)])
+    check("禁用时原 effort=10 被夹到 9", effort.currentText() == "9")
+
+    window._apply_adv_threads_state(True)
+    items_on2 = [effort.itemText(i) for i in range(effort.count())]
+    check("重新启用：effort 恢复 1..10",
+          items_on2 == [str(i) for i in range(1, 11)])
+    check("重新启用后保留上次选择 9", effort.currentText() == "9")
 
 
 print("")
