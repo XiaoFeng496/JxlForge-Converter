@@ -2001,6 +2001,13 @@ class MainWindow(QMainWindow):
             "请先在「输入」标签添加图片，\n再在此处预览动作效果。"
         )
         self.preview_msg.setAlignment(Qt.AlignCenter)
+        # 错误信息可能很长（含 PIL 抛出的完整文件路径），必须约束它的尺寸
+        # 策略和最大高度，否则 QLabel 会强制把整个主窗体撑得过高/过宽。
+        # Preferred × Maximum 让它可以水平伸缩但垂直方向不抢空间；
+        # setMaximumHeight 给一个硬上限，超过该高度就触发竖向滚动条。
+        self.preview_msg.setWordWrap(True)
+        self.preview_msg.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.preview_msg.setMaximumHeight(120)
         right_layout.addWidget(self.preview_msg)
 
         hint = QLabel("预览为示意效果，可能与最终输出不完全一致。")
@@ -2068,12 +2075,14 @@ class MainWindow(QMainWindow):
         # NoFlickerComboBox：普通 QComboBox 行为（框更大、支持鼠标滚轮），
         # 但下拉弹窗去掉 Windows DWM 入场动画，避免展开时闪烁。
         self.format_combo = NoFlickerComboBox()
-        self.format_combo.addItems(["JPEG XL (*.jxl)", "PNG (*.png)"])
+        self.format_combo.addItems(
+            ["JPEG XL (*.jxl)", "PNG (*.png)", "JPEG (*.jpg)"]
+        )
         fmt_row.addWidget(self.format_combo)
         fmt_row.addStretch(1)
         layout.addLayout(fmt_row)
 
-        # ---- JXL 编码参数（仅输出 JXL 时生效；输出 PNG 时由 Pillow 直存）----
+        # ---- JXL 编码参数（仅输出 JPEG XL 时生效；输出 PNG / JPEG 时走解码）----
         enc_group = QGroupBox("JXL 编码参数")
         enc_group.setAutoFillBackground(False)
         enc_layout = QVBoxLayout(enc_group)
@@ -2444,6 +2453,13 @@ class MainWindow(QMainWindow):
         命令，方便用户在此基础上修改。
         """
         if self.custom_cmd_check.isChecked() and not force:
+            return
+        # JPEG 输出格式：实际走 djxl 解码重建（无损 JPEG 转码的 JXL → 原图），
+        # 而非 cjxl 编码。一旦选中 JPG 输出，预览立即展示 djxl 解码命令，
+        # 无需等待放入 JXL 文件。
+        fmt = self.format_combo.currentText().lower()
+        if "jpg" in fmt:
+            self.cmd_edit.setText("djxl <输入> <输出>")
             return
         mode = self._current_encode_mode()
         effort = int(self.effort_combo.currentText())
@@ -4066,7 +4082,13 @@ class MainWindow(QMainWindow):
         try:
             from PIL import Image
             from . import processor
-            img = Image.open(path)
+            # JXL/AVIF PIL 不能原生读，先用 _display_path 走 djxl/Pillow 解到 PNG。
+            # 失败（None）则抛错以便落入下面的异常分支显示明确的失败信息。
+            loadable = _display_path(path)
+            if loadable is None:
+                raise RuntimeError(
+                    "无法解码该图片（%s）" % os.path.basename(path))
+            img = Image.open(loadable)
             img.load()
             w, h = img.size
             if max(w, h) > self.PREVIEW_MAX_SIDE:
@@ -4092,8 +4114,17 @@ class MainWindow(QMainWindow):
             self.preview_view.setVisible(True)
             self.preview_msg.setVisible(False)
         except Exception as exc:  # noqa: BLE001 - surface any preview failure
+            # 只显式文件名而不是完整路径，避免长路径把 QLabel /
+            # 整个窗口撑高。结合 _build_actions_tab 里给 preview_msg 设置的
+            # word wrap + Maximum 垂直策略 + 最大高度上限，错误信息再多也
+            # 不会破坏布局。
+            err_text = str(exc)
+            if path:
+                full = os.path.abspath(path) + os.sep
+                err_text = err_text.replace(full, "")
+                err_text = err_text.replace(path, os.path.basename(path))
             self.preview_view.setVisible(False)
-            self.preview_msg.setText("预览失败：%s" % exc)
+            self.preview_msg.setText("预览失败：%s" % err_text)
             self.preview_msg.setVisible(True)
 
     def _apply_preview_pixmap(self):
@@ -4625,9 +4656,16 @@ class MainWindow(QMainWindow):
         # files are skipped and reported in the status log.
         jobs = []
         skipped = []
+        skipped_jpg = []
+        out_fmt = self._current_output_format()
         for src in self.input_files:
             if mode == "lossless_jpeg" and not _is_jpeg(src):
                 skipped.append(src)
+                continue
+            # JPEG 输出格式仅支持 JXL 输入：djxl 重建 JPG 只对「JPEG 无损转码的
+            # JXL」成立，非 JXL 文件（普通图片/其他格式）无法通过 djxl 重建为 JPG。
+            if out_fmt == "jpg" and not src.lower().endswith(".jxl"):
+                skipped_jpg.append(src)
                 continue
             out_path = self._build_output_path(src)
             out_is_jxl = out_path.lower().endswith(".jxl")
@@ -4644,10 +4682,21 @@ class MainWindow(QMainWindow):
             )
             for s in skipped:
                 self.log_edit.appendPlainText("    - %s" % s)
-        if not jobs:
-            self.statusBar().showMessage("没有可处理的 JPG 文件，转换未开始")
+        # JPEG 输出格式：把被跳过的非 JXL 文件在状态中提示出来。
+        if skipped_jpg:
+            self.statusBar().showMessage(
+                "已跳过 %d 个非 JXL 文件（JPEG 输出仅重建 JXL）" % len(skipped_jpg)
+            )
             self.log_edit.appendPlainText(
-                "错误：当前没有可处理的 JPG 文件，转换未开始。"
+                "提示：JPEG 输出格式仅支持 JXL 输入（无损 JPEG 转码的 JXL 可重建原图），"
+                "以下 %d 个非 JXL 文件已跳过：" % len(skipped_jpg)
+            )
+            for s in skipped_jpg:
+                self.log_edit.appendPlainText("    - %s" % s)
+        if not jobs:
+            self.statusBar().showMessage("没有可处理的文件，转换未开始")
+            self.log_edit.appendPlainText(
+                "错误：当前没有可处理的文件，转换未开始。"
             )
             return
 
@@ -4772,10 +4821,27 @@ class MainWindow(QMainWindow):
         self.log_edit.appendPlainText("正在停止……（当前文件处理完毕后中止）")
         self._convert_worker.request_stop()
 
+    def _current_output_format(self):
+        """返回输出格式键：jxl / png / jpg（按 format_combo 当前文本判断）。
+
+        与 :meth:`_build_output_path` 共用同一判定，避免扩展名推导逻辑散落多处。
+        """
+        lower = self.format_combo.currentText().lower()
+        if "jpg" in lower:
+            return "jpg"
+        if "png" in lower:
+            return "png"
+        return "jxl"
+
     def _build_output_path(self, src):
         base, _ = os.path.splitext(src)
         lower = self.format_combo.currentText().lower()
-        out_ext = ".png" if "png" in lower else ".jxl"
+        if "jpg" in lower:
+            out_ext = ".jpg"
+        elif "png" in lower:
+            out_ext = ".png"
+        else:
+            out_ext = ".jxl"
 
         if self.custom_folder_radio.isChecked():
             folder = self.custom_folder_edit.text().strip()
