@@ -1264,6 +1264,11 @@ class HistoryRowWidget(QWidget):
         self._hover = on
         self._apply_style(on)
 
+    def set_row(self, row):
+        """Re-number this row's logical index after another row is deleted
+        in place (so its delete signal keeps pointing at the right entry)."""
+        self._row = row
+
     def eventFilter(self, obj, event):
         etype = event.type()
         if etype == QEvent.Enter:
@@ -4109,11 +4114,32 @@ class MainWindow(QMainWindow):
     def _on_folder_history_delete(self, row):
         """Remove a single entry from the folder-history (triggered by the
         per-row "✕" button). The history menu stays open so more entries can
-        be removed in a row; preserves the currently typed text."""
+        be removed in a row; preserves the currently typed text.
+
+        The row is removed *in place* — only the deleted QWidgetAction is
+        taken out and the remaining rows are re-numbered — instead of
+        rebuilding the whole menu. Rebuilding (clear() + repopulate) on a
+        visible popup collapses every widget and repaints the list, which
+        reads as a flicker on every delete."""
         if not (0 <= row < len(self._folder_history)):
             return
         self._folder_history.pop(row)
-        self._rebuild_folder_menu()
+        actions = self.folder_menu.actions()
+        if 0 <= row < len(actions):
+            act = actions[row]
+            self.folder_menu.removeAction(act)
+            act.deleteLater()  # release the QWidgetAction + its row widget
+        # Re-number the surviving rows so their delete signals keep pointing
+        # at the correct index (the widget emits its own _row, not the closure).
+        for r, act in enumerate(self.folder_menu.actions()):
+            w = act.defaultWidget()
+            if isinstance(w, HistoryRowWidget):
+                w.set_row(r)
+        # A blank menu looks broken; show the placeholder when nothing remains.
+        if not self._folder_history:
+            empty = QAction("(无历史记录)", self.folder_menu)
+            empty.setEnabled(False)
+            self.folder_menu.addAction(empty)
         self._save_output_settings()
 
     def _rebuild_folder_menu(self):
