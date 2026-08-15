@@ -2540,6 +2540,10 @@ class MainWindow(QMainWindow):
         # 绘制进度条（厚度与居中均对齐 Fusion，沿用当前 palette 不破坏深色模式），
         # 与下拉框用 Fusion 规避闪烁的做法一致。Fusion 主题下本就是 Fusion，无副作用。
         self.progress_bar.setStyle(_fusion_style())
+        # Fusion 样式下窗口失焦会把进度条填充色暗化/变黑；把 Inactive 组
+        # 同步成 Active 组规避（复用 _sync_radio_inactive_palette 的同一逻辑）。
+        # 这里先调一次，保证构建阶段即生效，_apply_theme/系统主题切换时也会再调。
+        self._sync_radio_inactive_palette()
         layout.addWidget(self.progress_bar)
 
         progress_row = QHBoxLayout()
@@ -4176,6 +4180,10 @@ class MainWindow(QMainWindow):
             )
         for rb in self.findChildren(QRadioButton):
             rb.setPalette(synced)
+        # 进度条同样规避 Fusion 样式在窗口失焦时把填充色暗化/变黑：
+        # 把 Inactive 组设为与 Active 组一致，失焦时颜色保持焦点态。
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.setPalette(synced)
 
     def changeEvent(self, event):
         """React to a system light/dark theme switch while the app is running:
