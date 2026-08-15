@@ -2153,7 +2153,6 @@ class MainWindow(QMainWindow):
         self.dest_group.addButton(self.same_folder_radio)
         self.dest_group.addButton(self.custom_folder_radio)
         dest_layout.addWidget(self.same_folder_radio)
-        dest_layout.addWidget(self.custom_folder_radio)
 
         custom_row = QHBoxLayout()
         # Editable field + a dropdown arrow that opens a QMenu listing the
@@ -2203,7 +2202,13 @@ class MainWindow(QMainWindow):
         custom_row.addWidget(self.custom_folder_dropdown)
         custom_row.addSpacing(6)
         custom_row.addWidget(self.browse_folder_button)
-        dest_layout.addLayout(custom_row)
+        # 把输入框上移到「自定义文件夹」单选按钮同一行：左侧只占按钮自身宽度
+        # （shortened），输入框右侧（箭头 + 6px 间隙 + 浏览按钮）布局与间隙保持原样。
+        custom_line = QHBoxLayout()
+        custom_line.setSpacing(8)
+        custom_line.addWidget(self.custom_folder_radio)
+        custom_line.addLayout(custom_row, stretch=1)
+        dest_layout.addLayout(custom_line)
 
         self.custom_folder_radio.toggled.connect(
             lambda checked: (
