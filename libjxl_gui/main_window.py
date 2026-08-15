@@ -2130,10 +2130,13 @@ class MainWindow(QMainWindow):
         self.lossless_jpeg_radio.toggled.connect(
             lambda _=None: self._on_encode_mode_changed()
         )
-        # Persist any manual change to quality / effort immediately.
-        self.quality_spin.valueChanged.connect(lambda _=None: self._save_jxl_output())
+        # Persist any manual change to quality / effort immediately, and keep
+        # the command preview (when not in custom-command mode) in sync.
+        self.quality_spin.valueChanged.connect(
+            lambda _=None: (self._save_jxl_output(), self._update_cmd_preview())
+        )
         self.effort_combo.currentTextChanged.connect(
-            lambda _=None: self._save_jxl_output()
+            lambda _=None: (self._save_jxl_output(), self._update_cmd_preview())
         )
         layout.addWidget(enc_group)
 

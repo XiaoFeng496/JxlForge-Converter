@@ -194,6 +194,18 @@ w._update_cmd_preview()
 check("默认未勾选『自定义命令』", w.custom_cmd_check.isChecked() is False)
 check("默认 cmd_edit 只读（等同命令预览）", w.cmd_edit.isReadOnly() is True)
 check("默认 cmd_edit 显示命令预览", "cjxl" in w.cmd_edit.text())
+# 回归：未勾选自定义命令时，quality/effort 变化应通过信号自动刷新预览
+#（曾漏连 valueChanged -> _update_cmd_preview，导致改 quality 不刷新）。
+w.lossy_radio.setChecked(True)
+w.quality_spin.setValue(50)
+check("改 quality 自动刷新预览（含 --quality 50）", "--quality 50" in w.cmd_edit.text())
+w.quality_spin.setValue(75)
+check("再次改 quality 继续刷新预览", "--quality 75" in w.cmd_edit.text())
+w.effort_combo.setCurrentText("9")
+check("改 effort 自动刷新预览（含 -e 9）", "-e 9" in w.cmd_edit.text())
+# 复位，避免影响后续依赖默认 effort/quality 的断言
+w.effort_combo.setCurrentText("7")
+w.quality_spin.setValue(90)
 # 勾选后：可编辑 + 预填当前生成的命令
 w.custom_cmd_check.setChecked(True)
 check("勾选后 cmd_edit 可编辑", w.cmd_edit.isReadOnly() is False)
