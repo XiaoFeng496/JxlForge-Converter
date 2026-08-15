@@ -38,7 +38,7 @@ def _fake_encode(src, out_path, **kwargs):
     # Pretend cjxl ran; write a tiny file so downstream reads would work.
     with open(out_path, "wb") as f:
         f.write(b"jxl")
-    return True, "fake cjxl ok"
+    return True, "fake cjxl ok", ""
 
 def _fake_decode(src, out_path):
     with open(out_path, "wb") as f:
@@ -252,7 +252,7 @@ check("E: no 处理失败 in conversion log",
 # --- Popen backend: ensure encode still produces a tuple via Popen ---------
 conv_mod.encode = _real_encode  # restore real (uses Popen internally)
 conv_mod.decode = _real_decode
-ok, msg = conv_mod.encode(src_a, os.path.join(tmpdir, "real.jxl"))
+ok, msg, _tag = conv_mod.encode(src_a, os.path.join(tmpdir, "real.jxl"))
 check("converter.encode returns (bool, str) via Popen",
       isinstance(ok, bool) and isinstance(msg, str))
 

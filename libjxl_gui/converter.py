@@ -9,6 +9,11 @@ import os
 import platform
 import shutil
 import subprocess
+import re
+
+# cjxl 编码时向 stderr 打印 "Encoding [<codec>, <mode>, effort: N]"，
+# 抓取方括号内的完整原文作为状态页每文件的编码模式标签。
+_ENCODING_TAG_RE = re.compile(r"Encoding\s*\[([^\]]+)\]")
 
 
 # Module-level handle to the process currently spawned by _run(). Lets a
@@ -277,7 +282,11 @@ def encode(
         codestream_level=codestream_level,
         faster_decoding=faster_decoding,
     )
-    return _run(args, priority=priority)
+    ok, msg, err = _run(args, priority=priority)
+    # 抓取 cjxl 真实输出的编码标签（如 [Modular, lossless, effort: 7]）；
+    # 解析失败（异常/自定义命令无 Encoding 行）时返回空串，由调用方兜底。
+    tag = parse_encoding_tag(err)
+    return ok, msg, tag
 
 
 def _is_jpeg(path):
@@ -292,7 +301,23 @@ def decode(input_path, output_path, priority=DEFAULT_PRIORITY):
     process. Default: ``below_normal``.
     """
     args = ["djxl", input_path, output_path]
-    return _run(args, priority=priority)
+    ok, msg, _ = _run(args, priority=priority)
+    return ok, msg
+
+
+def parse_encoding_tag(text):
+    """从 cjxl 真实 stderr 输出里提取编码模式标签（含方括号）。
+
+    cjxl 编码时打印一行 ``Encoding [<codec>, <mode>, effort: N]``（例如
+    ``[Modular, lossless, effort: 7]`` / ``[VarDCT, d1.000, effort: 7]``），
+    抓取方括号完整原文作为状态页每文件的编码描述；无匹配返回空串。
+    """
+    if not text:
+        return ""
+    m = _ENCODING_TAG_RE.search(text)
+    if not m:
+        return ""
+    return "[" + m.group(1).strip() + "]"
 
 
 def _run(args, priority=DEFAULT_PRIORITY):
@@ -331,5 +356,5 @@ def _run(args, priority=DEFAULT_PRIORITY):
             _current_process = None
     if proc.returncode != 0:
         detail = (stderr or "").strip() or "未知错误"
-        return False, "命令返回错误（退出码 %d）：%s" % (proc.returncode, detail)
-    return True, (stdout or "").strip() or "操作成功完成。"
+        return False, "命令返回错误（退出码 %d）：%s" % (proc.returncode, detail), stderr
+    return True, (stdout or "").strip() or "操作成功完成。", stderr

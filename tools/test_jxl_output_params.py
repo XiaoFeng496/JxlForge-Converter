@@ -80,7 +80,7 @@ _captured = []
 
 def _fake_encode(input_path, output_path, **kwargs):
     _captured.append((input_path, output_path, dict(kwargs)))
-    return True, "fake cjxl ok"
+    return True, "fake cjxl ok", ""
 
 
 _real_encode = conv_mod.encode

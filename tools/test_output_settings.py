@@ -86,7 +86,7 @@ _real_encode = conv_mod.encode
 
 
 def _fake_encode(input_path, output_path, **kwargs):
-    return True, "fake cjxl ok"
+    return True, "fake cjxl ok", ""
 
 
 conv_mod.encode = _fake_encode

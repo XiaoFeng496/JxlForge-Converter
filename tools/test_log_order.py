@@ -74,11 +74,12 @@ def fake_encode(src, out_path, **kwargs):
             f.write(b"fake")
     except OSError:
         pass
-    return True, "ok"
+    return True, "ok", ""
 
 
 _real = conv_mod.encode
-conv_mod.decode = conv_mod.encode = fake_encode
+conv_mod.encode = fake_encode
+conv_mod.decode = lambda *a, **k: (True, "ok")
 
 tmp = tempfile.mkdtemp()
 srcs = [os.path.join(tmp, "f%d.png" % i) for i in range(12)]

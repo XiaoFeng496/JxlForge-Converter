@@ -4890,7 +4890,7 @@ class ConvertWorker(QThread):
             tmp_files.append(tmp_src)
             ok, msg = converter.decode(src, tmp_src, priority=self.priority)
             if not ok:
-                return False, "djxl 解码失败：%s" % msg
+                return False, "djxl 解码失败：%s" % msg, ""
             img = Image.open(tmp_src)
         else:
             img = Image.open(src)
@@ -4903,7 +4903,7 @@ class ConvertWorker(QThread):
             img.save(tmp_png, "PNG")
             return converter.encode(tmp_png, out_path, **self._encode_kwargs())
         img.save(out_path)
-        return True, "已保存为 PNG。"
+        return True, "已保存为 PNG。", ""
 
     def _run_custom_command(self, src, out_path):
         """执行用户自定义命令（<输入>/<输出> 占位符替换为真实路径后）。
@@ -4917,10 +4917,11 @@ class ConvertWorker(QThread):
         try:
             tokens = shlex.split(cmd, posix=False)
         except ValueError as exc:
-            return False, "自定义命令解析失败：%s" % exc
+            return False, "自定义命令解析失败：%s" % exc, ""
         if not tokens:
-            return False, "自定义命令为空。"
-        return converter._run(tokens, priority=self.priority)
+            return False, "自定义命令为空。", ""
+        ok, msg, err = converter._run(tokens, priority=self.priority)
+        return ok, msg, converter.parse_encoding_tag(err)
 
     def _encode_source(self, src, out_path, tmp_files):
         """Encode a non-.jxl source into ``out_path`` via cjxl.
@@ -4940,7 +4941,7 @@ class ConvertWorker(QThread):
             # 输出 PNG：cjxl 只能产出 jxl，无法真正输出 png。非 jxl 输入直接由
             # Pillow 解码并保存为 png（保留 ICC 配置），避免“名不副实的假 png”。
             if not processor.AVAILABLE:
-                return False, "输出 PNG 需要 Pillow 支持（请先安装 Pillow）"
+                return False, "输出 PNG 需要 Pillow 支持（请先安装 Pillow）", ""
             try:
                 from PIL import Image
                 img = Image.open(src)
@@ -4949,17 +4950,17 @@ class ConvertWorker(QThread):
                     img.save(out_path, "PNG", icc_profile=icc)
                 else:
                     img.save(out_path, "PNG")
-                return True, "已保存为 PNG（Pillow 解码）。"
+                return True, "已保存为 PNG（Pillow 解码）。", ""
             except Exception as exc:
                 detail = str(exc).replace(chr(92) + chr(92), chr(92))
-                return False, "Pillow 解码失败：%s" % detail
-        ok, message = converter.encode(src, out_path, **self._encode_kwargs())
+                return False, "Pillow 解码失败：%s" % detail, ""
+        ok, message, tag = converter.encode(src, out_path, **self._encode_kwargs())
         if ok:
-            return True, message
+            return True, message, tag
         # Native encode failed — fall back to a Pillow-based decode for inputs
         # cjxl cannot read directly (e.g. WebP, BMP, TIFF).
         if not processor.AVAILABLE:
-            return False, message + "\n    （提示：安装 Pillow 后可兼容 WebP 等更多输入格式）"
+            return False, message + "\n    （提示：安装 Pillow 后可兼容 WebP 等更多输入格式）", ""
         try:
             from PIL import Image
             img = Image.open(src)
@@ -4975,11 +4976,11 @@ class ConvertWorker(QThread):
             # the backslashes doubled ("F:\\..."). Normalize to a single
             # backslash so the path reads naturally in the status log.
             detail = str(exc).replace("\\\\", "\\")
-            return False, "cjxl 无法读取该输入格式，且 Pillow 解码失败：%s" % detail
-        ok2, msg2 = converter.encode(tmp_png, out_path, **self._encode_kwargs())
+            return False, "cjxl 无法读取该输入格式，且 Pillow 解码失败：%s" % detail, ""
+        ok2, msg2, tag2 = converter.encode(tmp_png, out_path, **self._encode_kwargs())
         if ok2:
-            return True, "通过 Pillow 兼容解码（输入格式 cjxl 不支持）后编码完成。"
-        return False, msg2
+            return True, "通过 Pillow 兼容解码（输入格式 cjxl 不支持）后编码完成。", tag2
+        return False, msg2, tag2
 
     def run(self):
         """Run the conversion as a bounded pool of concurrent cjxl/djxl processes.
@@ -5003,7 +5004,6 @@ class ConvertWorker(QThread):
         self._stat_err = 0
         self._stat_in_bytes = 0
         self._stat_out_bytes = 0
-        encode_tag = self._encode_tag()
         cores, per_file, pool_size = self._resolve_concurrency(total)
         self._per_file_threads = per_file
 
@@ -5047,12 +5047,12 @@ class ConvertWorker(QThread):
                         res = fut.result()
                     except Exception as exc:
                         res = (False, "处理出错：%s" % exc, 0, 0, True)
-                    ok, message, in_size, out_size, stopped = res
+                    ok, message, tag, in_size, out_size, stopped = res
                     if stopped:
                         # 被用户在运行中中止（子进程被杀）——不计入成功/失败。
                         continue
                     self._record_result(index, src, ok, message, in_size,
-                                       out_size, encode_tag)
+                                       out_size, tag)
                 submit_next()
             if self._stopped:
                 self.log_signal.emit("已停止。")
@@ -5066,7 +5066,7 @@ class ConvertWorker(QThread):
 
     def _process_job(self, index, src, out_path, out_is_jxl):
         """Process a single job synchronously (in its own thread) and return a
-        result tuple ``(ok, message, in_size, out_size, stopped)``.
+        result tuple ``(ok, message, tag, in_size, out_size, stopped)``.
 
         ``stopped`` is True when the job failed only because the user pressed 停止
         mid-run (the child cjxl/djxl was terminated); such jobs are not counted as
@@ -5081,9 +5081,9 @@ class ConvertWorker(QThread):
             try:
                 if self.custom_cmd:
                     # 自定义命令模式：跳过 Pillow 动作与自动拼装，直接执行用户命令。
-                    ok, message = self._run_custom_command(src, out_path)
+                    ok, message, tag = self._run_custom_command(src, out_path)
                 elif self.actions:
-                    ok, message = self._process_with_actions(
+                    ok, message, tag = self._process_with_actions(
                         src, out_path, out_is_jxl, self.actions, tmp_files
                     )
                 elif src.lower().endswith(".jxl"):
@@ -5092,14 +5092,15 @@ class ConvertWorker(QThread):
                         # output — drop --lossless_jpeg (JPEG-only flag).
                         kw = self._encode_kwargs()
                         kw.pop("lossless_jpeg", None)
-                        ok, message = converter.encode(src, out_path, **kw)
+                        ok, message, tag = converter.encode(src, out_path, **kw)
                     else:
                         # Decoding a JXL into a raster (PNG) needs djxl.
                         ok, message = converter.decode(
                             src, out_path, priority=self.priority
                         )
+                        tag = ""
                 else:
-                    ok, message = self._encode_source(src, out_path, tmp_files)
+                    ok, message, tag = self._encode_source(src, out_path, tmp_files)
             finally:
                 for t in tmp_files:
                     try:
@@ -5109,15 +5110,14 @@ class ConvertWorker(QThread):
                         pass
             # 若运行过程中被中止，子进程被杀会返回失败；标记为 stopped 不计入统计。
             if (not ok) and self._stopped:
-                return (False, message, in_size, 0, True)
+                return (False, message, "", in_size, 0, True)
             out_size = _safe_getsize(out_path) if ok else 0
-            return (ok, message, in_size, out_size, False)
+            return (ok, message, tag, in_size, out_size, False)
         except Exception as exc:
             stopped = self._stopped
-            return (False, "处理出错：%s" % exc, in_size, 0, stopped)
+            return (False, "处理出错：%s" % exc, "", in_size, 0, stopped)
 
-    def _record_result(self, index, src, ok, message, in_size, out_size,
-                       encode_tag):
+    def _record_result(self, index, src, ok, message, in_size, out_size, tag):
         """Update running statistics and emit the per-file log block.
 
         The '>>> [n/m] path' header and the size/failure line are emitted here
@@ -5131,8 +5131,11 @@ class ConvertWorker(QThread):
         if ok:
             self._stat_out_bytes += out_size
             self._stat_ok += 1
+            # 优先用 cjxl 真实输出抓取的编码标签；若解析为空（如 djxl 解码、
+            # 自定义命令无 Encoding 行），兜底用规则推导。
+            final_tag = tag or self._encode_tag()
             self.log_signal.emit(
-                _format_size_change(in_size, out_size, encode_tag)
+                _format_size_change(in_size, out_size, final_tag)
             )
         else:
             self._stat_err += 1

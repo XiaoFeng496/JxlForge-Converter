@@ -62,13 +62,13 @@ def fake_run(src, out, **kwargs):
     conv_mod._current_process = proc
     out_, err_ = proc.communicate()
     conv_mod._current_process = None
-    return (proc.returncode == 0), (out_ or err_)
+    return (proc.returncode == 0), (out_ or err_), ""
 
 
 _real_encode = conv_mod.encode
 _real_decode = conv_mod.decode
 conv_mod.encode = fake_run
-conv_mod.decode = fake_run
+conv_mod.decode = lambda *a, **k: (True, "")
 
 tmpdir = tempfile.mkdtemp()
 files = []

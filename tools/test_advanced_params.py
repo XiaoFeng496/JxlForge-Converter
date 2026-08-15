@@ -281,7 +281,7 @@ _captured_cmd = []
 
 def _fake_run(args, priority=None):
     _captured_cmd.append((list(args), priority))
-    return True, "fake cjxl ok"
+    return True, "fake cjxl ok", ""
 
 
 _real_run = conv_mod._run
@@ -290,7 +290,7 @@ cwc = ConvertWorker(
     [("in.png", "out.jxl", True)], [], custom_cmd="cjxl <输入> <输出> -e 7 --xcustom"
 )
 check("自定义命令：_encode_tag 标记正确", cwc._encode_tag() == "[自定义命令]")
-ok_cc, msg_cc = cwc._run_custom_command("C:/in/photo.jpg", "C:/out/photo.jxl")
+ok_cc, msg_cc, tag_cc = cwc._run_custom_command("C:/in/photo.jpg", "C:/out/photo.jxl")
 check("自定义命令：占位符已替换",
       _captured_cmd and _captured_cmd[0][0][1] == "C:/in/photo.jpg"
       and _captured_cmd[0][0][2] == "C:/out/photo.jxl")
@@ -306,7 +306,7 @@ _captured = []
 
 def _fake_encode(input_path, output_path, **kwargs):
     _captured.append((input_path, output_path, dict(kwargs)))
-    return True, "fake cjxl ok"
+    return True, "fake cjxl ok", ""
 
 
 conv_mod.encode = _fake_encode

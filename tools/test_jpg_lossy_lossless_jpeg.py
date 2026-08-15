@@ -24,7 +24,7 @@ _real_run = conv_mod._run
 
 def _fake_run(args, priority=None):
     _captured.append(list(args))
-    return True, "fake cjxl ok"
+    return True, "fake cjxl ok", ""
 
 
 conv_mod._run = _fake_run

@@ -46,8 +46,8 @@ calls = []
 def fake_encode(input_path, output_path, **kwargs):
     calls.append(input_path)
     if len(calls) == 1:
-        return False, "命令返回错误（退出码 1）：... Getting pixel data failed."
-    return True, "操作成功完成。"
+        return False, "命令返回错误（退出码 1）：... Getting pixel data failed.", ""
+    return True, "操作成功完成。", ""
 
 
 _real = conv_mod.encode
@@ -56,7 +56,7 @@ conv_mod.encode = fake_encode
 worker = ConvertWorker([], [])
 tmp_files = []
 out_path = os.path.join(tmpdir, "sample.jxl")
-ok, msg = worker._encode_source(src, out_path, tmp_files)
+ok, msg, _tag = worker._encode_source(src, out_path, tmp_files)
 
 check("fallback reports success", ok is True)
 check("fallback message mentions Pillow", "Pillow" in msg)
