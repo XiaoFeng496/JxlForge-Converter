@@ -2536,6 +2536,10 @@ class MainWindow(QMainWindow):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
+        # 原生样式下 QProgressBar 又细又不会把百分比居中；强制用 Fusion 样式
+        # 绘制进度条（厚度与居中均对齐 Fusion，沿用当前 palette 不破坏深色模式），
+        # 与下拉框用 Fusion 规避闪烁的做法一致。Fusion 主题下本就是 Fusion，无副作用。
+        self.progress_bar.setStyle(_fusion_style())
         layout.addWidget(self.progress_bar)
 
         progress_row = QHBoxLayout()
