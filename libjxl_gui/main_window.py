@@ -4703,7 +4703,21 @@ class MainWindow(QMainWindow):
         if duration < 1:
             log("总持续时间： 不到 1 秒")
         else:
-            log("总持续时间： %d 秒" % int(round(duration)))
+            total = int(round(duration))
+            if total < 60:
+                log("总持续时间： %d 秒" % total)
+            else:
+                days = total // 86400
+                h = (total % 86400) // 3600
+                m = (total % 3600) // 60
+                s = total % 60
+                if days > 0:
+                    log("总持续时间： %d 天 %d 时 %d 分 %d 秒"
+                        % (days, h, m, s))
+                elif h > 0:
+                    log("总持续时间： %d 时 %d 分 %d 秒" % (h, m, s))
+                else:
+                    log("总持续时间： %d 分 %d 秒" % (m, s))
         log("")
         if stopped:
             log("转换停止：" + _format_datetime(now))
