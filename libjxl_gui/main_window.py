@@ -4706,14 +4706,15 @@ class MainWindow(QMainWindow):
             log("总持续时间： %d 秒" % int(round(duration)))
         log("")
         if stopped:
-            log("转换停止: " + _format_datetime(now))
+            log("转换停止：" + _format_datetime(now))
             self.statusBar().showMessage("转换已停止")
             self._stop_requested = False
         else:
-            log("转换完成: " + _format_datetime(now))
+            log("转换完成：" + _format_datetime(now))
             self.statusBar().showMessage(
                 "转换完成：%d 个文件" % worker._stat_ok
             )
+        log("")
 
         # 进度条收尾：停在已处理数（正常完成=总数，中止=部分），清除预计剩余。
         self.progress_bar.setValue(worker._stat_processed)
@@ -5047,14 +5048,15 @@ class ConvertWorker(QThread):
 
         try:
             self.log_signal.emit(
-                "开始转换: " + _format_datetime(self._stat_started)
-            )
-            self.log_signal.emit("")
-            self.log_signal.emit(
                 "并发设置：核心数=%s，每文件线程=%d，并行进程=%d"
                 % (self.cpu_cores if isinstance(self.cpu_cores, int) else "自动",
                    per_file, pool_size)
             )
+            self.log_signal.emit("")
+            self.log_signal.emit(
+                "开始转换：" + _format_datetime(self._stat_started)
+            )
+            self.log_signal.emit("")
             if total == 0:
                 return
             executor = cf.ThreadPoolExecutor(max_workers=pool_size)

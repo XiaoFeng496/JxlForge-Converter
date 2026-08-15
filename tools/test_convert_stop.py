@@ -116,7 +116,7 @@ for _ in range(50):
 check("convert button re-enabled after stop", window.convert_button.isEnabled() is True)
 check("stop button disabled after finish", window.stop_button.isEnabled() is False)
 check("log reports 已停止", any("已停止" in s for s in logs))
-check("log reports 转换停止", any("转换停止:" in s for s in logs))
+check("log reports 转换停止", any("转换停止：" in s for s in logs))
 # 顺序修复不变量：每个 >>> [N] 头必紧接其大小/失败行（头以 \t 或「处理失败」开头）。
 header_idx = [i for i, s in enumerate(logs) if s.startswith(">>> [")]
 orphan = False

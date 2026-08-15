@@ -96,7 +96,7 @@ for _ in range(100):
 check("convert button re-enabled after finish",
       window.convert_button.isEnabled() is True)
 # 开始/汇总 由 ConvertWorker 经信号回传（跨线程，队列连接）。
-check("start log line emitted", any("开始转换:" in s for s in collected_logs))
+check("start log line emitted", any("开始转换：" in s for s in collected_logs))
 check("per-file progress logged", sum(">>> [1/2]" in s for s in collected_logs) == 1
       and sum(">>> [2/2]" in s for s in collected_logs) == 1)
 check("per-file size change line logged",
@@ -112,7 +112,7 @@ check("summary: total output size",
       any("输出文件总大小：" in s for s in collected_logs))
 check("summary: size ratio", any("文件大小比例：" in s for s in collected_logs))
 check("summary: duration", any("总持续时间：" in s for s in collected_logs))
-check("completion log emitted", any("转换完成:" in s for s in collected_logs))
+check("completion log emitted", any("转换完成：" in s for s in collected_logs))
 check("output files produced",
       os.path.exists(os.path.join(tmpdir, "a.jxl"))
       and os.path.exists(os.path.join(tmpdir, "b.jxl")))
