@@ -121,7 +121,7 @@ check("custom_folder_edit exists (editable field)",
       hasattr(w, "custom_folder_edit"))
 check("custom_folder_dropdown button exists",
       hasattr(w, "custom_folder_dropdown"))
-check("default dest is 保持原文件夹 (same)",
+check("default dest is 原文件夹 (same)",
       w.same_folder_radio.isChecked() is True)
 check("custom folder controls disabled by default",
       w.custom_folder_edit.isEnabled() is False

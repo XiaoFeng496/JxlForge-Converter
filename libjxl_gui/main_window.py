@@ -2180,8 +2180,8 @@ class MainWindow(QMainWindow):
         dest_group = QGroupBox("输出位置")
         dest_group.setAutoFillBackground(False)
         dest_layout = QVBoxLayout(dest_group)
-        self.same_folder_radio = QRadioButton("保持原文件夹")
-        self.custom_folder_radio = QRadioButton("自定义文件夹")
+        self.same_folder_radio = QRadioButton("原文件夹")
+        self.custom_folder_radio = QRadioButton("文件夹")
         self.same_folder_radio.setChecked(True)
         self.dest_group = QButtonGroup(self)
         self.dest_group.addButton(self.same_folder_radio)
@@ -2221,8 +2221,21 @@ class MainWindow(QMainWindow):
         self.custom_folder_edit.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.custom_folder_dropdown.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._rebuild_folder_menu()
-        self.browse_folder_button = QPushButton("浏览...")
+        # 浏览按钮改为紧凑省略号「…」小方块，与旁边的「自定义文件夹下拉箭头」
+        # 按钮（custom_folder_dropdown，宽 22）做成等宽按钮对。宽度直接对齐下拉
+        # 按钮（Fixed 策略 + 同宽），标准省略号 U+2026 仅约 12px，22px 内完整显示。
+        # 用 QToolButton 而非 QPushButton：旁边下拉箭头本就是 QToolButton，二者同型
+        # 才能保证 22px 在 Fusion 与原生下都完整显示「…」不裁切——QPushButton 的
+        # 原生内容内边距比 QToolButton 大，22px 下原生会轻微裁切。文字失去「浏览」
+        # 语义，补 tooltip 说明用途；setToolButtonStyle(TextOnly) 确保纯文字显示。
+        browse_text = "\u2026"
+        self.browse_folder_button = QToolButton()
+        self.browse_folder_button.setText(browse_text)
+        self.browse_folder_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.browse_folder_button.setEnabled(False)
+        self.browse_folder_button.setToolTip("浏览文件夹...")
+        self.browse_folder_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        self.browse_folder_button.setFixedWidth(self.custom_folder_dropdown.width())
         # Native controls: a plain QLineEdit next to a plain QToolButton arrow.
         # No custom border / container / stylesheet -- the pair follows the
         # system light/dark theme automatically (no white-on-white, no inverted
@@ -2255,10 +2268,17 @@ class MainWindow(QMainWindow):
         self.custom_folder_edit.textChanged.connect(
             lambda _=None: self._on_custom_folder_changed()
         )
-        layout.addWidget(dest_group)
+        # 输出位置 + 文件名 水平并排：文件名区域移到输出位置框右侧，
+        # 输出位置框不再占满整行（向左压缩），为右侧文件名区域腾出空间。
+        dest_name_row = QHBoxLayout()
+        dest_name_row.setSpacing(12)
+        dest_name_row.addWidget(dest_group, stretch=1)
 
         name_group = QGroupBox("文件名")
         name_group.setAutoFillBackground(False)
+        # 文件名区域只需紧凑容纳「保持原文件名 / 添加后缀：_converted」两行，
+        # 不抢占输出位置框的水平空间。
+        name_group.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
         name_layout = QVBoxLayout(name_group)
         self.keep_name_radio = QRadioButton("保持原文件名")
         self.add_suffix_radio = QRadioButton("添加后缀：")
@@ -2279,7 +2299,10 @@ class MainWindow(QMainWindow):
         self.add_suffix_radio.toggled.connect(
             lambda checked: self.suffix_edit.setEnabled(checked)
         )
-        layout.addWidget(name_group)
+        # 文件名区域加入水平并排行（位于输出位置框右侧），不 stretch，
+        # 仅按自身内容宽度显示，剩余空间全给输出位置框。
+        dest_name_row.addWidget(name_group)
+        layout.addLayout(dest_name_row)
 
         layout.addStretch(1)
         # Note: 开始转换 按钮已移至窗口底部常驻栏，此处不再放置。
