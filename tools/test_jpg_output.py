@@ -176,6 +176,23 @@ w5 = fresh_window()
 check("输出格式持久化：新实例恢复为 JPEG (*.jpg)",
       w5.format_combo.currentText() == "JPEG (*.jpg)")
 
+# 选中 JPG 时下拉框右侧应显示限制提示；切回 JXL 时隐藏。
+# 注意：输出 tab 默认非当前页，QTabWidget 会隐藏非当前页子控件，
+# 故断言前需先激活「输出」tab（真实 GUI 中用户正停留在该页）。
+for i in range(w5.tabs.count()):
+    if w5.tabs.tabText(i) == "输出":
+        w5.tabs.setCurrentIndex(i)
+        break
+for _ in range(3):
+    _app.processEvents()
+check("输出格式=JPG 时显示「仅支持无损 JPEG 转码的 JXL 重建 JPG」提示",
+      w5.format_hint_label.isVisible() is True)
+w5.format_combo.setCurrentText("JPEG XL (*.jxl)")
+for _ in range(3):
+    _app.processEvents()
+check("切回 JXL 时隐藏该提示",
+      w5.format_hint_label.isVisible() is False)
+
 
 print("\nTOTAL %d, FAIL %d" % (total, len(failures)))
 if failures:

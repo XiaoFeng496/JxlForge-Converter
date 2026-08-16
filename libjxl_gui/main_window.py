@@ -2100,9 +2100,19 @@ class MainWindow(QMainWindow):
             ["JPEG XL (*.jxl)", "PNG (*.png)", "JPEG (*.jpg)"]
         )
         fmt_row.addWidget(self.format_combo)
-        # 切换输出格式时立即刷新命令预览（无需手动点「自定义命令」）。
+        # 选择 JPEG 输出时，在下拉框右侧提醒：仅支持「无损 JPEG 转码的 JXL
+        # 重建 JPG」，而非任意 JXL。默认隐藏，选中时由 _update_format_hint 显示。
+        self.format_hint_label = QLabel("仅支持无损 JPEG 转码的 JXL 重建 JPG")
+        self.format_hint_label.setVisible(False)
+        self.format_hint_label.setStyleSheet("color: #888; font-size: 11px;")
+        fmt_row.addWidget(self.format_hint_label)
+        # 切换输出格式时立即刷新命令预览与提示（无需手动点「自定义命令」）。
         self.format_combo.currentTextChanged.connect(
-            lambda _=None: (self._save_jxl_output(), self._update_cmd_preview())
+            lambda _=None: (
+                self._save_jxl_output(),
+                self._update_cmd_preview(),
+                self._update_format_hint(),
+            )
         )
         fmt_row.addStretch(1)
         layout.addLayout(fmt_row)
@@ -4961,6 +4971,12 @@ class MainWindow(QMainWindow):
         if "png" in lower:
             return "png"
         return "jxl"
+
+    def _update_format_hint(self):
+        """选择「JPEG」输出时在下拉框右侧显示限制提示，其余格式隐藏。"""
+        self.format_hint_label.setVisible(
+            self._current_output_format() == "jpg"
+        )
 
     def _build_output_path(self, src):
         base, _ = os.path.splitext(src)
