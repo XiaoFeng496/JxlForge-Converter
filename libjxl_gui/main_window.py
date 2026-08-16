@@ -2100,6 +2100,10 @@ class MainWindow(QMainWindow):
             ["JPEG XL (*.jxl)", "PNG (*.png)", "JPEG (*.jpg)"]
         )
         fmt_row.addWidget(self.format_combo)
+        # 切换输出格式时立即刷新命令预览（无需手动点「自定义命令」）。
+        self.format_combo.currentTextChanged.connect(
+            lambda _=None: (self._save_jxl_output(), self._update_cmd_preview())
+        )
         fmt_row.addStretch(1)
         layout.addLayout(fmt_row)
 
@@ -2878,6 +2882,8 @@ class MainWindow(QMainWindow):
         settings.setValue("mode", self._current_encode_mode())
         settings.setValue("quality", self.quality_spin.value())
         settings.setValue("effort", self.effort_combo.currentText())
+        # 输出格式（JXL / PNG / JPG）：与编码参数一起持久化。
+        settings.setValue("output_format", self.format_combo.currentText())
         self._save_advanced(settings)
         # 自定义命令：勾选状态 + 已编辑的命令文本。
         settings.setValue("custom_cmd_on", self.custom_cmd_check.isChecked())
@@ -2914,6 +2920,10 @@ class MainWindow(QMainWindow):
         self.quality_slider.setValue(quality)
         if self.effort_combo.findText(effort) >= 0:
             self.effort_combo.setCurrentText(effort)
+        # 恢复输出格式（JXL / PNG / JPG）。findText 校验避免脏 ini 触发异常。
+        fmt = settings.value("output_format", "JPEG XL (*.jxl)")
+        if self.format_combo.findText(fmt) >= 0:
+            self.format_combo.setCurrentText(fmt)
         # 恢复自定义命令：用 blockSignals 避免触发 _on_custom_cmd_toggled 的
         # 预填逻辑覆盖已持久化的命令文本。
         self.custom_cmd_check.blockSignals(True)

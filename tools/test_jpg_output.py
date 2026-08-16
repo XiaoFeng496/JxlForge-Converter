@@ -149,6 +149,33 @@ w3.format_combo.setCurrentText("JPEG XL (*.jxl)")
 w3._update_cmd_preview()
 check("切回 JXL 输出预览恢复 cjxl 编码命令", "cjxl" in w3.cmd_edit.text())
 
+# 仅靠「切换输出格式」信号自动刷新预览，不手动调 _update_cmd_preview、也不点
+# 「自定义命令」——验证 format_combo.currentTextChanged 已连接 _update_cmd_preview。
+w3.format_combo.setCurrentText("JPEG (*.jpg)")
+check("仅靠切换输出格式即自动刷新预览为 djxl（无需点自定义命令）",
+      "djxl" in w3.cmd_edit.text())
+
+
+# ---------------------------------------------------------------------------
+# 4. 输出格式持久化：保存后新实例应恢复，清空后回到默认 JXL
+# ---------------------------------------------------------------------------
+# 默认（清空 ini）：新实例应为 JPEG XL (*.jxl)
+_s = QSettings()
+_s.beginGroup("jxl_output")
+_s.remove("")  # 清空整组，确保从干净状态验证默认值
+_s.endGroup()
+w_def = fresh_window()
+check("清空后输出格式默认 JPEG XL (*.jxl)",
+      w_def.format_combo.currentText() == "JPEG XL (*.jxl)")
+
+# 切换为 JPG 并保存，新实例构造时（_load_jxl_output）应恢复为 JPG
+w4 = fresh_window()
+w4.format_combo.setCurrentText("JPEG (*.jpg)")
+w4._save_jxl_output()
+w5 = fresh_window()
+check("输出格式持久化：新实例恢复为 JPEG (*.jpg)",
+      w5.format_combo.currentText() == "JPEG (*.jpg)")
+
 
 print("\nTOTAL %d, FAIL %d" % (total, len(failures)))
 if failures:
