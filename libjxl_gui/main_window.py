@@ -2772,6 +2772,19 @@ class MainWindow(QMainWindow):
         self._save_jxl_output()
         self._update_cmd_preview()
 
+    def _num_threads_enabled(self):
+        """num_threads 行是否可用：需同时满足 (a) 当前编码模式支持；(b) 用户已
+        启用高级参数（adv_threads_toggle 勾选）。两条件缺一则置灰，避免「开关
+        关闭却仍能勾选线程数」的回归。控件未构建时（输出页晚于本调用）返回 False。"""
+        toggle = getattr(self, "adv_threads_toggle", None)
+        if toggle is None or not toggle.isChecked():
+            return False
+        mode = self._current_encode_mode()
+        for s in _ADVANCED_SCHEMA:
+            if s["key"] == "num_threads":
+                return mode in s["modes"]
+        return False
+
     def _apply_adv_threads_state(self, enabled):
         """根据「启用高级参数」开关，启用/禁用高级参数里的 num_threads 行，
         扩展/收窄输出页 effort 可选范围（启用→1..10，禁用→1..9），并更新
@@ -2780,9 +2793,10 @@ class MainWindow(QMainWindow):
         entry = adv_widgets.get("num_threads")
         if entry is not None:
             check, val_w, _ = entry
-            check.setEnabled(enabled)
+            nt_enabled = self._num_threads_enabled()
+            check.setEnabled(nt_enabled)
             if val_w is not None:
-                val_w.setEnabled(enabled and check.isChecked())
+                val_w.setEnabled(nt_enabled and check.isChecked())
         # 启用高级参数后，输出页 effort 可选范围扩展到 1..10；否则仅 1..9。
         self._set_effort_range(enabled)
         # 说明文字不再作为独立可见小字（部分主题下 palette(mid) 颜色异常），
@@ -4584,10 +4598,14 @@ class MainWindow(QMainWindow):
         self.quality_slider.setEnabled(is_lossy)
         self.quality_spin.setEnabled(is_lossy)
         # 高级参数：按当前编码模式启用/禁用各旋钮（不可用的自动置灰，且不参与转换）。
+        # 注意 num_threads 行还受「启用高级参数」开关约束（见 _num_threads_enabled），
+        # 不能仅按编码模式判定，否则开关关闭后仍可被勾选。
         mode = self._current_encode_mode()
         for s in _ADVANCED_SCHEMA:
             check, val_w, _ = self._adv_widgets[s["key"]]
             enabled = mode in s["modes"]
+            if s["key"] == "num_threads":
+                enabled = enabled and self.adv_threads_toggle.isChecked()
             check.setEnabled(enabled)
             if val_w is not None:
                 val_w.setEnabled(enabled and check.isChecked())

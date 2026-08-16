@@ -431,6 +431,39 @@ check("输出页三个分组框透明（透出面板色、跟随主题）",
       and all(g.autoFillBackground() is False for g in _groups))
 
 
+# ---------------------------------------------------------------------------
+# 9. 回归：启用高级参数关闭时 num_threads 复选框必须禁用
+#    历史 bug：编码模式联动(_on_encode_mode_changed)遍历所有高级参数 check 设
+#    enabled（num_threads 三种模式恒 True），覆盖了 adv_threads 开关的禁用，
+#    导致启动默认(开关关闭)时 num_threads 仍可被勾选。需两个因素共同决定。
+# ---------------------------------------------------------------------------
+def clear_conversion():
+    settings = QSettings()
+    settings.beginGroup("conversion")
+    settings.remove("")
+    settings.endGroup()
+    settings.sync()
+
+clear_conversion()
+w_nt = fresh_window()
+nt_entry = w_nt._adv_widgets.get("num_threads")
+check("num_threads 控件已构建 (_adv_widgets)", nt_entry is not None)
+if nt_entry is not None:
+    nt_check = nt_entry[0]
+    # 启动默认：conversation 组无 adv_threads_enabled → 开关关闭 → num_threads 禁用
+    check("启动默认(高级参数关闭)时 num_threads 复选框禁用",
+          (not w_nt.adv_threads_toggle.isChecked()) and (not nt_check.isEnabled()))
+    # 开启高级参数 → num_threads 可用
+    w_nt.adv_threads_toggle.setChecked(True)
+    check("启用高级参数后 num_threads 复选框可用", nt_check.isEnabled())
+    # 关闭 → 再次禁用（且不应被切换编码模式覆盖）
+    w_nt.adv_threads_toggle.setChecked(False)
+    w_nt.lossless_radio.setChecked(True)
+    check("关闭高级参数且切换编码模式后 num_threads 仍禁用",
+          not nt_check.isEnabled())
+clear_conversion()
+
+
 print()
 print("TOTAL %d, FAIL %d" % (total, len(failures)))
 sys.exit(1 if failures else 0)
