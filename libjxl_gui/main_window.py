@@ -2516,18 +2516,65 @@ class MainWindow(QMainWindow):
         self.cmd_edit.setText(" ".join(args))
 
     def _on_custom_cmd_toggled(self, checked):
-        """勾选「自定义命令」时在只读预览与可编辑自定义命令之间切换。"""
+        """勾选「自定义命令」时在只读预览与可编辑自定义命令之间切换；
+        勾选后同时整体置灰输出页全部编码参数控件——这些参数已被用户的
+        自定义命令取代，继续可调节既无意义也易引起歧义。"""
         if checked:
             # 勾选：预填当前生成的命令，方便用户在此基础上修改。
             self._update_cmd_preview(force=True)
             self.cmd_edit.setReadOnly(False)
             self.cmd_edit.selectAll()
             self.cmd_edit.setFocus()
+            self._set_encoding_controls_disabled()
         else:
-            # 取消勾选：恢复只读，并重新同步为实时生成的预览。
+            # 取消勾选：恢复只读，并依据编码模式/高级开关恢复各控件正常启用态。
             self.cmd_edit.setReadOnly(True)
+            self._restore_encoding_controls_enabled()
             self._update_cmd_preview()
         self._save_jxl_output()
+
+    def _set_encoding_controls_disabled(self):
+        """勾选『自定义命令』后调用：整体置灰输出页全部编码参数控件。
+
+        这些参数已被用户的自定义命令取代，调节无意义且易引起歧义，故统一禁用。
+        注意：custom_cmd_check（开关本身，须可取消勾选）与 cmd_edit（命令正文，
+        须可编辑）不在此列；其余编码参数——输出格式、编码模式三选一、--effort、
+        --quality、全部高级参数、『启用高级参数』开关、『重置高级参数』按钮——均置灰。
+        """
+        self.format_combo.setEnabled(False)
+        self.lossy_radio.setEnabled(False)
+        self.lossless_radio.setEnabled(False)
+        self.lossless_jpeg_radio.setEnabled(False)
+        self.effort_combo.setEnabled(False)
+        self.quality_slider.setEnabled(False)
+        self.quality_spin.setEnabled(False)
+        for s in _ADVANCED_SCHEMA:
+            check, val_w, _ = self._adv_widgets[s["key"]]
+            check.setEnabled(False)
+            if val_w is not None:
+                val_w.setEnabled(False)
+        self.adv_threads_toggle.setEnabled(False)
+        reset_btn = getattr(self, "reset_adv_button", None)
+        if reset_btn is not None:
+            reset_btn.setEnabled(False)
+
+    def _restore_encoding_controls_enabled(self):
+        """取消『自定义命令』后调用：依据『编码模式 + 高级参数开关』恢复各控件
+        正确的启用态（而非无脑全部启用——例如 --quality 仅在『有损』模式可用）。"""
+        # 容器类/不受模式约束的控件先恢复可用。
+        self.format_combo.setEnabled(True)
+        self.lossy_radio.setEnabled(True)
+        self.lossless_radio.setEnabled(True)
+        self.lossless_jpeg_radio.setEnabled(True)
+        self.effort_combo.setEnabled(True)
+        self.adv_threads_toggle.setEnabled(True)
+        reset_btn = getattr(self, "reset_adv_button", None)
+        if reset_btn is not None:
+            reset_btn.setEnabled(True)
+        # 模式驱动的 --quality / 高级参数可用性。
+        self._on_encode_mode_changed()
+        # 高级开关驱动的 --num_threads 行与 effort 范围。
+        self._apply_adv_threads_state(self.adv_threads_toggle.isChecked())
 
     def _reset_advanced(self):
         """将所有高级参数复位为默认（不勾选、值回默认、不传递）。"""
@@ -2760,6 +2807,10 @@ class MainWindow(QMainWindow):
     def _on_adv_threads_toggled(self, _checked):
         """开关联动：启用/禁用高级「线程数 (--num_threads)」行，扩展/收窄输出页
         effort 可选范围（启用→1..10，禁用→1..9），更新提示文字，并持久化。"""
+        # 勾选『自定义命令』时编码参数已被整体置灰，跳过本联动（避免重新启用）。
+        if self.custom_cmd_check.isChecked():
+            self._set_encoding_controls_disabled()
+            return
         enabled = self.adv_threads_toggle.isChecked()
         self._apply_adv_threads_state(enabled)
         self._save_conversion_settings()
@@ -2951,6 +3002,9 @@ class MainWindow(QMainWindow):
         self.cmd_edit.setText(str(settings.value("custom_cmd_text", "")))
         if self.custom_cmd_check.isChecked():
             self.cmd_edit.setReadOnly(False)
+            # 持久化为勾选：恢复时同样整体置灰编码参数（blockSignals 期间不会
+            # 触发 _on_custom_cmd_toggled，故在此手动禁用）。
+            self._set_encoding_controls_disabled()
         else:
             self.cmd_edit.setReadOnly(True)
             self._update_cmd_preview()
@@ -4590,6 +4644,10 @@ class MainWindow(QMainWindow):
         return "lossy"
 
     def _on_encode_mode_changed(self):
+        # 勾选『自定义命令』时编码参数已被整体置灰，不随编码模式变化重新启用。
+        if self.custom_cmd_check.isChecked():
+            self._set_encoding_controls_disabled()
+            return
         # Only the 有损 mode exposes the --quality control. In the other two
         # modes we disable it (greyed) but KEEP its displayed value, so that
         # returning to 有损 reuses the last setting. Effort stays enabled for

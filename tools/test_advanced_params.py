@@ -464,6 +464,80 @@ if nt_entry is not None:
 clear_conversion()
 
 
+# ---------------------------------------------------------------------------
+# 10. 回归：勾选「自定义命令」后整体禁用全部编码参数控件
+#     诉求：自定义命令取代自动拼装的 cjxl 参数，勾选后所有编码参数
+#     (输出格式/编码模式/effort/quality/高级参数/启用高级参数开关/重置按钮)
+#     应置灰，禁止调节；取消勾选后按编码模式恢复正确启用态；
+#     持久化勾选态重启后同样禁用。开关本身与命令正文仍须可操作。
+# ---------------------------------------------------------------------------
+clear_jxl_output()
+w_cc = fresh_window()
+check("自定义命令复选框已构建", w_cc.custom_cmd_check is not None)
+check("默认未勾选自定义命令", not w_cc.custom_cmd_check.isChecked())
+# 默认(未勾选)态：有损模式下 quality 可用、effort/格式/模式/高级开关/重置按钮可用
+check("默认态 quality_spin 可用（有损模式）", w_cc.quality_spin.isEnabled())
+check("默认态 effort_combo 可用", w_cc.effort_combo.isEnabled())
+check("默认态 format_combo 可用", w_cc.format_combo.isEnabled())
+check("默认态 三个编码模式 radio 可用",
+      w_cc.lossy_radio.isEnabled()
+      and w_cc.lossless_radio.isEnabled()
+      and w_cc.lossless_jpeg_radio.isEnabled())
+check("默认态 adv_threads_toggle 可用", w_cc.adv_threads_toggle.isEnabled())
+check("默认态 reset_adv_button 可用", w_cc.reset_adv_button.isEnabled())
+
+# 勾选自定义命令 -> 全部编码参数禁用
+w_cc.custom_cmd_check.setChecked(True)
+check("勾选后 format_combo 禁用", not w_cc.format_combo.isEnabled())
+check("勾选后 三个编码模式 radio 禁用",
+      not w_cc.lossy_radio.isEnabled()
+      and not w_cc.lossless_radio.isEnabled()
+      and not w_cc.lossless_jpeg_radio.isEnabled())
+check("勾选后 effort_combo 禁用", not w_cc.effort_combo.isEnabled())
+check("勾选后 quality_slider 禁用", not w_cc.quality_slider.isEnabled())
+check("勾选后 quality_spin 禁用", not w_cc.quality_spin.isEnabled())
+check("勾选后 adv_threads_toggle 禁用", not w_cc.adv_threads_toggle.isEnabled())
+check("勾选后 reset_adv_button 禁用", not w_cc.reset_adv_button.isEnabled())
+# 全部高级参数 check + value 一并禁用
+_all_adv_disabled = True
+for s in _ADVANCED_SCHEMA:
+    _c, _v, _ = w_cc._adv_widgets[s["key"]]
+    if _c.isEnabled():
+        _all_adv_disabled = False
+    if _v is not None and _v.isEnabled():
+        _all_adv_disabled = False
+check("勾选后 全部高级参数控件禁用", _all_adv_disabled)
+# 开关本身与命令正文仍可操作（用于取消勾选 / 编辑）
+check("勾选后 自定义命令复选框本身仍可用", w_cc.custom_cmd_check.isEnabled())
+check("勾选后 命令正文 cmd_edit 仍可用且非只读",
+      w_cc.cmd_edit.isEnabled() and not w_cc.cmd_edit.isReadOnly())
+
+# 取消勾选 -> 恢复正确启用态（有损模式 quality 应恢复可用）
+w_cc.custom_cmd_check.setChecked(False)
+check("取消勾选后 format_combo 恢复可用", w_cc.format_combo.isEnabled())
+check("取消勾选后 三个编码模式 radio 恢复可用",
+      w_cc.lossy_radio.isEnabled()
+      and w_cc.lossless_radio.isEnabled()
+      and w_cc.lossless_jpeg_radio.isEnabled())
+check("取消勾选后 effort_combo 恢复可用", w_cc.effort_combo.isEnabled())
+check("取消勾选后 quality_spin 恢复可用（有损模式）", w_cc.quality_spin.isEnabled())
+check("取消勾选后 adv_threads_toggle 恢复可用", w_cc.adv_threads_toggle.isEnabled())
+check("取消勾选后 reset_adv_button 恢复可用", w_cc.reset_adv_button.isEnabled())
+
+# 持久化勾选态：写入 jxl_output 组后新窗口应直接禁用
+w_cc.custom_cmd_check.setChecked(True)  # 触发 _save_jxl_output 写入临时 ini
+w_cc2 = fresh_window()  # 从临时 ini 恢复持久化勾选态
+check("持久化勾选态：新窗口默认已勾选自定义命令",
+      w_cc2.custom_cmd_check.isChecked())
+check("持久化勾选态：新窗口编码参数整体禁用",
+      (not w_cc2.format_combo.isEnabled())
+      and (not w_cc2.effort_combo.isEnabled())
+      and (not w_cc2.quality_spin.isEnabled())
+      and (not w_cc2.adv_threads_toggle.isEnabled())
+      and (not w_cc2.reset_adv_button.isEnabled()))
+clear_jxl_output()
+
+
 print()
 print("TOTAL %d, FAIL %d" % (total, len(failures)))
 sys.exit(1 if failures else 0)
