@@ -4593,17 +4593,16 @@ class MainWindow(QMainWindow):
         combo.setMinimumWidth(combo.sizeHint().width() + 8)
 
     def _apply_theme_to_folder_menu(self):
-        """Style the custom-folder history popup. It uses Fusion only when the
-        active theme wants dropdowns Fusion-styled; otherwise it follows the
-        application-wide (native) style."""
+        """The custom-folder history popup always renders with the Fusion
+        style, so its look is identical under both the "原生" and
+        "原生（无闪烁）" themes (the latter is the canonical look the user
+        wants). Other dropdowns keep following the active theme; this popup is
+        intentionally forced to Fusion for cross-theme consistency."""
         if not hasattr(self, "folder_menu"):
             return
-        if dropdowns_use_fusion():
-            fusion = _fusion_style()
-            if fusion is not None:
-                self.folder_menu.setStyle(fusion)
-        else:
-            self.folder_menu.setStyle(QApplication.style())
+        fusion = _fusion_style()
+        if fusion is not None:
+            self.folder_menu.setStyle(fusion)
 
     def _on_theme_changed(self, _index):
         """Persist and apply the newly chosen theme."""
