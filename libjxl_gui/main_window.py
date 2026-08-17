@@ -5058,8 +5058,12 @@ class MainWindow(QMainWindow):
         - 替换：cjxl/djxl 默认即覆盖已存在文件，原样返回 jobs，无需额外处理；
         - 跳过：输出已存在则移出 jobs（不调用编码），记入 skipped；
         - 重命名：输出已存在则改写为 ``name (1).ext`` 等首个不冲突路径；
-        - 询问：对首个冲突文件逐个弹窗，用户可选 替换 / 跳过 / 重命名 / 取消全部。
+        - 询问：对首个冲突文件逐个弹窗，用户可选
+          全部替换 / 替换 / 跳过 / 重命名 / 取消全部。选择「全部替换」后，
+          本批次剩余冲突文件不再弹窗，统一按「替换」处理。
         """
+        # 每批次重新初始化「全部替换」标志，避免跨批次沿用。
+        self._replace_all_pending = False
         on_exist = self.on_exist_combo.currentText()
         if on_exist == "替换":
             return jobs, [], False
@@ -5073,8 +5077,14 @@ class MainWindow(QMainWindow):
             elif on_exist == "重命名":
                 resolved.append((src, self._uniquify_path(out_path), out_is_jxl))
             elif on_exist == "询问":
+                if getattr(self, "_replace_all_pending", False):
+                    resolved.append((src, out_path, out_is_jxl))
+                    continue
                 choice = self._ask_on_exist(out_path)
                 if choice == "replace":
+                    resolved.append((src, out_path, out_is_jxl))
+                elif choice == "replace_all":
+                    self._replace_all_pending = True
                     resolved.append((src, out_path, out_is_jxl))
                 elif choice == "skip":
                     skipped.append(out_path)
@@ -5106,6 +5116,7 @@ class MainWindow(QMainWindow):
         box.setIcon(QMessageBox.Question)
         box.setWindowTitle("输出文件已存在")
         box.setText("输出文件已存在：\n%s\n\n如何处理该文件？" % out_path)
+        b_replace_all = box.addButton("全部替换", QMessageBox.AcceptRole)
         b_replace = box.addButton("替换", QMessageBox.AcceptRole)
         b_skip = box.addButton("跳过", QMessageBox.RejectRole)
         b_rename = box.addButton("重命名", QMessageBox.ActionRole)
@@ -5114,6 +5125,8 @@ class MainWindow(QMainWindow):
         box.setStandardButtons(QMessageBox.NoButton)
         box.exec()
         clicked = box.clickedButton()
+        if clicked == b_replace_all:
+            return "replace_all"
         if clicked == b_replace:
             return "replace"
         if clicked == b_skip:

@@ -110,6 +110,46 @@ check("重命名：a.jxl → a (1).jxl",
       ("src1", os.path.join(tmpd2, "a (1).jxl"), True) in resolved)
 check("重命名：无 skipped、未取消", not skipped and not cancelled)
 
+# 5) 询问 + 全部替换：首次弹窗选「全部替换」后，剩余冲突不再弹窗、统一按替换处理
+tmpd3 = tempfile.mkdtemp(prefix="libjxl_askall_")
+c_jxl = os.path.join(tmpd3, "c.jxl")
+d_jxl = os.path.join(tmpd3, "d.jxl")
+open(c_jxl, "w").close()  # 已存在
+open(d_jxl, "w").close()  # 已存在
+jobs3 = [("srcC", c_jxl, True), ("srcD", d_jxl, True)]
+
+wa = fresh_window()
+wa.on_exist_combo.setCurrentText("询问")
+calls = {"n": 0}
+
+
+def _ask_spy(out_path):
+    calls["n"] += 1
+    return "replace_all"
+
+
+wa._ask_on_exist = _ask_spy
+resolved3, skipped3, cancelled3 = wa._resolve_existing_outputs(jobs3)
+check("全部替换：两个已存在文件均保留原路径",
+      resolved3 == jobs3)
+check("全部替换：无 skipped、未取消", not skipped3 and not cancelled3)
+check("全部替换：仅弹窗 1 次（其余沿用）", calls["n"] == 1)
+
+# 全部替换标志在批次结束后重置
+w2b = fresh_window()
+w2b.on_exist_combo.setCurrentText("询问")
+calls2 = {"n": 0}
+
+
+def _ask_spy2(out_path):
+    calls2["n"] += 1
+    return "replace"
+
+
+w2b._ask_on_exist = _ask_spy2
+resolved_after, _, _ = w2b._resolve_existing_outputs(jobs3)
+check("新批次全部替换标志已重置（仍逐个弹窗）", calls2["n"] == 2)
+
 
 print("\nTOTAL %d, FAIL %d" % (total, len(failures)))
 sys.exit(1 if failures else 0)
