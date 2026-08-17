@@ -2716,6 +2716,7 @@ class MainWindow(QMainWindow):
 
         hint = QLabel("窗口的大小与位置会自动保存，下次打开时原样恢复。")
         hint.setWordWrap(True)
+        hint.setStyleSheet("color: #888; font-size: 11px;")
         layout.addWidget(hint)
 
         layout.addWidget(QLabel("主题"))
