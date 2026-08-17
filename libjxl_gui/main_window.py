@@ -2314,6 +2314,28 @@ class MainWindow(QMainWindow):
         dest_name_row.addWidget(name_group)
         layout.addLayout(dest_name_row)
 
+        # ---- 选项（输出文件已存在时的冲突策略）----
+        options_group = QGroupBox("选项")
+        options_group.setAutoFillBackground(False)
+        options_layout = QVBoxLayout(options_group)
+        exist_row = QHBoxLayout()
+        exist_row.addWidget(QLabel("当输出文件已经存在时："))
+        # NoFlickerComboBox：与输出格式下拉保持一致（框更大、支持滚轮），
+        # 下拉弹窗去掉 Windows DWM 入场动画避免闪烁。
+        self.on_exist_combo = NoFlickerComboBox()
+        self.on_exist_combo.addItems(["替换", "询问", "跳过", "重命名"])
+        idx = self.on_exist_combo.findText("替换")
+        if idx >= 0:
+            self.on_exist_combo.setCurrentIndex(idx)
+        exist_row.addWidget(self.on_exist_combo)
+        exist_row.addStretch(1)
+        options_layout.addLayout(exist_row)
+        # 切换冲突策略时立即持久化（与 _save_jxl_output 同一约定）。
+        self.on_exist_combo.currentTextChanged.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        layout.addWidget(options_group)
+
         layout.addStretch(1)
         # Note: 开始转换 按钮已移至窗口底部常驻栏，此处不再放置。
         scroll.setWidget(inner)
@@ -2983,6 +3005,8 @@ class MainWindow(QMainWindow):
         settings.setValue("effort", self.effort_combo.currentText())
         # 输出格式（JXL / PNG / JPG）：与编码参数一起持久化。
         settings.setValue("output_format", self.format_combo.currentText())
+        # 输出文件已存在时的冲突策略（替换/询问/跳过/重命名）。
+        settings.setValue("on_exist", self.on_exist_combo.currentText())
         self._save_advanced(settings)
         # 自定义命令：勾选状态 + 已编辑的命令文本。
         settings.setValue("custom_cmd_on", self.custom_cmd_check.isChecked())
@@ -3023,6 +3047,10 @@ class MainWindow(QMainWindow):
         fmt = settings.value("output_format", "JPEG XL (*.jxl)")
         if self.format_combo.findText(fmt) >= 0:
             self.format_combo.setCurrentText(fmt)
+        # 恢复输出文件已存在时的冲突策略（替换/询问/跳过/重命名）。
+        on_exist = settings.value("on_exist", "替换")
+        if self.on_exist_combo.findText(on_exist) >= 0:
+            self.on_exist_combo.setCurrentText(on_exist)
         # 恢复自定义命令：用 blockSignals 避免触发 _on_custom_cmd_toggled 的
         # 预填逻辑覆盖已持久化的命令文本。
         self.custom_cmd_check.blockSignals(True)
@@ -4833,6 +4861,22 @@ class MainWindow(QMainWindow):
             )
             for s in skipped_jpg:
                 self.log_edit.appendPlainText("    - %s" % s)
+        # 输出文件已存在时的冲突策略（替换/询问/跳过/重命名）：在主线程预处理，
+        # 不在 worker 线程弹窗。「替换」即 cjxl/djxl 默认覆盖，原样保留 jobs。
+        jobs, skipped_exist, exist_cancelled = self._resolve_existing_outputs(jobs)
+        if exist_cancelled:
+            self.statusBar().showMessage("已取消转换")
+            self.log_edit.appendPlainText(
+                "已取消转换（用户在「文件已存在」冲突询问中选择了取消）。"
+            )
+            return
+        if skipped_exist:
+            self.log_edit.appendPlainText(
+                "提示：以下 %d 个输出文件已存在且策略为「跳过」，已跳过："
+                % len(skipped_exist)
+            )
+            for s in skipped_exist:
+                self.log_edit.appendPlainText("    - %s" % s)
         if not jobs:
             self.statusBar().showMessage("没有可处理的文件，转换未开始")
             self.log_edit.appendPlainText(
@@ -4859,6 +4903,7 @@ class MainWindow(QMainWindow):
             custom_cmd=custom_cmd,
             cpu_cores=self.cpu_cores_combo.currentData(),
             adv_threads_enabled=self.adv_threads_toggle.isChecked(),
+            out_fmt=out_fmt,
         )
         self._convert_worker.log_signal.connect(self.log_edit.appendPlainText)
         self._convert_worker.status_signal.connect(self.statusBar().showMessage)
@@ -5001,6 +5046,82 @@ class MainWindow(QMainWindow):
 
         return base + out_ext
 
+    # ------------------------------------------------------------------
+    # 输出文件已存在时的冲突策略（替换 / 询问 / 跳过 / 重命名）
+    # ------------------------------------------------------------------
+    def _resolve_existing_outputs(self, jobs):
+        """按「当输出文件已经存在时」策略预处理 job 列表。
+
+        在主线程执行（不进入 worker 线程弹窗）。返回
+        ``(已解析 jobs, 被跳过的输出路径列表, 是否用户取消全部)``。
+
+        - 替换：cjxl/djxl 默认即覆盖已存在文件，原样返回 jobs，无需额外处理；
+        - 跳过：输出已存在则移出 jobs（不调用编码），记入 skipped；
+        - 重命名：输出已存在则改写为 ``name (1).ext`` 等首个不冲突路径；
+        - 询问：对首个冲突文件逐个弹窗，用户可选 替换 / 跳过 / 重命名 / 取消全部。
+        """
+        on_exist = self.on_exist_combo.currentText()
+        if on_exist == "替换":
+            return jobs, [], False
+        resolved, skipped, cancelled = [], [], False
+        for src, out_path, out_is_jxl in jobs:
+            if not os.path.exists(out_path):
+                resolved.append((src, out_path, out_is_jxl))
+                continue
+            if on_exist == "跳过":
+                skipped.append(out_path)
+            elif on_exist == "重命名":
+                resolved.append((src, self._uniquify_path(out_path), out_is_jxl))
+            elif on_exist == "询问":
+                choice = self._ask_on_exist(out_path)
+                if choice == "replace":
+                    resolved.append((src, out_path, out_is_jxl))
+                elif choice == "skip":
+                    skipped.append(out_path)
+                elif choice == "rename":
+                    resolved.append((src, self._uniquify_path(out_path), out_is_jxl))
+                else:  # cancel
+                    cancelled = True
+                    break
+        return resolved, skipped, cancelled
+
+    def _uniquify_path(self, path):
+        """若 ``path`` 已存在，返回 ``base (1).ext`` 形式、首个尚未存在的路径。"""
+        if not os.path.exists(path):
+            return path
+        base, ext = os.path.splitext(path)
+        i = 1
+        while True:
+            cand = "%s (%d)%s" % (base, i, ext)
+            if not os.path.exists(cand):
+                return cand
+            i += 1
+
+    def _ask_on_exist(self, out_path):
+        """输出文件已存在且策略为「询问」时，弹窗让用户决定单个文件的处理方式。
+
+        返回 ``"replace"`` / ``"skip"`` / ``"rename"`` / ``"cancel"``。
+        """
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("输出文件已存在")
+        box.setText("输出文件已存在：\n%s\n\n如何处理该文件？" % out_path)
+        b_replace = box.addButton("替换", QMessageBox.AcceptRole)
+        b_skip = box.addButton("跳过", QMessageBox.RejectRole)
+        b_rename = box.addButton("重命名", QMessageBox.ActionRole)
+        b_cancel = box.addButton("取消全部", QMessageBox.DestructiveRole)
+        # 清空标准按钮，避免额外 OK/Cancel 与自定义按钮叠加。
+        box.setStandardButtons(QMessageBox.NoButton)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == b_replace:
+            return "replace"
+        if clicked == b_skip:
+            return "skip"
+        if clicked == b_rename:
+            return "rename"
+        return "cancel"
+
 
     # ------------------------------------------------------------------
     # Environment detection (written into the 状态 tab log)
@@ -5040,7 +5161,8 @@ class ConvertWorker(QThread):
     def __init__(self, jobs, actions, effort=7, distance=None,
                  quality=None, lossless_jpeg=False,
                  priority=converter.DEFAULT_PRIORITY, advanced=None,
-                 custom_cmd=None, cpu_cores="auto", adv_threads_enabled=False):
+                 custom_cmd=None, cpu_cores="auto", adv_threads_enabled=False,
+             out_fmt="jxl"):
         super().__init__()
         self.jobs = jobs
         self.actions = actions  # possibly empty list
@@ -5059,6 +5181,9 @@ class ConvertWorker(QThread):
         self.cpu_cores = cpu_cores
         # 是否启用高级参数手动设置每文件线程数（--num_threads）。
         self.adv_threads_enabled = adv_threads_enabled
+        # 输出格式键（jxl / png / jpg），供 _encode_tag 在解码/重建路径下
+        # 返回正确的重建标签，避免误用 JXL 编码标签（如 [VarDCT, q90]）。
+        self._out_fmt = out_fmt
         # 由 _resolve_concurrency 在 run() 开头计算；_encode_kwargs 用它统一覆盖
         # 高级参数里的 num_threads，避免与文件级并行叠加导致超订。
         self._per_file_threads = None
@@ -5116,10 +5241,17 @@ class ConvertWorker(QThread):
         re-encode mode. The conversion parameters are identical for every job,
         so this is computed once before the loop.
         """
-        # 自定义命令模式：统一标记为 [自定义命令]。
+        # 自定义命令模式：统一标记为 [自定义命令]（与输出格式无关，优先级最高）。
         if self.custom_cmd:
             return "[自定义命令]"
-        # 高级参数 -d 会覆盖基础 distance，两者取其一。
+        # 输出格式非 JXL（PNG / JPEG）走解码/重建路径，不经过 cjxl 编码，
+        # 不应显示 JXL 的编码标签（如 [VarDCT, q90]），否则会误导。
+        out_fmt = getattr(self, "_out_fmt", "jxl")
+        if out_fmt == "jpg":
+            return "[JPEG 重建]"
+        if out_fmt == "png":
+            return "[PNG 重建]"
+        # 高级参数 -d 会覆盖基础 distance，两者取其一。以下仅 JXL 输出生效。
         dist = self.advanced.get("distance", self.distance)
         if self.lossless_jpeg:
             return "[JPEG lossless]"

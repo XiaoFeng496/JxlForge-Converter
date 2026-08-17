@@ -422,12 +422,12 @@ _out_page = w.tabs.widget(_out_idx)
 check("滚动区位于『输出』标签页",
       _out_idx >= 0 and _out_page.layout() is not None
       and _out_page.layout().itemAt(0).widget() is w.output_scroll)
-# 三个分组框也必须透明，否则真实 Windows 深色主题下会被填成 Base，
+# 四个分组框也必须透明，否则真实 Windows 深色主题下会被填成 Base，
 # 整页比其它标签页暗一截，且不随主题切换。
 from PySide6.QtWidgets import QGroupBox
 _groups = [c for c in _inn.children() if isinstance(c, QGroupBox)]
-check("输出页三个分组框透明（透出面板色、跟随主题）",
-      len(_groups) == 3
+check("输出页四个分组框透明（透出面板色、跟随主题）",
+      len(_groups) == 4
       and all(g.autoFillBackground() is False for g in _groups))
 
 
