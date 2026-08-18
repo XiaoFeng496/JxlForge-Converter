@@ -2116,7 +2116,7 @@ class MainWindow(QMainWindow):
         fmt_row.addWidget(self.format_combo)
         # 选择 JPEG 输出时，在下拉框右侧提醒：仅支持「无损 JPEG 转码的 JXL
         # 重建 JPG」，而非任意 JXL。默认隐藏，选中时由 _update_format_hint 显示。
-        self.format_hint_label = QLabel("仅支持无损 JPEG 转码的 JXL 重建 JPG")
+        self.format_hint_label = QLabel("仅支持无损 JPEG 转码的 JXL 无损重建 JPG")
         self.format_hint_label.setVisible(False)
         self.format_hint_label.setStyleSheet("color: #888; font-size: 11px;")
         fmt_row.addWidget(self.format_hint_label)
@@ -2859,8 +2859,8 @@ class MainWindow(QMainWindow):
         adv_params_layout.setSpacing(6)
 
         adv_threads_tip = (
-            "母开关：勾选后解锁下方的「手动设置每文件线程数」与「解锁 effort 第 10 档」"
-            "两个子项，可逐项单独开启；取消勾选则全部恢复默认行为。"
+            "母开关：勾选以解锁下方各项高级参数，可逐项单独开启；"
+            "取消勾选则全部恢复默认行为。"
             "\n（首次勾选会弹出注意事项，可在弹窗中勾选「不再提醒」。）"
         )
         self.adv_threads_toggle = QCheckBox("启用高级参数")
@@ -2891,7 +2891,8 @@ class MainWindow(QMainWindow):
         self.adv_effort10_toggle.toggled.connect(self._on_adv_effort10_toggled)
         adv_params_layout.addWidget(self.adv_effort10_toggle)
 
-        # 子项（独立于母开关，常驻可用）：JPEG 输出时遇到不可无损重建的 JXL 的处理。
+        # 子项（母开关关闭时一并置灰，且其 A 模式生效以母开关开启为前提）：
+        # JPEG 输出时遇到不可无损重建的 JXL 的处理。
         # 关闭（默认）= B 模式：弹一次确认，由用户决定是否以解码重编码方式输出；
         # 开启 = A 模式：直接跳过并在状态页记录，不弹确认。
         self.jpeg_hard_skip_check = QCheckBox(
@@ -3009,12 +3010,21 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
         box.setWindowTitle("启用高级参数")
+        # 子项列表动态从「高级参数」组收集（排除母开关自身），新增子项自动进弹窗，
+        # 无需每次手动同步文本。
+        subitems = []
+        group = getattr(self, "adv_params_group", None)
+        if group is not None and group.layout() is not None:
+            for i in range(group.layout().count()):
+                w = group.layout().itemAt(i).widget()
+                if isinstance(w, QCheckBox) and w is not self.adv_threads_toggle:
+                    subitems.append(w.text())
+        bullet = "\n".join("• %s" % t for t in subitems)
         box.setText(
             "您正在启用「高级参数」。\n\n"
             "这些选项会改变编码行为与系统资源占用，包括：\n"
-            "• 手动设置每文件线程数 (--num_threads)：影响并行进程数与 CPU 占用；\n"
-            "• 解锁 effort 第 10 档：编码更慢、质量更高。\n\n"
-            "请确认您了解上述子项的作用后再逐项开启；"
+            + (bullet + "\n\n" if bullet else "")
+            + "请确认您了解上述子项的作用后再逐项开启；"
             "如需恢复默认行为，关闭「启用高级参数」即可。"
         )
         box.setStandardButtons(QMessageBox.Ok)
@@ -3030,7 +3040,9 @@ class MainWindow(QMainWindow):
         决定任何子项是否生效（由各子项自身勾选决定）。同步输出页 num_threads 行
         与 effort 范围到当前子项勾选态，并更新母开关 tooltip。控件未构建时安全跳过。"""
         # 解锁 / 置灰子项按钮（子项自身勾选态不变，由 checked 决定生效与否）。
-        for t in (self.adv_num_threads_toggle, self.adv_effort10_toggle):
+        # jpeg_hard_skip_check 同样是母开关子项，一并跟随禁用。
+        for t in (self.adv_num_threads_toggle, self.adv_effort10_toggle,
+                  self.jpeg_hard_skip_check):
             t.setEnabled(enabled)
         # 同步输出页：num_threads 行可用性 + effort 可选范围。
         self._sync_num_threads_row()
@@ -4977,8 +4989,11 @@ class MainWindow(QMainWindow):
         skipped_jpg_nonrecon = []
         nonrecon_jpg = []
         out_fmt = self._current_output_format()
+        # jpeg_hard_skip 是「启用高级参数」的子项：母开关关闭时即便此前勾选过也不生效。
         jpeg_hard_skip = bool(
-            getattr(self, "jpeg_hard_skip_check", None)
+            getattr(self, "adv_threads_toggle", None)
+            and self.adv_threads_toggle.isChecked()
+            and getattr(self, "jpeg_hard_skip_check", None)
             and self.jpeg_hard_skip_check.isChecked()
         )
         for src in self.input_files:
