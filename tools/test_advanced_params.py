@@ -104,9 +104,11 @@ check("默认预览不含 --modular", "--modular" not in w.cmd_edit.text())
 # 3. 勾选后正确收集（含值布尔开关）
 # ---------------------------------------------------------------------------
 w.lossy_radio.setChecked(True)
-# 启用「启用高级参数」开关：num_threads 受该开关门控，关闭时控件被禁用、
-# _collect_advanced 会跳过；此处先打开，使后续手动设置每文件线程数生效（与 CPU 核心功能一致）。
+# 启用「启用高级参数」母开关，并勾选子项「手动设置每文件线程数」：num_threads 受
+# 二者共同门控，关闭或子项未勾选时控件被禁用、_collect_advanced 会跳过。
+w._maybe_warn_adv_params = lambda: None  # 抑制首次开启弹窗，避免测试阻塞
 w.adv_threads_toggle.setChecked(True)
+w.adv_num_threads_toggle.setChecked(True)
 w._adv_widgets["modular"][0].setChecked(True)
 w._adv_widgets["num_threads"][0].setChecked(True)
 w._adv_widgets["num_threads"][1].setValue(8)
@@ -453,8 +455,10 @@ if nt_entry is not None:
     # 启动默认：conversation 组无 adv_threads_enabled → 开关关闭 → num_threads 禁用
     check("启动默认(高级参数关闭)时 num_threads 复选框禁用",
           (not w_nt.adv_threads_toggle.isChecked()) and (not nt_check.isEnabled()))
-    # 开启高级参数 → num_threads 可用
+    # 开启高级参数（母开关 + 子项「手动设置每文件线程数」）→ num_threads 可用
+    w_nt._maybe_warn_adv_params = lambda: None  # 抑制首次开启弹窗
     w_nt.adv_threads_toggle.setChecked(True)
+    w_nt.adv_num_threads_toggle.setChecked(True)
     check("启用高级参数后 num_threads 复选框可用", nt_check.isEnabled())
     # 关闭 → 再次禁用（且不应被切换编码模式覆盖）
     w_nt.adv_threads_toggle.setChecked(False)

@@ -78,19 +78,28 @@ tip_toggle = window.adv_threads_toggle
 window._apply_adv_threads_state(False)
 check("关闭时 num_threads check 被禁用", num_check.isEnabled() is False)
 check("关闭时 num_threads 值控件被禁用", num_val.isEnabled() is False)
-check("关闭时说明文字并入开关悬停浮窗（并行池自动控制）",
-      "自动分配" in tip_toggle.toolTip() or "自动" in tip_toggle.toolTip())
+check("关闭时说明文字并入开关悬停浮窗（锁定默认行为）",
+      "默认行为" in tip_toggle.toolTip() or "解锁下方子项" in tip_toggle.toolTip())
 
-# 打开高级参数，但 num_threads check 未勾选：check 启用，值控件仍禁用。
-num_check.setChecked(False)
-window._apply_adv_threads_state(True)
-check("打开时 num_threads check 被启用", num_check.isEnabled() is True)
-check("打开但 check 未勾选时值控件仍禁用",
+# 先抑制首次开启的注意事项弹窗（本段不测弹窗，避免阻塞），统一用真实联动。
+window._maybe_warn_adv_params = lambda: None
+
+# 打开母开关：仅解锁子项按钮，子项默认未勾选 -> num_threads check 仍禁用。
+window.adv_threads_toggle.setChecked(True)
+check("打开母开关时子项解锁但 num_threads check 仍禁用",
+      num_check.isEnabled() is False)
+check("打开母开关时子项按钮已启用",
+      window.adv_num_threads_toggle.isEnabled() is True)
+
+# 勾选子项「手动设置每文件线程数」：num_threads check 启用，值控件仍禁用。
+window.adv_num_threads_toggle.setChecked(True)
+check("勾选子项后 num_threads check 被启用", num_check.isEnabled() is True)
+check("子项勾选但 check 未勾选时值控件仍禁用",
       num_val.isEnabled() is False)
 
 # 勾选 num_threads check：值控件随之启用。
 num_check.setChecked(True)
-window._apply_adv_threads_state(True)
+window._sync_num_threads_row()
 check("勾选后 num_threads 值控件被启用", num_val.isEnabled() is True)
 check("打开时说明文字并入开关悬停浮窗（手动 --num_threads）",
       "手动" in tip_toggle.toolTip() or "--num_threads" in tip_toggle.toolTip())
@@ -160,19 +169,22 @@ window._adv_widgets = real_adv_widgets
 effort = getattr(window, "effort_combo", None)
 check("暴露 effort_combo", effort is not None)
 if effort is not None:
-    window._apply_adv_threads_state(True)
+    # effort 第 10 档需「母开关 + 子项解锁 effort 第 10 档」同时勾选。
+    window.adv_threads_toggle.setChecked(True)
+    window.adv_effort10_toggle.setChecked(True)
     items_on = [effort.itemText(i) for i in range(effort.count())]
     check("启用高级参数：effort 含 1..10",
           items_on == [str(i) for i in range(1, 11)])
 
     effort.setCurrentText("10")
-    window._apply_adv_threads_state(False)
+    # 关闭母开关 -> 仅 1..9，且越界值（10）被夹到 9。
+    window.adv_threads_toggle.setChecked(False)
     items_off = [effort.itemText(i) for i in range(effort.count())]
     check("禁用高级参数：effort 仅 1..9",
           items_off == [str(i) for i in range(1, 10)])
     check("禁用时原 effort=10 被夹到 9", effort.currentText() == "9")
 
-    window._apply_adv_threads_state(True)
+    window.adv_threads_toggle.setChecked(True)
     items_on2 = [effort.itemText(i) for i in range(effort.count())]
     check("重新启用：effort 恢复 1..10",
           items_on2 == [str(i) for i in range(1, 11)])

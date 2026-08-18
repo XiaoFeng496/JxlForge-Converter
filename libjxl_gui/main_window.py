@@ -230,6 +230,20 @@ def _is_jpeg(path):
     return os.path.splitext(path)[1].lower() in JPEG_EXTENSIONS
 
 
+def _jpeg_recon_action(src, hard_skip):
+    """对单个 JXL 输入，按 JPEG 输出可行性返回拦截动作（供 _on_convert 调用）。
+
+    返回 ``'kept'``（可重建，正常转换）/ ``'skip'``（A 模式：直接跳过）/
+    ``'confirm'``（B 模式：留入 jobs，待弹一次确认后以解码重编码方式输出）。
+    调用方已先判定 ``out_fmt == "jpg"`` 且 ``not custom_cmd`` 且输入为 ``.jxl``，
+    此处只负责单文件的可行性分支。
+    """
+    recon = converter.is_lossless_jpeg_jxl(src)
+    if recon is not False:
+        return "kept"
+    return "skip" if hard_skip else "confirm"
+
+
 # ----------------------------------------------------------------------
 # Logging helpers for the 状态 (status) tab conversion report
 # ----------------------------------------------------------------------
@@ -2609,6 +2623,8 @@ class MainWindow(QMainWindow):
             if val_w is not None:
                 val_w.setEnabled(False)
         self.adv_threads_toggle.setEnabled(False)
+        self.adv_num_threads_toggle.setEnabled(False)
+        self.adv_effort10_toggle.setEnabled(False)
         reset_btn = getattr(self, "reset_adv_button", None)
         if reset_btn is not None:
             reset_btn.setEnabled(False)
@@ -2835,19 +2851,65 @@ class MainWindow(QMainWindow):
         cores_row.addStretch(1)
         layout.addLayout(cores_row)
 
-        # ---- 启用高级参数（手动设置每文件线程数） ----
+        # ---- 高级参数区域（母开关 + 逐项子开关，子项默认禁用） ----
+        # 「启用高级参数」仅作为母开关：勾选时解锁下方子项按钮，取消时全部置灰。
+        # 每个子项是否真正生效由各自勾选决定（见 _on_adv_*_toggled）。
+        adv_params_group = QGroupBox("高级参数")
+        adv_params_layout = QVBoxLayout(adv_params_group)
+        adv_params_layout.setSpacing(6)
+
         adv_threads_tip = (
-            "未启用：每文件线程数（--num_threads）由「CPU 核心使用数」自动分配，"
-            "并行池自动控核；\n输出页「速度/质量权衡 (--effort)」仅可选 1–9。启用后"
-            "可手动设置每文件线程数，并行进程数 = 核心数 ÷ 每文件线程数，并解锁 effort 第 10 档。"
+            "母开关：勾选后解锁下方的「手动设置每文件线程数」与「解锁 effort 第 10 档」"
+            "两个子项，可逐项单独开启；取消勾选则全部恢复默认行为。"
+            "\n（首次勾选会弹出注意事项，可在弹窗中勾选「不再提醒」。）"
         )
-        self.adv_threads_toggle = QCheckBox(
-            "启用高级参数"
-        )
+        self.adv_threads_toggle = QCheckBox("启用高级参数")
         self.adv_threads_toggle.setToolTip(adv_threads_tip)
         self.adv_threads_toggle.setChecked(False)
         self.adv_threads_toggle.toggled.connect(self._on_adv_threads_toggled)
-        layout.addWidget(self.adv_threads_toggle)
+        adv_params_layout.addWidget(self.adv_threads_toggle)
+
+        # 子项 1：手动设置每文件线程数（--num_threads）。默认禁用（母开关关闭时置灰）。
+        self.adv_num_threads_toggle = QCheckBox("手动设置每文件线程数 (--num_threads)")
+        self.adv_num_threads_toggle.setToolTip(
+            "开启后，输出页「线程数 (--num_threads)」行可手动填写；"
+            "并行进程数 = CPU 核心使用数 ÷ 每文件线程数。"
+        )
+        self.adv_num_threads_toggle.setChecked(False)
+        self.adv_num_threads_toggle.setEnabled(False)
+        self.adv_num_threads_toggle.toggled.connect(self._on_adv_num_threads_toggled)
+        adv_params_layout.addWidget(self.adv_num_threads_toggle)
+
+        # 子项 2：解锁 effort 第 10 档。默认禁用（母开关关闭时置灰）。
+        self.adv_effort10_toggle = QCheckBox("解锁 effort 第 10 档（最慢、质量最高）")
+        self.adv_effort10_toggle.setToolTip(
+            "开启后，输出页「速度/质量权衡 (--effort)」可选范围由 1–9 扩展到 1–10"
+            "（第 10 档最慢、质量最高）。"
+        )
+        self.adv_effort10_toggle.setChecked(False)
+        self.adv_effort10_toggle.setEnabled(False)
+        self.adv_effort10_toggle.toggled.connect(self._on_adv_effort10_toggled)
+        adv_params_layout.addWidget(self.adv_effort10_toggle)
+
+        # 子项（独立于母开关，常驻可用）：JPEG 输出时遇到不可无损重建的 JXL 的处理。
+        # 关闭（默认）= B 模式：弹一次确认，由用户决定是否以解码重编码方式输出；
+        # 开启 = A 模式：直接跳过并在状态页记录，不弹确认。
+        self.jpeg_hard_skip_check = QCheckBox(
+            "JPEG 输出：不可无损重建的 JXL 直接跳过（否则弹确认）"
+        )
+        self.jpeg_hard_skip_check.setToolTip(
+            "输出格式为 JPEG 时，若某 JXL 无法通过 djxl 比特级还原为原始 JPG"
+            "（如非 JPEG 源编码、或重建数据已剥离），本开关决定处理方式：\n"
+            "• 勾选（A 模式）：直接跳过该文件并在状态页记录原因；\n"
+            "• 不勾选（默认，B 模式）：弹一次确认，由你决定是否以「解码为像素再重新"
+            "编码为 JPG」的方式输出（有损的二次压缩，画质会下降）。"
+        )
+        self.jpeg_hard_skip_check.setChecked(False)
+        self.jpeg_hard_skip_check.toggled.connect(self._on_jpeg_hard_skip_toggled)
+        adv_params_layout.addWidget(self.jpeg_hard_skip_check)
+
+        self.adv_params_group = adv_params_group
+        layout.addWidget(adv_params_group)
 
         layout.addStretch(1)
         return widget
@@ -2861,29 +2923,36 @@ class MainWindow(QMainWindow):
         self._save_conversion_settings()
 
     def _on_adv_threads_toggled(self, _checked):
-        """开关联动：启用/禁用高级「线程数 (--num_threads)」行，扩展/收窄输出页
-        effort 可选范围（启用→1..10，禁用→1..9），更新提示文字，并持久化。"""
+        """母开关：勾选时解锁下方子项按钮，取消时全部置灰。子项是否生效由各子项
+        自身勾选决定（见 _on_adv_*_toggled）。首次勾选（非加载期）弹注意事项。"""
         # 勾选『自定义命令』时编码参数已被整体置灰，跳过本联动（避免重新启用）。
         if self.custom_cmd_check.isChecked():
             self._set_encoding_controls_disabled()
             return
         enabled = self.adv_threads_toggle.isChecked()
+        loading = getattr(self, "_conversion_loading", False) or getattr(self, "_jxl_loading", False)
+        # 首次（且非加载期、未选「不再提醒」）勾选弹警告，确认用户了解子项作用。
+        if enabled and not loading and not getattr(self, "_adv_warning_suppressed", False):
+            self._maybe_warn_adv_params()
         self._apply_adv_threads_state(enabled)
         self._save_conversion_settings()
-        # 加载阶段（_conversion_loading / _jxl_loading）不持久化、不刷新预览，
-        # 否则会用「尚未恢复的默认状态」覆盖刚从 QSettings 读取、待恢复的值。
-        if getattr(self, "_conversion_loading", False) or getattr(self, "_jxl_loading", False):
+        # 加载阶段不刷新预览/持久化 jxl，否则会用默认态覆盖待恢复值。
+        if loading:
             return
-        # effort 范围与当前选择可能随开关变化（禁用时若原为 10 会被夹到 9），
+        # effort 范围与当前选择可能随子项变化（禁用时若原为 10 会被夹到 9），
         # 需同步持久化并刷新命令预览。
         self._save_jxl_output()
         self._update_cmd_preview()
 
     def _num_threads_enabled(self):
-        """num_threads 行是否可用：需同时满足 (a) 当前编码模式支持；(b) 用户已
-        启用高级参数（adv_threads_toggle 勾选）。两条件缺一则置灰，避免「开关
-        关闭却仍能勾选线程数」的回归。控件未构建时（输出页晚于本调用）返回 False。"""
-        toggle = getattr(self, "adv_threads_toggle", None)
+        """num_threads 行是否可用：需同时满足 (a) 母开关「启用高级参数」已勾选；
+        (b) 子项「手动设置每文件线程数」已勾选；(c) 当前编码模式支持。任一不满足
+        则置灰，避免母开关关闭却仍能勾选线程数，或子项未开却生效的回归。控件未
+        构建时（输出页晚于本调用）返回 False。"""
+        master = getattr(self, "adv_threads_toggle", None)
+        if master is None or not master.isChecked():
+            return False
+        toggle = getattr(self, "adv_num_threads_toggle", None)
         if toggle is None or not toggle.isChecked():
             return False
         mode = self._current_encode_mode()
@@ -2892,10 +2961,15 @@ class MainWindow(QMainWindow):
                 return mode in s["modes"]
         return False
 
-    def _apply_adv_threads_state(self, enabled):
-        """根据「启用高级参数」开关，启用/禁用高级参数里的 num_threads 行，
-        扩展/收窄输出页 effort 可选范围（启用→1..10，禁用→1..9），并更新
-        设置页提示文字。相关控件未构建时（输出页/设置页晚于本调用）安全跳过。"""
+    def _effort_allow_ten(self):
+        """输出页 effort 是否允许第 10 档：需母开关与「解锁 effort 第 10 档」子项
+        同时勾选。"""
+        master = getattr(self, "adv_threads_toggle", None)
+        sub = getattr(self, "adv_effort10_toggle", None)
+        return bool(master and master.isChecked() and sub and sub.isChecked())
+
+    def _sync_num_threads_row(self):
+        """按「手动设置每文件线程数」子项勾选态，刷新输出页 num_threads 行的可用性。"""
         adv_widgets = getattr(self, "_adv_widgets", {})
         entry = adv_widgets.get("num_threads")
         if entry is not None:
@@ -2904,22 +2978,74 @@ class MainWindow(QMainWindow):
             check.setEnabled(nt_enabled)
             if val_w is not None:
                 val_w.setEnabled(nt_enabled and check.isChecked())
-        # 启用高级参数后，输出页 effort 可选范围扩展到 1..10；否则仅 1..9。
-        self._set_effort_range(enabled)
-        # 说明文字不再作为独立可见小字（部分主题下 palette(mid) 颜色异常），
-        # 改为并入开关的悬停浮窗，跟随主题原生 tooltip 配色。
+
+    def _on_adv_num_threads_toggled(self, _checked):
+        """子项「手动设置每文件线程数」勾选变化：刷新输出页 num_threads 行可用性
+        并持久化。"""
+        self._sync_num_threads_row()
+        loading = getattr(self, "_conversion_loading", False) or getattr(self, "_jxl_loading", False)
+        if not loading:
+            self._save_jxl_output()
+            self._update_cmd_preview()
+        self._save_conversion_settings()
+
+    def _on_adv_effort10_toggled(self, _checked):
+        """子项「解锁 effort 第 10 档」勾选变化：调整输出页 effort 范围并持久化。"""
+        self._set_effort_range(self._effort_allow_ten())
+        loading = getattr(self, "_conversion_loading", False) or getattr(self, "_jxl_loading", False)
+        if not loading:
+            self._save_jxl_output()
+            self._update_cmd_preview()
+        self._save_conversion_settings()
+
+    def _on_jpeg_hard_skip_toggled(self, _checked):
+        """「JPEG 输出不可重建 JXL 直接跳过」开关变化：仅持久化（拦截逻辑在
+        _on_convert 建 job 时按本开关即时生效，无需额外联动）。"""
+        self._save_conversion_settings()
+
+    def _maybe_warn_adv_params(self):
+        """首次勾选「启用高级参数」时弹警告，确认用户了解各子项作用；提供「不再提醒」
+        复选框，勾选后持久化 adv_warning_suppressed，下次不再弹。"""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("启用高级参数")
+        box.setText(
+            "您正在启用「高级参数」。\n\n"
+            "这些选项会改变编码行为与系统资源占用，包括：\n"
+            "• 手动设置每文件线程数 (--num_threads)：影响并行进程数与 CPU 占用；\n"
+            "• 解锁 effort 第 10 档：编码更慢、质量更高。\n\n"
+            "请确认您了解上述子项的作用后再逐项开启；"
+            "如需恢复默认行为，关闭「启用高级参数」即可。"
+        )
+        box.setStandardButtons(QMessageBox.Ok)
+        cb = QCheckBox("不再提醒")
+        box.setCheckBox(cb)
+        box.exec()
+        if cb.isChecked():
+            self._adv_warning_suppressed = True
+            self._save_conversion_settings()
+
+    def _apply_adv_threads_state(self, enabled):
+        """「启用高级参数」母开关仅控制下方子项按钮的可用（解锁/置灰），不直接
+        决定任何子项是否生效（由各子项自身勾选决定）。同步输出页 num_threads 行
+        与 effort 范围到当前子项勾选态，并更新母开关 tooltip。控件未构建时安全跳过。"""
+        # 解锁 / 置灰子项按钮（子项自身勾选态不变，由 checked 决定生效与否）。
+        for t in (self.adv_num_threads_toggle, self.adv_effort10_toggle):
+            t.setEnabled(enabled)
+        # 同步输出页：num_threads 行可用性 + effort 可选范围。
+        self._sync_num_threads_row()
+        self._set_effort_range(self._effort_allow_ten())
+        # 母开关说明文字并入 tooltip。
         if hasattr(self, "adv_threads_toggle"):
             if enabled:
                 self.adv_threads_toggle.setToolTip(
-                    "已启用：可手动设置每文件线程数（--num_threads），并行进程数 "
-                    "= 核心数 ÷ 每文件线程数；\n同时输出页「速度/质量权衡 (--effort)」"
-                    "解锁第 10 档（最慢、质量最高）。"
+                    "已启用：下方「手动设置每文件线程数」「解锁 effort 第 10 档」"
+                    "已解锁，可逐项单独开启；关闭则全部恢复默认行为。"
                 )
             else:
                 self.adv_threads_toggle.setToolTip(
-                    "未启用：每文件线程数（--num_threads）由「CPU 核心使用数」自动"
-                    "分配，并行池自动控核；\n输出页「速度/质量权衡 (--effort)」仅可选 "
-                    "1–9，启用高级参数后可选用第 10 档（最慢、质量最高）。"
+                    "未启用：所有高级子项均锁定为默认行为。勾选以解锁下方子项，"
+                    "再自行决定是否逐项开启（首次开启会弹出注意事项）。"
                 )
 
     def _set_effort_range(self, allow_ten):
@@ -4540,6 +4666,16 @@ class MainWindow(QMainWindow):
         settings.setValue("cpu_priority", self.cpu_priority_combo.currentData())
         settings.setValue("cpu_cores", self.cpu_cores_combo.currentData())
         settings.setValue("adv_threads_enabled", self.adv_threads_toggle.isChecked())
+        settings.setValue("adv_num_threads", self.adv_num_threads_toggle.isChecked())
+        settings.setValue("adv_effort10", self.adv_effort10_toggle.isChecked())
+        settings.setValue(
+            "jpeg_hard_skip", getattr(self, "jpeg_hard_skip_check", None)
+            and self.jpeg_hard_skip_check.isChecked()
+        )
+        settings.setValue(
+            "adv_warning_suppressed",
+            bool(getattr(self, "_adv_warning_suppressed", False)),
+        )
         settings.endGroup()
 
     def _load_conversion_settings(self):
@@ -4551,7 +4687,14 @@ class MainWindow(QMainWindow):
         key = settings.value("cpu_priority", converter.DEFAULT_PRIORITY)
         cores = settings.value("cpu_cores", "auto")
         adv_enabled = settings.value("adv_threads_enabled", False, type=bool)
+        adv_num_threads = settings.value("adv_num_threads", False, type=bool)
+        adv_effort10 = settings.value("adv_effort10", False, type=bool)
+        jpeg_hard_skip = settings.value("jpeg_hard_skip", False, type=bool)
+        adv_warning_suppressed = settings.value(
+            "adv_warning_suppressed", False, type=bool
+        )
         settings.endGroup()
+        self._adv_warning_suppressed = bool(adv_warning_suppressed)
         if not isinstance(key, str) or self.cpu_priority_combo.findData(key) < 0:
             key = converter.DEFAULT_PRIORITY
         self.cpu_priority_combo.setCurrentIndex(
@@ -4560,8 +4703,13 @@ class MainWindow(QMainWindow):
         if self.cpu_cores_combo.findData(cores) < 0:
             cores = "auto"
         self.cpu_cores_combo.setCurrentIndex(self.cpu_cores_combo.findData(cores))
+        # 子项勾选态需在母开关联动前恢复，_apply_adv_threads_state 按其刷新输出页。
+        self.adv_num_threads_toggle.setChecked(bool(adv_num_threads))
+        self.adv_effort10_toggle.setChecked(bool(adv_effort10))
+        if getattr(self, "jpeg_hard_skip_check", None) is not None:
+            self.jpeg_hard_skip_check.setChecked(bool(jpeg_hard_skip))
         self.adv_threads_toggle.setChecked(bool(adv_enabled))
-        # 高级参数 num_threads 行受开关控制；此时输出页已构建，可安全联动。
+        # 高级参数子项按钮可用性由母开关控制；此时输出页已构建，可安全联动。
         self._apply_adv_threads_state(bool(adv_enabled))
         self._conversion_loading = False
 
@@ -4717,14 +4865,15 @@ class MainWindow(QMainWindow):
         self.quality_slider.setEnabled(is_lossy)
         self.quality_spin.setEnabled(is_lossy)
         # 高级参数：按当前编码模式启用/禁用各旋钮（不可用的自动置灰，且不参与转换）。
-        # 注意 num_threads 行还受「启用高级参数」开关约束（见 _num_threads_enabled），
-        # 不能仅按编码模式判定，否则开关关闭后仍可被勾选。
+        # num_threads 行还需母开关「启用高级参数」+ 子项「手动设置每文件线程数」同时
+        # 勾选才可用（见 _num_threads_enabled），不能仅按编码模式判定，否则母开关
+        # 关闭或子项未开时仍可勾选线程数。
         mode = self._current_encode_mode()
         for s in _ADVANCED_SCHEMA:
             check, val_w, _ = self._adv_widgets[s["key"]]
             enabled = mode in s["modes"]
             if s["key"] == "num_threads":
-                enabled = enabled and self.adv_threads_toggle.isChecked()
+                enabled = self._num_threads_enabled()
             check.setEnabled(enabled)
             if val_w is not None:
                 val_w.setEnabled(enabled and check.isChecked())
@@ -4825,7 +4974,13 @@ class MainWindow(QMainWindow):
         jobs = []
         skipped = []
         skipped_jpg = []
+        skipped_jpg_nonrecon = []
+        nonrecon_jpg = []
         out_fmt = self._current_output_format()
+        jpeg_hard_skip = bool(
+            getattr(self, "jpeg_hard_skip_check", None)
+            and self.jpeg_hard_skip_check.isChecked()
+        )
         for src in self.input_files:
             if mode == "lossless_jpeg" and not _is_jpeg(src):
                 skipped.append(src)
@@ -4835,9 +4990,49 @@ class MainWindow(QMainWindow):
             if out_fmt == "jpg" and not src.lower().endswith(".jxl"):
                 skipped_jpg.append(src)
                 continue
+            # JPEG 输出 + 非自定义命令：校验该 JXL 是否能比特级重建为原 JPG。
+            # 不可重建者按开关决定：A 模式直接跳过；B 模式留入 jobs（将以解码
+            # 重编码方式输出），并在下方弹一次确认。
+            if out_fmt == "jpg" and not custom_cmd and src.lower().endswith(".jxl"):
+                action = _jpeg_recon_action(src, jpeg_hard_skip)
+                if action == "skip":
+                    skipped_jpg_nonrecon.append(src)
+                    continue
+                if action == "confirm":
+                    nonrecon_jpg.append(src)
             out_path = self._build_output_path(src)
             out_is_jxl = out_path.lower().endswith(".jxl")
             jobs.append((src, out_path, out_is_jxl))
+
+        # JPEG 输出 + 非自定义命令：若系统缺 jxlinfo，弹一次「建议安装」推荐框
+        # （jxlinfo 头解析远快于回退的 djxl 全解码校验，缺失会拖慢批量校验）。
+        if out_fmt == "jpg" and not custom_cmd:
+            self._maybe_prompt_jxlinfo()
+
+        # B 模式：存在不可重建 JXL 时弹一次确认；取消则中止整批转换。
+        if nonrecon_jpg and not jpeg_hard_skip:
+            n = len(nonrecon_jpg)
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle("JPEG 输出质量提示")
+            box.setText(
+                "检测到 %d 个 JXL 无法通过 djxl 比特级还原为原始 JPG"
+                "（如非 JPEG 源编码、或重建数据已剥离）。\n\n"
+                "若继续，这些文件将以「解码为像素再重新编码为 JPG」的方式输出，"
+                "属于有损的二次压缩，画质会进一步下降。\n\n"
+                "是否继续？" % n
+            )
+            b_continue = box.addButton("继续", QMessageBox.AcceptRole)
+            b_cancel = box.addButton("取消", QMessageBox.RejectRole)
+            box.setDefaultButton(b_cancel)
+            box.setStandardButtons(QMessageBox.NoButton)
+            box.exec()
+            if box.clickedButton() is not b_continue:
+                self.statusBar().showMessage("已取消转换")
+                self.log_edit.appendPlainText(
+                    "已取消转换（用户拒绝将不可重建 JXL 以重编码方式输出为 JPG）。"
+                )
+                return
 
         # JPG 无损重编码模式：把被跳过的非 JPG 文件在状态中提示出来。
         if skipped:
@@ -4860,6 +5055,18 @@ class MainWindow(QMainWindow):
                 "以下 %d 个非 JXL 文件已跳过：" % len(skipped_jpg)
             )
             for s in skipped_jpg:
+                self.log_edit.appendPlainText("    - %s" % s)
+        # A 模式跳过的不可重建 JXL：在状态中提示出来。
+        if skipped_jpg_nonrecon:
+            self.statusBar().showMessage(
+                "已跳过 %d 个不可重建 JXL（JPEG 输出，已开启直接跳过）"
+                % len(skipped_jpg_nonrecon)
+            )
+            self.log_edit.appendPlainText(
+                "提示：以下 %d 个 JXL 无法比特级重建为 JPG（已开启「直接跳过」），已跳过："
+                % len(skipped_jpg_nonrecon)
+            )
+            for s in skipped_jpg_nonrecon:
                 self.log_edit.appendPlainText("    - %s" % s)
         # 输出文件已存在时的冲突策略（替换/询问/跳过/重命名）：在主线程预处理，
         # 不在 worker 线程弹窗。「替换」即 cjxl/djxl 默认覆盖，原样保留 jobs。
@@ -4902,7 +5109,7 @@ class MainWindow(QMainWindow):
             self.cpu_priority_combo.currentData(), advanced=adv,
             custom_cmd=custom_cmd,
             cpu_cores=self.cpu_cores_combo.currentData(),
-            adv_threads_enabled=self.adv_threads_toggle.isChecked(),
+            adv_threads_enabled=self.adv_num_threads_toggle.isChecked(),
             out_fmt=out_fmt,
         )
         self._convert_worker.log_signal.connect(self.log_edit.appendPlainText)
@@ -4916,6 +5123,32 @@ class MainWindow(QMainWindow):
         self.eta_label.setText("预计剩余：--")
         self._convert_start_time = time.time()
         self._convert_worker.start()
+
+    def _maybe_prompt_jxlinfo(self):
+        """JPEG 输出 + 非自定义命令时，若系统未安装 jxlinfo，弹窗推荐安装
+        （jxlinfo 仅解析文件头，远快于回退的 djxl 全量解码校验；缺失会拖慢大批量
+        转换前的重建可行性校验）。提供「不再提示」复选框，勾选后本次会话不再弹。"""
+        if converter.find_jxlinfo() is not None:
+            return
+        if getattr(self, "_jxlinfo_remind_suppressed", False):
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("建议安装 jxlinfo")
+        box.setText(
+            "检测到当前系统未安装 jxlinfo（libjxl 工具集的一部分）。\n\n"
+            "在「JPEG 输出」模式下，本程序需要逐个判断 JXL 是否可比特级重建为原 JPG。"
+            "有 jxlinfo 时仅解析文件头（毫秒级）；未安装则回退到 djxl 全量解码校验，"
+            "大批量转换时会明显变慢。\n\n"
+            "建议前往 libjxl 发布页安装 jxlinfo 并加入 PATH，可显著提升校验性能。"
+            "（不影响功能，仅影响速度。）"
+        )
+        box.setStandardButtons(QMessageBox.Ok)
+        cb = QCheckBox("不再提示")
+        box.setCheckBox(cb)
+        box.exec()
+        if cb.isChecked():
+            self._jxlinfo_remind_suppressed = True
 
     def _on_convert_finished(self):
         worker = self._convert_worker

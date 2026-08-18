@@ -10,6 +10,7 @@ import platform
 import shutil
 import subprocess
 import re
+import tempfile
 
 # cjxl 编码时向 stderr 打印 "Encoding [<codec>, <mode>, effort: N]"，
 # 抓取方括号内的完整原文作为状态页每文件的编码模式标签。
@@ -99,6 +100,24 @@ def check_tools():
         "cjxl": find_tool("cjxl"),
         "djxl": find_tool("djxl"),
     }
+
+
+def find_jxlinfo():
+    """Locate the jxlinfo tool in PATH (trying Windows extensions).
+
+    jxlinfo prints JPEG XL file metadata from the *header only* (no pixel
+    decode) and is the fast path for judging whether a JXL was produced by
+    lossless JPEG re-encoding. Returns the path or ``None`` when absent.
+    """
+    found = shutil.which("jxlinfo")
+    if found:
+        return found
+    if detect_os() == "windows":
+        for ext in (".exe", ".cmd", ".bat"):
+            candidate = shutil.which("jxlinfo" + ext)
+            if candidate:
+                return candidate
+    return None
 
 
 def get_cjxl_version():
@@ -318,6 +337,90 @@ def parse_encoding_tag(text):
     if not m:
         return ""
     return "[" + m.group(1).strip() + "]"
+
+
+# Cache (abspath, mtime) -> bool/None so repeated validation of the same file
+# (e.g. re-running a batch, or switching output format back and forth) does not
+# re-run the detection tool. Invalidated automatically when the file changes.
+_jpeg_recon_cache = {}
+
+
+def is_lossless_jpeg_jxl(path):
+    """判断 JXL 是否由「无损 JPEG 重编码」生成（可经 djxl 比特级还原为原 JPG）。
+
+    优先用 jxlinfo 仅解析文件头（毫秒级），捕获
+    ``JPEG bitstream reconstruction data available`` 即表示是；
+    若 jxlinfo 不可用，回退到 djxl：输出 ``.jpg`` 时若打印
+    ``could not decode losslessly to JPEG`` 警告则说明不是，
+    打印 ``Reconstructed to JPEG.`` 则说明是。
+
+    返回 ``True``（可重建）/ ``False``（不可重建）/ ``None``（无法判定，
+    如工具缺失或文件无法解析），调用方据此决定放行或拦截。
+    """
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    key = (os.path.abspath(path), mtime)
+    if key in _jpeg_recon_cache:
+        return _jpeg_recon_cache[key]
+    result = _detect_jpeg_recon(path)
+    _jpeg_recon_cache[key] = result
+    return result
+
+
+def _detect_jpeg_recon(path):
+    """is_lossless_jpeg_jxl 的实际探测（无缓存）。见该函数文档。"""
+    jxlinfo = find_jxlinfo()
+    if jxlinfo:
+        try:
+            proc = subprocess.run(
+                [jxlinfo, path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=_CREATE_NO_WINDOW,
+            )
+        except (OSError, ValueError):
+            return None
+        out = (proc.stdout or "") + (proc.stderr or "")
+        # jxlinfo 明确打印该行即表示是可比特还原的 JPEG 重编码。
+        if "JPEG bitstream reconstruction data available" in out:
+            return True
+        # 退出码 0 但无该行 → 是其它类型 JXL（非 JPEG 重编码）。
+        if proc.returncode == 0:
+            return False
+        # jxlinfo 解析失败（文件损坏/非 JXL），无法判定。
+        return None
+
+    # 回退：djxl 输出 .jpg，按警告判定。
+    djxl = find_tool("djxl")
+    if not djxl:
+        return None
+    fd, tmp = tempfile.mkstemp(suffix=".jpg")
+    os.close(fd)
+    try:
+        try:
+            proc = subprocess.run(
+                [djxl, path, tmp],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=_CREATE_NO_WINDOW,
+            )
+        except (OSError, ValueError):
+            return None
+        err = proc.stderr or ""
+        if "could not decode losslessly to JPEG" in err:
+            return False
+        if "Reconstructed to JPEG" in err:
+            return True
+        return None
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def _run(args, priority=DEFAULT_PRIORITY):
