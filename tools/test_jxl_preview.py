@@ -58,7 +58,7 @@ avif_path = os.path.join(tmpdir, "avif_sample.avif")
 
 # --- JXL fixture -------------------------------------------------------------
 if have_jxl_tools and pillow_ok and os.path.isfile(src_png):
-    eok, _e = converter.encode(src_png, jxl_path, effort=1)
+    eok, _e, _tag = converter.encode(src_png, jxl_path, effort=1)
     if not (eok and os.path.isfile(jxl_path)):
         have_jxl_tools = False
         print("SKIP: failed to create JXL fixture")
@@ -86,7 +86,7 @@ if have_jxl_tools:
     check("jxl decodes to a temporary PNG",
           disp is not None and disp.lower().endswith(".png") and os.path.isfile(disp))
     check("decoded png is cached for reuse",
-          mw._DECODE_PNG_CACHE.get(jxl_path) == disp)
+          mw._DECODE_TEMP_CACHE.get(jxl_path) == disp)
 
     # 2) Thumbnail is not null for a .jxl file.
     thumb = win._make_thumbnail(jxl_path, 96)
@@ -111,7 +111,7 @@ if have_avif:
           disp_a is not None and disp_a.lower().endswith(".png")
           and os.path.isfile(disp_a))
     check("avif decoded png is cached for reuse",
-          mw._DECODE_PNG_CACHE.get(avif_path) == disp_a)
+          mw._DECODE_TEMP_CACHE.get(avif_path) == disp_a)
 
     # 6) Thumbnail is not null for an .avif file.
     thumb_a = win._make_thumbnail(avif_path, 96)

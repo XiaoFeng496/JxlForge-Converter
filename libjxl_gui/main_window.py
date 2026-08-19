@@ -121,22 +121,27 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
-from . import converter, processor
+from . import converter, processor, formats
 
 
 # ----------------------------------------------------------------------
 # Preview / thumbnail support for formats Qt cannot load natively
 #
 # Qt's built-in image readers (QImageReader / QPixmap) do NOT understand some
-# modern containers (JPEG XL, AVIF), so such files yield a null pixmap — no
-# thumbnail and no double-click preview. We decode those to a temporary PNG
-# (via djxl for JXL, via Pillow for AVIF — both already available) and let Qt
-# read that instead. Decoded PNGs are cached per source path so repeated
-# thumbnails / previews don't re-decode every time.
+# modern containers (JPEG XL, AVIF) nor a few scientific / HDR formats
+# (PFM / PAM / PGX). Those yield a null pixmap — no thumbnail and no
+# double-click preview. We decode them to a temporary viewable file and let Qt
+# read that instead:
+#   * JXL  → 临时 PNG（djxl，已可用）
+#   * AVIF → 临时 PNG（Pillow，已可用）
+#   * PFM / PAM / PGX → 临时 PPM（libjxl_gui.formats 纯 Python 解码，0 新依赖）
+# EXR 是浮点 HDR 格式，Qt/Pillow 均不原生支持且本机无 OpenEXR；它只解析头部
+# 元数据用于预览展示，不做像素渲染（见 libjxl_gui.formats.parse_exr_header）。
+# 解码出的临时文件按源路径缓存，重复缩略图 / 预览不再重复解码。
 # ----------------------------------------------------------------------
-_DECODE_TO_PNG_EXTS = {".jxl", ".avif"}
+_DECODE_TO_TEMP_EXTS = {".jxl", ".avif", ".pfm", ".pam", ".pgx"}
 
-_DECODE_PNG_CACHE = {}       # src_path -> decoded temporary PNG path
+_DECODE_TEMP_CACHE = {}       # src_path -> 解码出的临时可显示文件（PNG/PPM）路径
 _DECODE_TEMP_DIR = None
 
 # 懒加载的像素尺寸缓存，供缩略图 / 悬停信息 / 转换调度分类复用。
@@ -160,10 +165,13 @@ def _decode_cleanup_temp_dir():
         _DECODE_TEMP_DIR = None
 
 
-def _decode_to_png(path):
-    """Decode *path* (a JXL or AVIF file) to a temporary PNG.
+def _decode_to_temp_file(path):
+    """Decode *path* to a temporary file Qt can load, returning that path.
 
-    Returns the temporary PNG path on success, or ``None`` on failure.
+    JXL 解码为临时 PNG（djxl）；AVIF 解码为临时 PNG（Pillow）；
+    PFM / PAM / PGX 由 :mod:`libjxl_gui.formats` 纯 Python 解码为临时 PPM。
+    EXR 不在此处处理（只解析头部元数据，见 :func:`formats.parse_exr_header`）。
+    返回临时文件路径表示成功，``None`` 表示解码失败。
     """
     ext = os.path.splitext(path)[1].lower()
     if ext == ".jxl":
@@ -199,26 +207,49 @@ def _decode_to_png(path):
         except Exception:
             pass
         return None
+    if ext in (".pfm", ".pam", ".pgx"):
+        try:
+            if ext == ".pfm":
+                ppm = formats.pfm_to_ppm_bytes(path)
+            elif ext == ".pam":
+                ppm = formats.pam_to_ppm_bytes(path)
+            else:
+                ppm = formats.pgx_to_ppm_bytes(path)
+            fd, tmp = tempfile.mkstemp(suffix=".ppm", dir=_decode_temp_dir())
+            os.close(fd)
+            with open(tmp, "wb") as f:
+                f.write(ppm)
+            if os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
+                return tmp
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        except Exception:
+            pass
+        return None
     return None
 
 
 def _display_path(path):
     """Return a path Qt can actually load for ``path``.
 
-    For natively-supported formats this is ``path`` itself. For JXL/AVIF it
-    decodes to a cached temporary PNG and returns that path, or ``None`` if
-    decoding failed. Callers treat ``None`` as "cannot display".
+    For natively-supported formats this is ``path`` itself. For JXL/AVIF/PFM/
+    PAM/PGX it decodes to a cached temporary file (PNG / PPM) and returns that
+    path, or ``None`` if decoding failed. EXR is intentionally NOT decoded to
+    pixels — its header metadata is surfaced via :func:`formats.parse_exr_header`
+    instead. Callers treat ``None`` as "cannot display".
     """
-    if not path.lower().endswith(tuple(_DECODE_TO_PNG_EXTS)):
+    if not path.lower().endswith(tuple(_DECODE_TO_TEMP_EXTS)):
         return path
-    cached = _DECODE_PNG_CACHE.get(path)
+    cached = _DECODE_TEMP_CACHE.get(path)
     if cached is not None and os.path.isfile(cached):
         return cached
     try:
-        png = _decode_to_png(path)
-        if png is not None:
-            _DECODE_PNG_CACHE[path] = png
-            return png
+        decoded = _decode_to_temp_file(path)
+        if decoded is not None:
+            _DECODE_TEMP_CACHE[path] = decoded
+            return decoded
     except Exception:
         pass
     return None
@@ -232,9 +263,10 @@ def get_image_dims(path):
     """返回图像的 ``(width, height)`` 像素尺寸。
 
     按需懒加载并按路径缓存，同一文件不会被重复测量。对原生支持的格式是
-    O(1) 操作（``QImageReader`` 只读取文件头，不解码像素数据）。对 JXL / AVIF
-    则复用 :func:`_display_path` 已解码的临时 PNG——缩略图 / 预览本就要解码，
-    这一步顺带就能拿到尺寸，不额外增加解码开销。
+    O(1) 操作（``QImageReader`` 只读取文件头，不解码像素数据）。对 JXL / AVIF /
+    PFM / PAM / PGX 则复用 :func:`_display_path` 已解码的临时文件——缩略图 /
+    预览本就要解码，这一步顺带就能拿到尺寸，不额外增加解码开销。EXR 通过
+    :func:`formats.parse_exr_header` 仅读头部即可得到尺寸，同样不解码像素。
 
     任何失败（文件缺失、格式不可解）均返回 ``(0, 0)`` 而非抛异常，调用方把
     零值视为「未知 / 非图像」即可。
@@ -254,6 +286,16 @@ def get_image_dims(path):
                     w, h = size.width(), size.height()
     except Exception:
         pass
+    # EXR 等只解析头部的格式：QImageReader 读不了，用头部元数据补尺寸。
+    if not (w and h):
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".exr":
+            try:
+                meta = formats.parse_exr_header(path)
+                w = meta.get("width") or 0
+                h = meta.get("height") or 0
+            except Exception:
+                pass
     result = (w, h)
     with _DIMS_CACHE_LOCK:
         _DIMS_CACHE[path] = result
@@ -263,6 +305,7 @@ def get_image_dims(path):
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif",
     ".tiff", ".webp", ".ppm", ".pgm", ".jxl", ".avif",
+    ".pfm", ".pam", ".pgx", ".exr",
 }
 
 # Extensions that denote a real JPEG bitstream. cjxl's --lossless_jpeg=1 can
@@ -973,9 +1016,12 @@ class PreviewDialog(QDialog):
     def __init__(self, path, parent=None):
         super().__init__(parent)
         self.path = path
-        # Qt cannot load JXL natively, so decode .jxl files to a temporary PNG
-        # via djxl first; for every other format this just returns the path.
-        display = _display_path(path)
+        # Qt cannot load JXL / AVIF / PFM / PAM / PGX natively, so for those we
+        # ask _display_path to return a decoded temporary file first; for every
+        # other format this just returns the path. EXR is handled separately
+        # below — it is only shown as header metadata, never rendered to pixels.
+        is_exr = path.lower().endswith(".exr")
+        display = None if is_exr else _display_path(path)
         self.base_pixmap = QPixmap(display) if display else QPixmap()
 
         name = os.path.basename(path)
@@ -1007,7 +1053,22 @@ class PreviewDialog(QDialog):
         bar.addWidget(self.close_button)
         root.addLayout(bar)
 
-        if self.base_pixmap.isNull():
+        if is_exr:
+            # EXR 是浮点 HDR 格式，不渲染像素；仅解析并展示头部元数据。
+            self.scroll = None
+            try:
+                meta = formats.parse_exr_header(path)
+                msg = QLabel(formats.exr_metadata_text(meta))
+            except Exception as exc:
+                msg = QLabel("无法解析 EXR 头部：%s" % exc)
+            msg.setAlignment(Qt.AlignTop)
+            msg.setWordWrap(True)
+            # 等宽字体更易读元数据
+            font = msg.font()
+            font.setFamily("Consolas, Menlo, monospace")
+            msg.setFont(font)
+            root.addWidget(msg, stretch=1)
+        elif self.base_pixmap.isNull():
             self.scroll = None
             msg = QLabel(self._preview_error_message(path))
             msg.setAlignment(Qt.AlignCenter)
@@ -1017,6 +1078,13 @@ class PreviewDialog(QDialog):
             self.scroll = PreviewScroll(self)
             self.scroll.set_pixmap(self.base_pixmap)
             root.addWidget(self.scroll, stretch=1)
+
+        # 无渲染对象（EXR 元数据 / 解码失败）时隐藏缩放按钮。
+        if self.scroll is None:
+            self.zoom_in_button.hide()
+            self.zoom_out_button.hide()
+            self.zoom_actual_button.hide()
+            self.fit_button.hide()
 
         self.zoom_in_button.clicked.connect(lambda: self._zoom(1.2))
         self.zoom_out_button.clicked.connect(lambda: self._zoom(1 / 1.2))
@@ -4113,8 +4181,19 @@ class MainWindow(QMainWindow):
         w, h = get_image_dims(path)
         if w and h:
             dims = "%d x %d" % (w, h)
-        return "文件名：%s\n格式：%s\n尺寸：%s\n大小：%s\n路径：%s" % (
-            name, ext, dims, size_text, path,
+        # EXR 额外展示头部解析出的通道 / 压缩信息（悬停提示更实用）。
+        extra = ""
+        if path.lower().endswith(".exr"):
+            try:
+                meta = formats.parse_exr_header(path)
+                ch = "、".join(
+                    "%s(%s)" % (c["name"], c["type"]) for c in meta.get("channels", [])
+                ) or "未知"
+                extra = "\n通道：%s\n压缩：%s" % (ch, meta.get("compression") or "未知")
+            except Exception:
+                extra = ""
+        return "文件名：%s\n格式：%s\n尺寸：%s\n大小：%s\n路径：%s%s" % (
+            name, ext, dims, size_text, path, extra,
         )
 
     @staticmethod
