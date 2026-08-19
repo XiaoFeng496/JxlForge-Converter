@@ -37,6 +37,7 @@ import atexit
 import shutil
 import shlex
 import tempfile
+import threading
 
 # 移到回收站依赖 send2trash（Windows 上走 IFileOperation）；缺失时不阻断整个
 # 程序启动，_move_to_recycle_bin 会给出清晰报错，调用方据此保留原文件。
@@ -138,6 +139,11 @@ _DECODE_TO_PNG_EXTS = {".jxl", ".avif"}
 _DECODE_PNG_CACHE = {}       # src_path -> decoded temporary PNG path
 _DECODE_TEMP_DIR = None
 
+# 懒加载的像素尺寸缓存，供缩略图 / 悬停信息 / 转换调度分类复用。
+# 模块级 + 锁：双队列调度器可能在子线程（ConvertWorker）内调用，需线程安全。
+_DIMS_CACHE = {}             # path -> (width, height)，读取失败记为 (0, 0)
+_DIMS_CACHE_LOCK = threading.Lock()
+
 
 def _decode_temp_dir():
     global _DECODE_TEMP_DIR
@@ -220,6 +226,38 @@ def _display_path(path):
 
 # Backwards-compatible alias (older tests / callers).
 _jxl_display_path = _display_path
+
+
+def get_image_dims(path):
+    """返回图像的 ``(width, height)`` 像素尺寸。
+
+    按需懒加载并按路径缓存，同一文件不会被重复测量。对原生支持的格式是
+    O(1) 操作（``QImageReader`` 只读取文件头，不解码像素数据）。对 JXL / AVIF
+    则复用 :func:`_display_path` 已解码的临时 PNG——缩略图 / 预览本就要解码，
+    这一步顺带就能拿到尺寸，不额外增加解码开销。
+
+    任何失败（文件缺失、格式不可解）均返回 ``(0, 0)`` 而非抛异常，调用方把
+    零值视为「未知 / 非图像」即可。
+    """
+    with _DIMS_CACHE_LOCK:
+        cached = _DIMS_CACHE.get(path)
+    if cached is not None:
+        return cached
+    w = h = 0
+    try:
+        display = _display_path(path)
+        if display is not None:
+            reader = QImageReader(display)
+            if reader.canRead():
+                size = reader.size()
+                if size.isValid() and not size.isNull():
+                    w, h = size.width(), size.height()
+    except Exception:
+        pass
+    result = (w, h)
+    with _DIMS_CACHE_LOCK:
+        _DIMS_CACHE[path] = result
+    return result
 
 
 IMAGE_EXTENSIONS = {
@@ -4072,13 +4110,9 @@ class MainWindow(QMainWindow):
         ext = "JXL" if is_jxl else (os.path.splitext(path)[1].lstrip(".").upper() or "未知")
         size_text = self._format_size(path)
         dims = "未知"
-        display = _display_path(path)
-        if display is not None:
-            reader = QImageReader(display)
-            if reader.canRead():
-                s = reader.size()
-                if s.isValid():
-                    dims = "%d x %d" % (s.width(), s.height())
+        w, h = get_image_dims(path)
+        if w and h:
+            dims = "%d x %d" % (w, h)
         return "文件名：%s\n格式：%s\n尺寸：%s\n大小：%s\n路径：%s" % (
             name, ext, dims, size_text, path,
         )
