@@ -38,6 +38,13 @@ import shutil
 import shlex
 import tempfile
 
+# 移到回收站依赖 send2trash（Windows 上走 IFileOperation）；缺失时不阻断整个
+# 程序启动，_move_to_recycle_bin 会给出清晰报错，调用方据此保留原文件。
+try:
+    import send2trash
+except ImportError:
+    send2trash = None
+
 from PySide6.QtCore import (
     QEvent,
     QPoint,
@@ -242,6 +249,20 @@ def _jpeg_recon_action(src, hard_skip):
     if recon is not False:
         return "kept"
     return "skip" if hard_skip else "confirm"
+
+
+def _move_to_recycle_bin(path):
+    """将文件或目录移入系统回收站（**非永久删除**）。
+
+    使用 ``send2trash`` 库（Windows 上走 ``IFileOperation``），是业界标准的跨平台
+    「移到回收站」实现；其设计保证「无法移入回收站时抛异常，绝不回退为永久删除」，
+    因此调用方可以安全地把异常当作「保留原文件」处理。本函数本身不捕获异常。
+    """
+    if send2trash is None:
+        raise RuntimeError(
+            "未找到 send2trash 库，无法将文件移入回收站；请先安装：pip install send2trash"
+        )
+    send2trash.send2trash(path)
 
 
 # ----------------------------------------------------------------------
@@ -2348,6 +2369,17 @@ class MainWindow(QMainWindow):
         self.on_exist_combo.currentTextChanged.connect(
             lambda _=None: self._save_jxl_output()
         )
+        # 「删除原文件」：勾选后，转换成功的原文件在批处理结束后移入回收站，
+        # 失败的源文件保持不变。默认不勾选（保守，避免误删）。
+        self.delete_original_check = QCheckBox("删除原文件（成功转换后移入回收站）")
+        self.delete_original_check.setToolTip(
+            "勾选后，成功转换的原文件将在转换结束后移入系统回收站；"
+            "转换失败的文件不会被删除。"
+        )
+        self.delete_original_check.toggled.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        options_layout.addWidget(self.delete_original_check)
         layout.addWidget(options_group)
 
         layout.addStretch(1)
@@ -3145,6 +3177,8 @@ class MainWindow(QMainWindow):
         settings.setValue("output_format", self.format_combo.currentText())
         # 输出文件已存在时的冲突策略（替换/询问/跳过/重命名）。
         settings.setValue("on_exist", self.on_exist_combo.currentText())
+        # 删除原文件：勾选后成功转换的源文件移入回收站（QSettings 直接存 bool）。
+        settings.setValue("delete_original", self.delete_original_check.isChecked())
         self._save_advanced(settings)
         # 自定义命令：勾选状态 + 已编辑的命令文本。
         settings.setValue("custom_cmd_on", self.custom_cmd_check.isChecked())
@@ -3189,6 +3223,11 @@ class MainWindow(QMainWindow):
         on_exist = settings.value("on_exist", "替换")
         if self.on_exist_combo.findText(on_exist) >= 0:
             self.on_exist_combo.setCurrentText(on_exist)
+        # 恢复「删除原文件」勾选状态（INI 把 bool 存为字符串，需显式解析）。
+        self.delete_original_check.setChecked(
+            str(settings.value("delete_original", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
         # 恢复自定义命令：用 blockSignals 避免触发 _on_custom_cmd_toggled 的
         # 预填逻辑覆盖已持久化的命令文本。
         self.custom_cmd_check.blockSignals(True)
@@ -5126,6 +5165,7 @@ class MainWindow(QMainWindow):
             cpu_cores=self.cpu_cores_combo.currentData(),
             adv_threads_enabled=self.adv_num_threads_toggle.isChecked(),
             out_fmt=out_fmt,
+            delete_original=self.delete_original_check.isChecked(),
         )
         self._convert_worker.log_signal.connect(self.log_edit.appendPlainText)
         self._convert_worker.status_signal.connect(self.statusBar().showMessage)
@@ -5216,6 +5256,26 @@ class MainWindow(QMainWindow):
                 "转换完成：%d 个文件" % worker._stat_ok
             )
         log("")
+
+        # 删除原文件：将本批「成功转换」的源文件移入回收站（非永久删除）。
+        # 失败的文件不会进入 _ok_sources，故不会被删除。逐文件容错：单个失败
+        # 不影响其余，并在日志中提示保留原因。
+        # 仅在本批正常完成（未点「停止」）时执行：用户中途中止时保留全部原文件，
+        # 避免「中止却丢失已转换原文件」的意外数据损失，可安全地重新运行。
+        ok_sources = getattr(worker, "_ok_sources", None)
+        if ok_sources and not stopped:
+            n_del = 0
+            for src in ok_sources:
+                try:
+                    _move_to_recycle_bin(src)
+                    n_del += 1
+                except Exception as exc:
+                    log("删除原文件失败（已保留）：%s —— %s" % (src, exc))
+            if n_del:
+                log("已将 %d 个成功转换的原文件移入回收站。" % n_del)
+            if n_del < len(ok_sources):
+                log("注意：%d 个原文件因删除失败而保留。" % (len(ok_sources) - n_del))
+            log("")
 
         # 进度条收尾：停在已处理数（正常完成=总数，中止=部分），清除预计剩余。
         self.progress_bar.setValue(worker._stat_processed)
@@ -5423,7 +5483,7 @@ class ConvertWorker(QThread):
                  quality=None, lossless_jpeg=False,
                  priority=converter.DEFAULT_PRIORITY, advanced=None,
                  custom_cmd=None, cpu_cores="auto", adv_threads_enabled=False,
-             out_fmt="jxl"):
+             out_fmt="jxl", delete_original=False):
         super().__init__()
         self.jobs = jobs
         self.actions = actions  # possibly empty list
@@ -5445,6 +5505,11 @@ class ConvertWorker(QThread):
         # 输出格式键（jxl / png / jpg），供 _encode_tag 在解码/重建路径下
         # 返回正确的重建标签，避免误用 JXL 编码标签（如 [VarDCT, q90]）。
         self._out_fmt = out_fmt
+        # 删除原文件：勾选时，成功转换的源文件在批处理结束后由主线程移入回收站。
+        self.delete_original = delete_original
+        # 收集「成功转换」的源文件路径，供主线程在转换结束后移入回收站。
+        # 仅当 delete_original 为真且该文件成功（ok）才入列；失败的不入列。
+        self._ok_sources = []
         # 由 _resolve_concurrency 在 run() 开头计算；_encode_kwargs 用它统一覆盖
         # 高级参数里的 num_threads，避免与文件级并行叠加导致超订。
         self._per_file_threads = None
@@ -5795,6 +5860,10 @@ class ConvertWorker(QThread):
         if ok:
             self._stat_out_bytes += out_size
             self._stat_ok += 1
+            # 删除原文件：本文件已成功转换，登记源路径，待主线程批处理结束后
+            # 统一移入回收站（失败文件不登记，保留原文件）。
+            if self.delete_original:
+                self._ok_sources.append(src)
             # 优先用 cjxl 真实输出抓取的编码标签；若解析为空（如 djxl 解码、
             # 自定义命令无 Encoding 行），兜底用规则推导。
             final_tag = tag or self._encode_tag()

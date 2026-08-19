@@ -15,8 +15,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QCoreApplication, QSettings
+from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QCoreApplication, QSettings, QTimer
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
 QCoreApplication.setOrganizationName("libjxl")
@@ -29,6 +29,26 @@ from libjxl_gui import converter as conv_mod
 from libjxl_gui.main_window import MainWindow
 
 _app = QApplication.instance() or QApplication(sys.argv)
+
+
+# Headless 测试用：自动点击任何 QMessageBox 的 AcceptRole 按钮（「继续」/「确定」），
+# 避免阻塞式确认框（JPEG 输出质量提示、jxlinfo 推荐框）在无交互环境下卡死
+# _on_convert。仅用于测试，不影响产品行为。
+# 注意：PySide6 的 QMessageBox.button() 只接受 StandardButton，不接受 ButtonRole；
+# 故按 buttonRole() 遍历按钮查找 AcceptRole。
+_orig_msgbox_exec = QMessageBox.exec
+def _auto_accept_exec(self):
+    btn = None
+    for b in self.buttons():
+        if self.buttonRole(b) == QMessageBox.AcceptRole:
+            btn = b
+            break
+    if btn is not None:
+        # 先让原始 exec 进入模态循环，再于下一轮事件循环点击（时序正确）。
+        QTimer.singleShot(0, btn.click)
+    return _orig_msgbox_exec(self)
+QMessageBox.exec = _auto_accept_exec
+
 
 
 def fresh_window():

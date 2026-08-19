@@ -2,3 +2,7 @@
 # 安装: pip install -r requirements.txt
 PySide6>=6.7
 Pillow>=10.0
+# 删除原文件功能：移入系统回收站（Windows 上 send2trash 走 IFileOperation 原生后端，
+# 需 pywin32 提供 COM 支持；缺失时 send2trash 会回退到不可靠的 legacy 后端）。
+send2trash>=1.8
+pywin32>=306; sys_platform == "win32"
