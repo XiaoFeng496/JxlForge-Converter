@@ -23,6 +23,11 @@ BIG_IMAGE_TARGET_SPEEDUP = 2.0
 # read_big_image_floor_px 回退到 estimate_floor_px 的启发式。
 BIG_IMAGE_FLOOR_KEY = "big_image_floor_px"
 
+# 按电源计划分别记忆阈值：每个方案存一份 big_image_floor_px__<scheme_guid>。
+CALIB_SCHEME_KEY = "calib_scheme"          # 最近一次校准时的活动方案 GUID
+CALIB_SCHEMES_KEY = "calib_schemes"        # 已校准方案 GUID 列表（逗号分隔）
+CALIB_CPU_KEY = "calib_cpu_signature"      # 校准时的 CPU 指纹，用于检测换硬件
+
 # 粗采样分辨率（兆像素）。如需更精细可追加中间档。
 MP_LEVELS = [1, 2, 4, 8, 12, 16, 24, 32, 40, 48, 56, 64]
 
@@ -165,22 +170,123 @@ def run_calibration(progress_cb=None, log_cb=None, effort=7, runs=3, max_mp=64):
     return floor_px
 
 
-def write_floor_px(floor_px):
-    """把已校准的像素地板写入 QSettings 的 conversion 组（应用重启后仍生效）。"""
+def _settings():
+    """统一的 QSettings 句柄（与应用内 QSettings() 指向同一 ini 文件）。"""
     from PySide6.QtCore import QSettings
-    settings = QSettings(QSettings.IniFormat, QSettings.UserScope, "libjxl", "libjxl-gui")
+    return QSettings(QSettings.IniFormat, QSettings.UserScope, "libjxl", "libjxl-gui")
+
+
+def floor_key_for_scheme(scheme):
+    """某电源方案专属的阈值键名。"""
+    return "big_image_floor_px__" + scheme
+
+
+def write_floor_px(floor_px, scheme=None):
+    """把已校准的像素地板写入 QSettings 的 conversion 组（应用重启后仍生效）。
+
+    scheme 为当前活动电源方案 GUID（来自 power.get_active_power_scheme）：
+    提供时，除写入通用键 big_image_floor_px 外，还会写一份该方案专属键，并登记到
+    已校准方案列表，使切换电源计划时可自动套用。
+    """
+    settings = _settings()
     settings.beginGroup("conversion")
     settings.setValue(BIG_IMAGE_FLOOR_KEY, str(floor_px))
+    if scheme:
+        settings.setValue(floor_key_for_scheme(scheme), str(floor_px))
+        raw = settings.value(CALIB_SCHEMES_KEY, "")
+        schemes = [x for x in str(raw).split(",") if x] if raw else []
+        if scheme not in schemes:
+            schemes.append(scheme)
+        settings.setValue(CALIB_SCHEMES_KEY, ",".join(schemes))
+        settings.setValue(CALIB_SCHEME_KEY, scheme)
     settings.endGroup()
+
+
+def read_stored_floor_px(scheme=None):
+    """返回已存储的像素地板（int）或 None。
+
+    scheme 给定时优先返回该方案专属键；否则（或专属键缺失）回退通用键；都没有返
+    回 None。调用方据此决定是否回退到 estimate_floor_px 启发式。
+    """
+    settings = _settings()
+    settings.beginGroup("conversion")
+    try:
+        if scheme:
+            raw = settings.value(floor_key_for_scheme(scheme), None)
+            if raw is not None:
+                try:
+                    iv = int(raw)
+                    if 0 <= iv < 10 ** 18:
+                        return iv
+                except (ValueError, TypeError):
+                    pass
+        raw = settings.value(BIG_IMAGE_FLOOR_KEY, None)
+        if raw is not None:
+            try:
+                iv = int(raw)
+                if 0 <= iv < 10 ** 18:
+                    return iv
+            except (ValueError, TypeError):
+                pass
+        return None
+    finally:
+        settings.endGroup()
+
+
+def read_per_scheme_floor_px(scheme):
+    """仅返回某方案专属键的值（int 或 None），用于判断是否已为该方案记录过。"""
+    settings = _settings()
+    settings.beginGroup("conversion")
+    try:
+        raw = settings.value(floor_key_for_scheme(scheme), None)
+    finally:
+        settings.endGroup()
+    if raw is not None:
+        try:
+            iv = int(raw)
+            if 0 <= iv < 10 ** 18:
+                return iv
+        except (ValueError, TypeError):
+            pass
+    return None
 
 
 def has_calibration():
     """ini 中是否已存在校准结果（conversion/big_image_floor_px）。"""
-    from PySide6.QtCore import QSettings
-    settings = QSettings()
+    return read_stored_floor_px() is not None
+
+
+def write_cpu_signature(sig):
+    """记录校准时的 CPU 指纹（用于检测是否更换了硬件）。"""
+    settings = _settings()
+    settings.beginGroup("conversion")
+    settings.setValue(CALIB_CPU_KEY, sig)
+    settings.endGroup()
+
+
+def read_cpu_signature():
+    """读取已记录的 CPU 指纹；无则返回 None。"""
+    settings = _settings()
     settings.beginGroup("conversion")
     try:
-        raw = settings.value(BIG_IMAGE_FLOOR_KEY, None)
+        return settings.value(CALIB_CPU_KEY, None)
     finally:
         settings.endGroup()
-    return raw is not None
+
+
+def clear_all_calibration():
+    """清空全部校准数据（通用键、各方案专属键、方案列表、CPU 指纹），用于换硬件后
+    丢弃旧阈值、当作首次启动重新校准。"""
+    settings = _settings()
+    settings.beginGroup("conversion")
+    try:
+        settings.remove(BIG_IMAGE_FLOOR_KEY)
+        raw = settings.value(CALIB_SCHEMES_KEY, "")
+        schemes = [x for x in str(raw).split(",") if x] if raw else []
+        for sch in schemes:
+            settings.remove(floor_key_for_scheme(sch))
+        settings.remove(CALIB_SCHEMES_KEY)
+        settings.remove(CALIB_SCHEME_KEY)
+        settings.remove(CALIB_CPU_KEY)
+    finally:
+        settings.endGroup()

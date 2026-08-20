@@ -97,8 +97,9 @@ def _fake_run(progress_cb=None, log_cb=None, effort=7, runs=3, max_mp=64):
     return 12_000_000
 
 
-def _fake_write(px):
+def _fake_write(px, scheme=None):
     written["px"] = px
+    written["scheme"] = scheme
 
 
 calibrate.run_calibration = _fake_run
@@ -109,9 +110,49 @@ w.done_signal.connect(captured_done.append)
 w.run()  # 同步在当前线程跑（不经由 thread.start()）
 check("worker done_signal emitted floor", captured_done == [12_000_000])
 check("worker calls write_floor_px with floor", written.get("px") == 12_000_000)
+check("worker passes scheme (str or None)",
+      written.get("scheme") is None or isinstance(written.get("scheme"), str))
 
 calibrate.run_calibration = _real_run
 calibrate.write_floor_px = _real_write
+
+
+# --- 5. per-scheme storage + CPU signature + clear -----------------------
+calibrate.clear_all_calibration()
+check("clear_all leaves no calibration", calibrate.has_calibration() is False)
+
+calibrate.write_floor_px(5_000_000, scheme="plan-aaa")
+check("per-scheme write sets generic", calibrate.read_stored_floor_px() == 5_000_000)
+check("per-scheme write sets scheme key",
+      calibrate.read_per_scheme_floor_px("plan-aaa") == 5_000_000)
+check("unknown scheme falls back to generic",
+      calibrate.read_stored_floor_px(scheme="plan-bbb") == 5_000_000)
+check("unknown scheme has no per-scheme key",
+      calibrate.read_per_scheme_floor_px("plan-bbb") is None)
+
+calibrate.write_floor_px(6_000_000, scheme="plan-bbb")
+check("second scheme stored separately",
+      calibrate.read_per_scheme_floor_px("plan-aaa") == 5_000_000)
+check("second scheme overrides generic",
+      calibrate.read_stored_floor_px(scheme="plan-bbb") == 6_000_000)
+
+calibrate.write_cpu_signature("cpu-sig-1")
+check("cpu signature round-trip", calibrate.read_cpu_signature() == "cpu-sig-1")
+
+calibrate.clear_all_calibration()
+check("after clear: no calibration", calibrate.has_calibration() is False)
+check("after clear: per-scheme key gone",
+      calibrate.read_per_scheme_floor_px("plan-aaa") is None)
+check("after clear: cpu signature gone",
+      calibrate.read_cpu_signature() is None)
+
+
+# --- 6. power helpers -----------------------------------------------------
+from libjxl_gui import power as _pw  # noqa: E402
+check("cpu_signature non-empty", bool(_pw.cpu_signature()))
+_scheme = _pw.get_active_power_scheme()
+check("get_active_power_scheme returns GUID or None",
+      _scheme is None or (isinstance(_scheme, str) and len(_scheme) == 36))
 
 
 shutil.rmtree(_TMP, ignore_errors=True)
