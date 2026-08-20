@@ -22,6 +22,9 @@ def run():
     app.setApplicationName("libjxl-gui")
     window = MainWindow()
     window._app_start = app_start
+    # 真实启动：允许「首次启动自动校准大图阈值」（headless 测试不会置此标志，
+    # 避免测试期间触发耗时的 cjxl 基准测量）。
+    window._auto_calibrate_enabled = True
     window.show()
     return app.exec()
 

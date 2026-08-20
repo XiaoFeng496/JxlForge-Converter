@@ -46,6 +46,11 @@ try:
 except ImportError:
     send2trash = None
 
+# 大图并发校准：应用内「一键校准」按钮与命令行校准脚本共用同一份逻辑/常量真源。
+# calibrate 不回注 main_window（无循环依赖），仅导出常量与 run_calibration 等。
+from . import calibrate
+from .calibrate import BIG_IMAGE_TARGET_SPEEDUP, BIG_IMAGE_FLOOR_KEY
+
 from PySide6.QtCore import (
     QEvent,
     QPoint,
@@ -322,13 +327,6 @@ JPEG_EXTENSIONS = {".jpg", ".jpeg", ".jpe", ".jfif"}
 # ----------------------------------------------------------------------
 # 大图判定的相对阈值：文件像素数超过本批次中位数的该倍数即视为离群「大图」。
 BIG_IMAGE_RATIO = 2.5
-# 大图判定的绝对地板目标加速比：仅当「独占满核」相对「单线程」快至少这么多时，
-# 才值得为某文件暂停小图池去独占核心。校准脚本据此寻找 speedup 首次达到该值
-# 的分辨率作为像素地板（见 tools/calibrate_floor.py）。
-BIG_IMAGE_TARGET_SPEEDUP = 2.0
-# QSettings 键（conversion 组）：已校准的大图像素地板（整数像素）；缺省或 "auto"
-# 时回退到 estimate_floor_px 的启发式。
-BIG_IMAGE_FLOOR_KEY = "big_image_floor_px"
 
 
 def estimate_floor_px(cores):
@@ -1630,6 +1628,9 @@ class MainWindow(QMainWindow):
         self._thumb_queue = []   # pending (item, path, box_square) batches
         self._sized = False     # resize-to-fit (6x3) once, on first show
         self._env_refreshed = False  # _refresh_environment done once, after show
+        self._calib_worker = None    # 后台校准线程（或 None）
+        self._auto_calibrate_enabled = False  # 由 __main__ 在真实启动时置 True
+        self._calib_auto_checked = False      # 首次 show 已决策是否自动校准
         self._menu_warmed = False  # folder-history popup pre-warm DONE
         self._warm_fallback_scheduled = False  # idle fallback timer armed
         # Cached window "chrome" (title bar + borders + tab bar + status bar +
@@ -1783,6 +1784,14 @@ class MainWindow(QMainWindow):
         if not self._env_refreshed:
             self._env_refreshed = True
             QTimer.singleShot(0, self._refresh_environment)
+        # 首次启动（且真实运行，非 headless 测试）若尚未校准，自动跑一次校准。
+        # 延迟一小段让用户先看到窗口、避免启动即占满 CPU；ini 已有校准值则跳过。
+        if self._auto_calibrate_enabled and not self._calib_auto_checked:
+            self._calib_auto_checked = True
+            if calibrate.has_calibration():
+                self._refresh_calib_value_label()
+            else:
+                QTimer.singleShot(1000, self._auto_calibrate)
         # Restore the output / output-location / conversion-priority settings
         # OFF the startup critical path. These only touch output/settings-tab
         # widgets, which are not visible on the first-painted input tab, so
@@ -3039,6 +3048,35 @@ class MainWindow(QMainWindow):
         cores_row.addStretch(1)
         layout.addLayout(cores_row)
 
+        # ---- 大图并发校准（一键傻瓜式，独立于「高级参数」） ----
+        # 双队列调度器按「大图」判定把超大图独占满核、其余小图并行。判定阈值需按
+        # 本机 CPU 校准。这里提供一键按钮：自动生成测试图、测 cjxl 多线程加速比、
+        # 把像素阈值写入设置，全程无需用户配置任何参数。故刻意放在高级参数之外。
+        calib_group = QGroupBox("大图并发校准")
+        calib_layout = QVBoxLayout(calib_group)
+        calib_layout.setSpacing(6)
+
+        calib_tip = (
+            "双队列调度器会根据「大图」判定把超大图独占满核、其余小图并行，"
+            "从而充分利用 CPU。判定阈值需按本机 CPU 能力校准：\n"
+            "点击此按钮将自动生成若干测试图、测量 cjxl 在不同分辨率下的多线程"
+            "加速比，并把适合本机的像素阈值写入设置——无需任何参数配置。\n"
+            "首次启动时若尚未校准，会自动运行一次。"
+        )
+        self.calib_button = QPushButton("一键校准大图阈值（按本机 CPU）")
+        self.calib_button.setToolTip(calib_tip)
+        self.calib_button.clicked.connect(self._on_calibrate_clicked)
+        calib_layout.addWidget(self.calib_button)
+
+        # 当前已校准阈值展示（随自动/手动校准刷新）。
+        self.calib_value_label = QLabel()
+        self.calib_value_label.setWordWrap(True)
+        self.calib_value_label.setStyleSheet("color: #888; font-size: 11px;")
+        calib_layout.addWidget(self.calib_value_label)
+        self._refresh_calib_value_label()
+
+        layout.addWidget(calib_group)
+
         # ---- 高级参数区域（母开关 + 逐项子开关，子项默认禁用） ----
         # 「启用高级参数」仅作为母开关：勾选时解锁下方子项按钮，取消时全部置灰。
         # 每个子项是否真正生效由各自勾选决定（见 _on_adv_*_toggled）。
@@ -3110,6 +3148,78 @@ class MainWindow(QMainWindow):
     def _on_cpu_cores_changed(self, _index):
         """Persist the CPU-core-count choice whenever the user changes it."""
         self._save_conversion_settings()
+
+    # ------------------------------------------------------------------
+    # 大图并发校准（一键傻瓜式；独立于「高级参数」）
+    # ------------------------------------------------------------------
+    def _refresh_calib_value_label(self):
+        """刷新设置页「当前已校准阈值」说明文字。"""
+        cores = os.cpu_count() or 1
+        if calibrate.has_calibration():
+            floor = read_big_image_floor_px(cores)
+            mp = floor / 1_000_000.0
+            self.calib_value_label.setText(
+                "当前已校准阈值：约 %.1f MP（%d 像素）。校准结果随本机 CPU 自动生效。"
+                % (mp, floor)
+            )
+        else:
+            self.calib_value_label.setText(
+                "当前使用默认阈值（尚未校准）。建议点击上方按钮进行一次校准。"
+            )
+
+    def _on_calibrate_clicked(self):
+        """设置页「一键校准」按钮：手动触发一次校准。"""
+        self._start_calibration(auto=False)
+
+    def _start_calibration(self, auto):
+        """启动后台校准线程（避免阻塞 UI）。重复点击或已在进行中则忽略。"""
+        if self._calib_worker is not None and self._calib_worker.isRunning():
+            self.statusBar().showMessage("校准正在进行中，请稍候…")
+            return
+        self._calib_worker = CalibrateWorker(effort=7, runs=3, max_mp=64)
+        self._calib_worker.log_signal.connect(self.log_edit.appendPlainText)
+        self._calib_worker.status_signal.connect(self.statusBar().showMessage)
+        self._calib_worker.done_signal.connect(self._on_calibration_done)
+        if auto:
+            self.log_edit.appendPlainText(
+                "首次启动检测到尚未校准，开始自动校准大图阈值…"
+            )
+            self.statusBar().showMessage("正在自动校准大图阈值（按本机 CPU）…")
+        else:
+            self.log_edit.appendPlainText("开始手动校准大图阈值…")
+            self.statusBar().showMessage("正在校准大图阈值（按本机 CPU）…")
+        self.calib_button.setEnabled(False)
+        self._calib_worker.start()
+
+    def _auto_calibrate(self):
+        """首次启动自动校准：已校准 / 无 cjxl 则跳过并说明。"""
+        if calibrate.has_calibration():
+            self._refresh_calib_value_label()
+            return
+        if not calibrate.cjxl_path():
+            self.log_edit.appendPlainText(
+                "尚未校准且未找到 cjxl，跳过自动校准，继续使用默认阈值。"
+            )
+            self.statusBar().showMessage("未找到 cjxl，跳过自动校准")
+            return
+        self._start_calibration(auto=True)
+
+    def _on_calibration_done(self, floor_px):
+        """校准线程结束：刷新状态栏/日志/阈值说明，恢复按钮可用。"""
+        if floor_px is None:
+            self.statusBar().showMessage("校准未完成（未找到 cjxl 或测量失败）")
+            self.log_edit.appendPlainText(
+                "校准未完成：未找到 cjxl 或测量失败，继续使用默认阈值。"
+            )
+        else:
+            mp = floor_px / 1_000_000.0
+            self.statusBar().showMessage("校准完成：大图阈值 = %.1f MP" % mp)
+            self.log_edit.appendPlainText(
+                "校准完成，大图像素阈值已写入设置：约 %.1f MP。" % mp
+            )
+        self._refresh_calib_value_label()
+        self.calib_button.setEnabled(True)
+        self._calib_worker = None
 
     def _on_adv_threads_toggled(self, _checked):
         """母开关：勾选时解锁下方子项按钮，取消时全部置灰。子项是否生效由各子项
@@ -5627,6 +5737,47 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("提示：cjxl / djxl 未完全就绪")
         else:
             self.statusBar().showMessage("环境就绪：cjxl 与 djxl 均可用")
+
+
+class CalibrateWorker(QThread):
+    """在后台线程运行大图像素地板校准，避免阻塞 UI。
+
+    进度通过 status_signal（状态栏）与 log_signal（状态标签页日志）回流；
+    done_signal 携带校准结果（int 像素地板 或 None）。
+    """
+
+    log_signal = Signal(str)
+    status_signal = Signal(str)
+    done_signal = Signal(object)
+
+    def __init__(self, effort=7, runs=3, max_mp=64, parent=None):
+        super().__init__(parent)
+        self.effort = effort
+        self.runs = runs
+        self.max_mp = max_mp
+        self._abort = False
+
+    def run(self):
+        def progress_cb(msg):
+            if self._abort:
+                return
+            self.status_signal.emit(msg)
+
+        def log_cb(line):
+            if self._abort:
+                return
+            self.log_signal.emit(line)
+
+        floor_px = calibrate.run_calibration(
+            progress_cb=progress_cb,
+            log_cb=log_cb,
+            effort=self.effort,
+            runs=self.runs,
+            max_mp=self.max_mp,
+        )
+        if floor_px is not None:
+            calibrate.write_floor_px(floor_px)
+        self.done_signal.emit(floor_px)
 
 
 class ConvertWorker(QThread):
