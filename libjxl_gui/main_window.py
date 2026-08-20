@@ -2940,7 +2940,7 @@ class MainWindow(QMainWindow):
             inner.setSpacing(8)
             return g, inner
 
-        # 左侧标签统一最小宽度，让「标签 + 下拉框」各行对齐。
+        # 左侧标签不强制最小宽度，下拉框紧贴标签文字（不强行对齐成一列）。
         def _label_row(inner, label_text, combo, tip=""):
             row = QHBoxLayout()
             row.setSpacing(8)
@@ -2948,7 +2948,6 @@ class MainWindow(QMainWindow):
             if tip:
                 lab.setToolTip(tip)
                 combo.setToolTip(tip)
-            lab.setMinimumWidth(104)
             row.addWidget(lab)
             row.addWidget(combo)
             row.addStretch(1)
