@@ -2930,12 +2930,32 @@ class MainWindow(QMainWindow):
     def _build_settings_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
-        layout.addWidget(QLabel("窗口布局"))
+        # 各分区统一用分组框（QGroupBox）框起，紧凑内边距，避免框显得过大。
+        def _section(title):
+            g = QGroupBox(title)
+            inner = QVBoxLayout(g)
+            inner.setContentsMargins(10, 6, 10, 6)
+            inner.setSpacing(8)
+            return g, inner
 
-        # Two layout helpers in a single compact row (native button height
-        # instead of the oversized 40px ones).
+        # 左侧标签统一最小宽度，让「标签 + 下拉框」各行对齐。
+        def _label_row(inner, label_text, combo, tip=""):
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            lab = QLabel(label_text)
+            if tip:
+                lab.setToolTip(tip)
+                combo.setToolTip(tip)
+            lab.setMinimumWidth(104)
+            row.addWidget(lab)
+            row.addWidget(combo)
+            row.addStretch(1)
+            inner.addLayout(row)
+
+        # ---- 窗口布局 ----
+        win_group, win_inner = _section("窗口布局")
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         btn_center = QPushButton("一键居中")
@@ -2947,30 +2967,23 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(btn_center)
         btn_row.addWidget(btn_fit)
         btn_row.addStretch(1)
-        layout.addLayout(btn_row)
+        win_inner.addLayout(btn_row)
 
         hint = QLabel("窗口的大小与位置会自动保存，下次打开时原样恢复。")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888; font-size: 11px;")
-        layout.addWidget(hint)
+        win_inner.addWidget(hint)
+        layout.addWidget(win_group)
 
-        layout.addWidget(QLabel("主题"))
-
-        # Theme choice: 原生（无闪烁）(default) / 原生 / Fusion. Persisted to
-        # QSettings and applied globally (see _init_theme / _apply_theme).
-        theme_row = QHBoxLayout()
-        theme_row.setSpacing(8)
-        theme_label = QLabel("界面主题")
+        # ---- 主题 ----
+        theme_group, theme_inner = _section("主题")
         theme_tip = (
             "原生（无闪烁）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单"
             "单独使用 Fusion 样式以消除 Windows 弹出动画闪烁（默认）。\n"
             "原生：完全使用系统原生外观，下拉菜单可能出现轻微闪烁。\n"
             "Fusion：整套界面使用 Qt 自带的 Fusion 样式。"
         )
-        theme_label.setToolTip(theme_tip)
-        theme_row.addWidget(theme_label)
         self.theme_combo = NoFlickerComboBox()
-        self.theme_combo.setToolTip(theme_tip)
         for key in _THEME_ORDER:
             self.theme_combo.addItem(_THEME_LABELS[key], key)
         self._set_combo_min_width(self.theme_combo)
@@ -2978,40 +2991,24 @@ class MainWindow(QMainWindow):
         self.theme_combo.setCurrentIndex(self.theme_combo.findData(app_theme()))
         self._theme_loading = False
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        theme_row.addWidget(self.theme_combo)
-        theme_row.addStretch(1)
-        layout.addLayout(theme_row)
+        _label_row(theme_inner, "界面主题", self.theme_combo, theme_tip)
+        layout.addWidget(theme_group)
 
-        layout.addWidget(QLabel("转换进程"))
-
-        # The CPU-priority explanation is surfaced as a native tooltip on the
-        # row (the same box that appears when hovering a thumbnail): a small
-        # box pops up while the pointer rests on the control and disappears on
-        # move-away — no layout shift, and it matches the rest of the UI.
+        # ---- 转换进程 ----
+        proc_group, proc_inner = _section("转换进程")
         cpu_tip = (
             "设置 cjxl / djxl 转换进程的 CPU 优先级（默认低于正常，"
             "减少对前台操作的影响）。"
         )
-
-        cpu_row = QHBoxLayout()
-        cpu_row.setSpacing(8)
-        cpu_label = QLabel("CPU 优先级")
-        cpu_label.setToolTip(cpu_tip)
-        cpu_row.addWidget(cpu_label)
-        priorities = (
+        self.cpu_priority_combo = NoFlickerComboBox()
+        for key, label in (
             ("idle", "空闲"),
             ("below_normal", "低于正常"),
             ("normal", "正常"),
             ("above_normal", "高于正常"),
             ("high", "高"),
-        )
-        self.cpu_priority_combo = NoFlickerComboBox()
-        self.cpu_priority_combo.setToolTip(cpu_tip)
-        for key, label in priorities:
+        ):
             self.cpu_priority_combo.addItem(label, key)
-        # Size the combo to fit the widest label under its current style
-        # (native vs Fusion have different arrow / frame margins), and keep
-        # it wide enough after a theme switch by recomputing in _apply_theme.
         self._set_combo_min_width(self.cpu_priority_combo)
         self.cpu_priority_combo.setCurrentIndex(
             self.cpu_priority_combo.findData(converter.DEFAULT_PRIORITY)
@@ -3019,41 +3016,30 @@ class MainWindow(QMainWindow):
         self.cpu_priority_combo.currentIndexChanged.connect(
             self._on_cpu_priority_changed
         )
-        cpu_row.addWidget(self.cpu_priority_combo)
-        cpu_row.addStretch(1)
-        layout.addLayout(cpu_row)
+        _label_row(proc_inner, "CPU 优先级", self.cpu_priority_combo, cpu_tip)
 
-        # ---- CPU 核心使用数（转换并行度） ----
         cores_tip = (
             "转换时并行使用的 CPU 核心数，决定同时转换的文件数（多文件时）"
             "或单个大文件的线程数（单文件时）。「自动」等于本机逻辑核心数。"
         )
-        cores_row = QHBoxLayout()
-        cores_row.setSpacing(8)
-        cores_label = QLabel("CPU 核心使用数")
-        cores_label.setToolTip(cores_tip)
-        cores_row.addWidget(cores_label)
         self.cpu_cores_combo = NoFlickerComboBox()
         self.cpu_cores_combo.setToolTip(cores_tip)
         self.cpu_cores_combo.addItem("自动", "auto")
         max_cores = os.cpu_count() or 1
         for n in range(1, max_cores + 1):
             self.cpu_cores_combo.addItem(str(n), n)
-        # 按当前样式计算最小宽度（原生/Fusion 箭头与边框边距不同），并在切换
-        # 主题时由 _apply_theme 重新计算，避免原生主题下截断。
         self._set_combo_min_width(self.cpu_cores_combo)
         self.cpu_cores_combo.setCurrentIndex(self.cpu_cores_combo.findData("auto"))
         self.cpu_cores_combo.currentIndexChanged.connect(self._on_cpu_cores_changed)
-        cores_row.addWidget(self.cpu_cores_combo)
-        cores_row.addStretch(1)
-        layout.addLayout(cores_row)
+        _label_row(proc_inner, "CPU 核心使用数", self.cpu_cores_combo, cores_tip)
+        layout.addWidget(proc_group)
 
         # ---- 大图并发校准（一键傻瓜式，独立于「高级参数」） ----
         # 双队列调度器按「大图」判定把超大图独占满核、其余小图并行。判定阈值需按
         # 本机 CPU 校准。这里提供一键按钮：自动生成测试图、测 cjxl 多线程加速比、
         # 把像素阈值写入设置，全程无需用户配置任何参数。故刻意放在高级参数之外。
-        calib_group = QGroupBox("大图并发校准")
-        calib_layout = QVBoxLayout(calib_group)
+        # 用 _section 保持与其他分区一致的内边距，框体更紧凑。
+        calib_group, calib_layout = _section("大图并发校准")
         calib_layout.setSpacing(6)
 
         calib_tip = (
