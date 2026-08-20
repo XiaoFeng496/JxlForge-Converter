@@ -3066,7 +3066,11 @@ class MainWindow(QMainWindow):
         self.calib_button = QPushButton("一键校准大图阈值（按本机 CPU）")
         self.calib_button.setToolTip(calib_tip)
         self.calib_button.clicked.connect(self._on_calibrate_clicked)
-        calib_layout.addWidget(self.calib_button)
+        # 左对齐、保持自然宽度，避免撑满整行显得过大（与工具栏按钮一致）。
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(self.calib_button)
+        btn_row.addStretch(1)
+        calib_layout.addLayout(btn_row)
 
         # 当前已校准阈值展示（随自动/手动校准刷新）。
         self.calib_value_label = QLabel()
