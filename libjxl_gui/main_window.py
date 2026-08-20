@@ -313,6 +313,56 @@ IMAGE_EXTENSIONS = {
 JPEG_EXTENSIONS = {".jpg", ".jpeg", ".jpe", ".jfif"}
 
 
+# ----------------------------------------------------------------------
+# 双队列调度：按像素数把文件分类为大图 / 小图（见 docs/design-decisions.md）。
+#
+# 小图走并行池（每图均分一部分核心）；大图独占全部核心、逐个串行处理，
+# 这样单张大图不会让其余 CPU 闲置、把整批拖慢。动态线程分配（按存活文件数
+# 重分配核心）作为「搁置」方案记录在 docs/design-decisions.md。
+# ----------------------------------------------------------------------
+# 大图判定的相对阈值：文件像素数超过本批次中位数的该倍数即视为离群「大图」。
+BIG_IMAGE_RATIO = 2.5
+# 大图判定的绝对地板目标加速比：仅当「独占满核」相对「单线程」快至少这么多时，
+# 才值得为某文件暂停小图池去独占核心。校准脚本据此寻找 speedup 首次达到该值
+# 的分辨率作为像素地板（见 tools/calibrate_floor.py）。
+BIG_IMAGE_TARGET_SPEEDUP = 2.0
+# QSettings 键（conversion 组）：已校准的大图像素地板（整数像素）；缺省或 "auto"
+# 时回退到 estimate_floor_px 的启发式。
+BIG_IMAGE_FLOOR_KEY = "big_image_floor_px"
+
+
+def estimate_floor_px(cores):
+    """未校准时的保守启发式：speedup 达到 BIG_IMAGE_TARGET_SPEEDUP 的近似分辨率
+    随核心数下降。低核（≤4）机器直接禁用大图专属判定（返回极大值），因为此时
+    并行单线程本就是最优、独占满核收益不足。
+
+    ``60.0 / cores`` 兆像素是经验线性近似（20 核→3MP、8 核→8MP、64 核→1MP，
+    与实测 speedup 曲线同趋势）；校准脚本会写入更精确的值覆盖它。
+    """
+    if cores <= 4:
+        return 10 ** 18
+    mp = max(1, int(round(60.0 / cores)))
+    return mp * 1000 * 1000
+
+
+def read_big_image_floor_px(cores):
+    """从 QSettings 读取已校准的大图像素地板；缺省时回退启发式估计值。"""
+    settings = QSettings()
+    settings.beginGroup("conversion")
+    try:
+        raw = settings.value(BIG_IMAGE_FLOOR_KEY, None)
+    finally:
+        settings.endGroup()
+    if raw is not None:
+        try:
+            iv = int(raw)
+            if 0 <= iv < 10 ** 18:
+                return iv
+        except (ValueError, TypeError):
+            pass
+    return estimate_floor_px(cores)
+
+
 def _is_jpeg(path):
     """Whether *path* is a JPEG file, judged by its extension (case-insensitive)."""
     return os.path.splitext(path)[1].lower() in JPEG_EXTENSIONS
@@ -5628,6 +5678,9 @@ class ConvertWorker(QThread):
         self._per_file_threads = None
         self._total = 0
         self._stopped = False
+        # 大图像素地板：优先读 QSettings 校准值（tools/calibrate_floor.py 写入），
+        # 否则回退到按 CPU 核数的启发式估计。分类时用于「绝对值」闸门。
+        self.big_image_floor_px = read_big_image_floor_px(self._effective_cores())
 
     def _encode_kwargs(self):
         """Encode keyword arguments shared by every cjxl invocation."""
@@ -5824,19 +5877,16 @@ class ConvertWorker(QThread):
         return False, msg2, tag2
 
     def run(self):
-        """Run the conversion as a bounded pool of concurrent cjxl/djxl processes.
+        """Run the conversion as a dual-queue scheduler.
 
-        Each job runs in its own worker thread (via ThreadPoolExecutor), so several
-        files convert in parallel. The GIL is released during the subprocess
-        ``communicate()`` wait, so the cjxl/djxl processes truly overlap. The
-        number of concurrent processes (``pool_size``) and the per-file thread
-        count (``per_file_threads``) are derived from the user's "CPU 核心使用数"
-        setting; together they keep total CPU usage near the chosen budget without
-        oversubscription (each child is launched with an explicit ``--num_threads``,
-        overriding any advanced value).
+        文件按像素数分类（见 :meth:`_classify_jobs`）：
+          * 小图 -> 并行池，每图分配一部分核心（``cores // min(k, cores)`` 线程），
+            多张小图同时转、不超订；
+          * 大图 -> 独占全部核心、逐个串行，单张大图不会让其余 CPU 闲置。
+
+        每文件线程数经 ``_encode_kwargs`` 注入（覆盖高级参数里的 num_threads），
+        使总 CPU 占用贴近「CPU 核心使用数」预算。
         """
-        import concurrent.futures as cf
-
         total = len(self.jobs)
         self._total = total
         self._stat_started = time.time()
@@ -5845,66 +5895,166 @@ class ConvertWorker(QThread):
         self._stat_err = 0
         self._stat_in_bytes = 0
         self._stat_out_bytes = 0
-        cores, per_file, pool_size = self._resolve_concurrency(total)
-        self._per_file_threads = per_file
-
+        cores = self._effective_cores()
+        auto = not isinstance(self.cpu_cores, int)
         try:
             self.log_signal.emit(
-                "并发设置：核心数=%s，每文件线程=%d，并行进程=%d"
-                % (self.cpu_cores if isinstance(self.cpu_cores, int) else "自动",
-                   per_file, pool_size)
+                "并发设置：核心数=%s，双队列调度（大图独占满核 / 小图并行均分）"
+                % (self.cpu_cores if not auto else "自动")
             )
             self.log_signal.emit("")
-            self.log_signal.emit(
-                "开始转换：" + _format_datetime(self._stat_started)
-            )
+            self.log_signal.emit("开始转换：" + _format_datetime(self._stat_started))
             self.log_signal.emit("")
             if total == 0:
                 return
-            executor = cf.ThreadPoolExecutor(max_workers=pool_size)
-            futures = {}  # fut -> (index, src)
-            pending = list(enumerate(self.jobs, start=1))
 
-            def submit_next():
-                while pending and len(futures) < pool_size:
-                    index, job = pending.pop(0)
-                    src = job[0]
-                    fut = executor.submit(self._process_job, index, *job)
-                    futures[fut] = (index, src)
+            all_indexed = list(enumerate(self.jobs, start=1))
+            small, big, nt_small, pool_small = self._classify_jobs(all_indexed)
+            self.log_signal.emit(
+                "调度分类：小图 %d 张（每图 %d 线程并行）/ 大图 %d 张（独占 %d 线程）"
+                % (len(small), nt_small, len(big), cores)
+            )
+            self.log_signal.emit("")
 
-            submit_next()
-            while futures and not self._stopped:
-                done, _ = cf.wait(
-                    list(futures), timeout=0.1,
-                    return_when=cf.FIRST_COMPLETED,
-                )
-                for fut in done:
-                    rec = futures.pop(fut, None)
-                    if rec is None:
-                        continue
-                    index, src = rec
-                    if fut.cancelled():
-                        continue
-                    try:
-                        res = fut.result()
-                    except Exception as exc:
-                        res = (False, "处理出错：%s" % exc, 0, 0, True)
-                    ok, message, tag, in_size, out_size, stopped = res
-                    if stopped:
-                        # 被用户在运行中中止（子进程被杀）——不计入成功/失败。
-                        continue
-                    self._record_result(index, src, ok, message, in_size,
-                                       out_size, tag)
-                submit_next()
+            # 阶段 1：小图并行池。整批跑完后才放大图，保证大图启动时无小图在跑、
+            # 真正独占全部核心（见 docs/design-decisions.md 双队列说明）。
+            self._per_file_threads = nt_small
+            if small:
+                self._run_pool(small, pool_small or 1)
+
+            # 阶段 2：大图独占满核，逐个串行（在途小图已在阶段 1 跑完，此处完全独占）。
+            if big and not self._stopped:
+                self._per_file_threads = cores
+                for indexed_job in big:
+                    if self._stopped:
+                        break
+                    self._run_single(indexed_job)
+
             if self._stopped:
                 self.log_signal.emit("已停止。")
-                for fut in list(futures):
-                    fut.cancel()
-                executor.shutdown(wait=False, cancel_futures=True)
-            else:
-                executor.shutdown(wait=True)
         finally:
             self.finished_signal.emit()
+
+    def _run_pool(self, indexed_jobs, pool_size):
+        """把 ``indexed_jobs``（``(index, job)`` 列表）提交到 bounded 线程池运行。
+
+        与旧的单池循环一致：``pool_size`` 个 cjxl 进程并发，每个用
+        ``self._per_file_threads`` 线程；完成后即时记录结果，保证每个文件的
+        两行日志相邻不交错。
+        """
+        import concurrent.futures as cf
+
+        executor = cf.ThreadPoolExecutor(max_workers=max(1, pool_size))
+        futures = {}
+        pending = list(indexed_jobs)
+
+        def submit_next():
+            while pending and len(futures) < max(1, pool_size):
+                idx, job = pending.pop(0)
+                fut = executor.submit(self._process_job, idx, *job)
+                futures[fut] = (idx, job[0])
+
+        submit_next()
+        while futures and not self._stopped:
+            done, _ = cf.wait(
+                list(futures), timeout=0.1,
+                return_when=cf.FIRST_COMPLETED,
+            )
+            for fut in done:
+                rec = futures.pop(fut, None)
+                if rec is None:
+                    continue
+                idx, src = rec
+                if fut.cancelled():
+                    continue
+                try:
+                    res = fut.result()
+                except Exception as exc:
+                    res = (False, "处理出错：%s" % exc, 0, 0, True)
+                ok, message, tag, in_size, out_size, stopped = res
+                if stopped:
+                    continue
+                self._record_result(idx, src, ok, message, in_size,
+                                   out_size, tag)
+            submit_next()
+        if self._stopped:
+            for fut in list(futures):
+                fut.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+        else:
+            executor.shutdown(wait=True)
+
+    def _run_single(self, indexed_job):
+        """同步处理单个（大图）任务，使用当前 ``_per_file_threads``（调用方设为满核）。"""
+        if self._stopped:
+            return
+        idx, job = indexed_job
+        res = self._process_job(idx, *job)
+        ok, message, tag, in_size, out_size, stopped = res
+        if stopped:
+            return
+        self._record_result(idx, job[0], ok, message, in_size, out_size, tag)
+
+    def _effective_cores(self):
+        """返回有效核心数（'auto' -> 本机逻辑核心数）。"""
+        cores = self.cpu_cores
+        if not isinstance(cores, int) or cores < 1:
+            cores = os.cpu_count() or 1
+        return cores
+
+    def _classify_jobs(self, indexed_jobs):
+        """把 ``[(index, job), ...]`` 分为小图 / 大图两个队列。
+
+        一张图被判为「大图」须同时满足：
+          * 像素数 >= 已校准地板 ``big_image_floor_px``；
+          * 像素数 > ``BIG_IMAGE_RATIO`` × 本批次像素中位数。
+
+        中位数判定让分类相对本批次（均匀大批次仍走并行、单个离群图被隔离），
+        地板判定防止低核机器与微小图被误判。返回 ``(small, big, nt_small,
+        pool_small)``，其中 ``nt_small``/``pool_small`` 给出小图并行池配置
+        （每小图 ``cores // min(k, cores)`` 线程）。
+        """
+        cores = self._effective_cores()
+        floor_px = self.big_image_floor_px
+        adv_num = None
+        if self.adv_threads_enabled:
+            v = self.advanced.get("num_threads")
+            if isinstance(v, int) and v >= 1:
+                adv_num = v
+
+        pixels = []
+        for _idx, job in indexed_jobs:
+            w, h = get_image_dims(job[0])
+            pixels.append(w * h if (w and h) else 0)
+        valid = [p for p in pixels if p > 0]
+
+        def _small_pool(k):
+            if adv_num is not None:
+                nt = adv_num
+                pool = max(1, min(k, cores // adv_num)) if adv_num <= cores else 1
+            else:
+                nt = max(1, cores // min(k or 1, cores))
+                pool = min(k, cores)
+            return nt, pool
+
+        if not valid:
+            # 全部尺寸未知 → 当作小图整批均分核心（不判大图）。
+            small = list(indexed_jobs)
+            k = len(small)
+            nt_small, pool_small = _small_pool(k)
+            return small, [], nt_small, pool_small
+
+        median_px = sorted(valid)[len(valid) // 2]
+        thr = BIG_IMAGE_RATIO * median_px
+        small, big = [], []
+        for (idx, job), p in zip(indexed_jobs, pixels):
+            if p >= floor_px and p > thr:
+                big.append((idx, job))
+            else:
+                small.append((idx, job))
+        k = len(small)
+        nt_small, pool_small = _small_pool(k)
+        return small, big, nt_small, pool_small
 
     def _process_job(self, index, src, out_path, out_is_jxl):
         """Process a single job synchronously (in its own thread) and return a
