@@ -2849,6 +2849,30 @@ class MainWindow(QMainWindow):
         # 高级开关驱动的 --num_threads 行与 effort 范围。
         self._apply_adv_threads_state(self.adv_threads_toggle.isChecked())
 
+    def _lock_ui_for_convert(self):
+        """转换进行中调用：禁用输入/输出/动作/设置四页的全部可编辑控件，
+        仅保留状态页（看进度）与底部「停止」按钮可用，防止用户中途改动
+        已冻结的 jobs 快照而产生『改了没反应』的困惑。"""
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if w is not self.status_tab:
+                w.setEnabled(False)
+
+    def _unlock_ui_after_convert(self):
+        """转换结束后调用：恢复四页可交互，并依据当前『自定义命令』勾选态
+        重建输出页各控件的细分 enabled 态（与转换开始前保持一致）。"""
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if w is not self.status_tab:
+                w.setEnabled(True)
+        # 输出页编码控件可能原本就因『自定义命令』而禁用，需按当前开关重建，
+        # 不能无脑全部启用（否则自定义命令模式下编码参数会错误地变可用）。
+        if getattr(self, "custom_cmd_check", None) is not None \
+                and self.custom_cmd_check.isChecked():
+            self._set_encoding_controls_disabled()
+        else:
+            self._restore_encoding_controls_enabled()
+
     def _reset_advanced(self):
         """将所有高级参数复位为默认（不勾选、值回默认、不传递）。"""
         for s in _ADVANCED_SCHEMA:
@@ -5494,6 +5518,7 @@ class MainWindow(QMainWindow):
 
         self.convert_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self._lock_ui_for_convert()
         self._stop_requested = False
         # Jump to the 状态 tab so the user can watch progress live.
         self.tabs.setCurrentWidget(self.status_tab)
@@ -5622,6 +5647,7 @@ class MainWindow(QMainWindow):
 
         self.convert_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self._unlock_ui_after_convert()
         if worker is not None:
             worker.deleteLater()
             self._convert_worker = None
