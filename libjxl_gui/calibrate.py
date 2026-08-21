@@ -148,6 +148,10 @@ def run_calibration(progress_cb=None, log_cb=None, effort=7, runs=3, max_mp=64):
                    % (mp, t1, tfull, speedup))
         if speedup >= BIG_IMAGE_TARGET_SPEEDUP and floor_mp is None:
             floor_mp = mp
+            if log_cb:
+                log_cb("    %2dMP 已首达目标加速比 %.1f，提前结束剩余档位测量"
+                       % (mp, BIG_IMAGE_TARGET_SPEEDUP))
+            break
 
     if not rows:
         if log_cb:

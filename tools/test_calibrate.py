@@ -82,6 +82,23 @@ check("run_calibration logs completion", any("校准完成" in l for l in logs2)
 calibrate.bench = _real_bench
 
 
+# --- 3b. early-stop：命中首档后即停止，不再测量后续档位 ---------------
+_call_count = {"n": 0}
+
+
+def _counting_bench(png, nt, effort, runs):
+    _call_count["n"] += 1
+    return 2.0 if nt == 1 else 1.0  # speedup=2.0，首档即达标
+
+
+calibrate.bench = _counting_bench
+logs3 = []
+calibrate.run_calibration(log_cb=logs3.append, max_mp=8)  # levels=[1,2,4,8]
+calibrate.bench = _real_bench
+# 早停：仅测首档（T1+Tfull 共 2 次），而非 4 档 ×2 = 8 次
+check("early-stop 命中首档后停止测量", _call_count["n"] == 2)
+
+
 # --- 4. CalibrateWorker wiring -------------------------------------------
 _real_run = calibrate.run_calibration
 _real_write = calibrate.write_floor_px
