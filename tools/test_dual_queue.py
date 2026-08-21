@@ -76,10 +76,15 @@ small2, big1, nt, pool = _classify([(1024, 1024), (1024, 1024), (8000, 6000)], 2
 # 48MP outlier vs 1MP median -> 1 big, 2 small; 20-core floor ~3MP.
 check("outlier 48MP -> 1 big / 2 small", len(small2) == 2 and len(big1) == 1)
 
-# --- 2. classification: uniform big batch stays parallel ------------------
+# --- 2. classification: uniform big batch -> each image独占满核(全大图) ----
 s3, b3, _, _ = _classify([(6000, 4000)] * 3, 20)
-# 24MP uniform: median==each, none > 2.5x median -> all small.
-check("uniform 24MP x3 -> 3 small / 0 big", len(s3) == 3 and len(b3) == 0)
+# 24MP uniform: 每张 >= 3MP 地板 -> 全大图（独占满核串行优于切并行）。
+check("uniform 24MP x3 -> 0 small / 3 big", len(s3) == 0 and len(b3) == 3)
+
+# --- 2b. single huge image must be classified big (regression) -----------
+s1b, b1b, _, _ = _classify([(8000, 8000)], 20)
+# 64MP 单图：地板是 3MP，p>=地板 -> 大图（曾因 AND 闸门误判为小图）。
+check("single 64MP -> 0 small / 1 big", len(s1b) == 0 and len(b1b) == 1)
 
 # --- 3. single file is never "big" ---------------------------------------
 s1, b1, _, _ = _classify([(2000, 1000)], 20)

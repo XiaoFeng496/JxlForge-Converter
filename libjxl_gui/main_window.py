@@ -6256,12 +6256,14 @@ class ConvertWorker(QThread):
     def _classify_jobs(self, indexed_jobs):
         """把 ``[(index, job), ...]`` 分为小图 / 大图两个队列。
 
-        一张图被判为「大图」须同时满足：
-          * 像素数 >= 已校准地板 ``big_image_floor_px``；
-          * 像素数 > ``BIG_IMAGE_RATIO`` × 本批次像素中位数。
+        一张图被判为「大图」满足下列任一即可：
+          * 像素数 >= 已校准地板 ``big_image_floor_px``（硬门槛，独立生效）；
+          * 像素数 > ``BIG_IMAGE_RATIO`` × 本批次像素中位数（离群兜底：未达地板
+            但明显偏大的图也被隔离，并兼容未校准 / 低核禁用地板的情况）。
 
-        中位数判定让分类相对本批次（均匀大批次仍走并行、单个离群图被隔离），
-        地板判定防止低核机器与微小图被误判。返回 ``(small, big, nt_small,
+        两道闸门取并集而非交集：中位数判定依赖批次内存在可并行的小图，单张图或
+        整批同类大图时中位数==自身、相对闸门恒假，若取交集会把它们误判为小图。
+        返回 ``(small, big, nt_small,
         pool_small)``，其中 ``nt_small``/``pool_small`` 给出小图并行池配置
         （每小图 ``cores // min(k, cores)`` 线程）。
         """
@@ -6299,7 +6301,7 @@ class ConvertWorker(QThread):
         thr = BIG_IMAGE_RATIO * median_px
         small, big = [], []
         for (idx, job), p in zip(indexed_jobs, pixels):
-            if p >= floor_px and p > thr:
+            if p >= floor_px or p > thr:
                 big.append((idx, job))
             else:
                 small.append((idx, job))
