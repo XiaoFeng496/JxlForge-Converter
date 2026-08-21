@@ -398,6 +398,10 @@ def _move_to_recycle_bin(path):
 # ----------------------------------------------------------------------
 # Logging helpers for the 状态 (status) tab conversion report
 # ----------------------------------------------------------------------
+# 状态页日志分隔线：每次启动转换时输出在本批内容之前，用于区分不同批次。
+_LOG_SEPARATOR = "─" * 72
+
+
 def _format_datetime(timestamp):
     """Format a Unix timestamp as 'YYYY/M/D HH:MM' (no leading zeroes)."""
     lt = time.localtime(timestamp)
@@ -6149,6 +6153,7 @@ class ConvertWorker(QThread):
         cores = self._effective_cores()
         auto = not isinstance(self.cpu_cores, int)
         try:
+            self.log_signal.emit(_LOG_SEPARATOR)
             self.log_signal.emit(
                 "并发设置：核心数=%s，双队列调度（大图独占满核 / 小图并行均分）"
                 % (self.cpu_cores if not auto else "自动")
