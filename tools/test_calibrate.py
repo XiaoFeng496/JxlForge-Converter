@@ -154,32 +154,22 @@ _scheme = _pw.get_active_power_scheme()
 check("get_active_power_scheme returns GUID or None",
       _scheme is None or (isinstance(_scheme, str) and len(_scheme) == 36))
 
-# is_power_setting_change：用一条真实 MEMORY 布局的 MSG 验证，无需真实窗口。
-try:
-    import ctypes as _ct
-    _msg = _ct.wintypes.MSG()
-    _msg.message = _pw.WM_POWERBROADCAST
-    _msg.wParam = _pw.PBT_POWERSETTINGCHANGE
-    _addr = _ct.cast(_ct.pointer(_msg), _ct.c_void_p)
-    check("is_power_setting_change detects broadcast",
-          _pw.is_power_setting_change(_addr) is True)
-    _msg2 = _ct.wintypes.MSG()
-    _msg2.message = 0x0001  # WM_CREATE，非电源广播
-    _addr2 = _ct.cast(_ct.pointer(_msg2), _ct.c_void_p)
-    check("is_power_setting_change ignores other msg",
-          _pw.is_power_setting_change(_addr2) is False)
-    check("is_power_setting_change(None) is False",
-          _pw.is_power_setting_change(None) is False)
-except Exception as _e:  # ctypes/wintypes 不可用（极少见）则跳过该项
-    check("power MSG test skipped (%s)" % _e, True)
-
-# register/unregister 不应抛异常（用无效 HWND 调用，返回 None 并不 crash）。
-try:
-    _h = _pw.register_power_notification(0)
-    _pw.unregister_power_notification(_h)
-    check("register/unregister power notification no-crash", True)
-except Exception as _e:
-    check("register/unregister power notification no-crash", False)
+# 注册表优先：get_active_power_scheme 应读 HKLM 的 ActivePowerScheme，
+# 与 powercfg 输出一致（不闪窗、可轮询）。仅 Windows 上验证。
+if sys.platform == "win32":
+    try:
+        import subprocess as _sp
+        import re as _re
+        _out = _sp.run(["powercfg", "/getactivescheme"],
+                       capture_output=True, timeout=5).stdout.decode("utf-8", "ignore")
+        _m = _re.search(r"[0-9a-fA-F-]{36}", _out)
+        _cfg = _m.group(0).lower() if _m else None
+        check("registry scheme matches powercfg",
+              _scheme is not None and _scheme == _cfg)
+    except Exception as _e:
+        check("registry scheme matches powercfg (skipped: %s)" % _e, True)
+else:
+    check("non-win32: get_active_power_scheme is None", _scheme is None)
 
 
 shutil.rmtree(_TMP, ignore_errors=True)

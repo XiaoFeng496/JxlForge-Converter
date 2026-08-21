@@ -1632,7 +1632,8 @@ class MainWindow(QMainWindow):
         self._calib_worker = None    # 后台校准线程（或 None）
         self._auto_calibrate_enabled = False  # 由 __main__ 在真实启动时置 True
         self._calib_auto_checked = False      # 首次 show 已决策是否自动校准
-        self._power_notify_handle = None  # 电源通知注册句柄（真实启动时创建）
+        self._last_seen_scheme = None     # 上次见到的活动电源方案 GUID（轮询比对用）
+        self._power_poll_timer = None     # 电源方案轮询定时器（真实启动时创建）
         self._menu_warmed = False  # folder-history popup pre-warm DONE
         self._warm_fallback_scheduled = False  # idle fallback timer armed
         # Cached window "chrome" (title bar + borders + tab bar + status bar +
@@ -1786,11 +1787,11 @@ class MainWindow(QMainWindow):
         if not self._env_refreshed:
             self._env_refreshed = True
             QTimer.singleShot(0, self._refresh_environment)
-        # 首次启动（且真实运行，非 headless 测试）：建立电源监听、检查 CPU 是否
+        # 首次启动（且真实运行，非 headless 测试）：启动电源方案轮询、检查 CPU 是否
         # 更换（更换则清空旧阈值，当作首次启动重校准）、未校准则自动跑一次。
         if self._auto_calibrate_enabled and not self._calib_auto_checked:
             self._calib_auto_checked = True
-            self._setup_power_monitor()
+            self._start_power_poll()
             self._check_cpu_signature()  # 换硬件会清空旧数据，使下方 has_calibration 为假
             if calibrate.has_calibration():
                 self._refresh_calib_value_label()
@@ -3145,29 +3146,26 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # 大图并发校准（一键傻瓜式；独立于「高级参数」）
     # ------------------------------------------------------------------
-    def _setup_power_monitor(self):
-        """真实启动时用主窗口自身 HWND 注册电源方案变更通知（headless 不注册）。
+    def _start_power_poll(self):
+        """启动电源方案轮询：每 2 秒读一次注册表中的活动方案 GUID，切换时轻量提示。
 
-        监听直接挂在主窗口 nativeEvent 上：主窗口是真正可见的顶层窗口，能可靠
-        收到 WM_POWERBROADCAST；不再创建第二个隐藏窗口，避免启动闪烁。
+        选注册表轮询而非 WM_POWERBROADCAST 监听：注册表值随方案切换由系统同步更新、
+        零进程、不闪窗，且不受窗口消息路由影响，比 nativeEvent 可靠。
         """
-        if self._power_notify_handle is not None:
-            return
-        try:
-            self._power_notify_handle = power.register_power_notification(
-                self.winId())
-        except Exception:
-            self._power_notify_handle = None
+        self._last_seen_scheme = power.get_active_power_scheme()
+        if self._power_poll_timer is None:
+            self._power_poll_timer = QTimer(self)
+            self._power_poll_timer.setInterval(2000)
+            self._power_poll_timer.timeout.connect(self._on_power_poll)
+        self._power_poll_timer.start()
 
-    def nativeEvent(self, eventType, message):
-        """捕获电源方案切换广播，延迟到事件循环外处理（不在本机回调里跑子进程）。"""
-        if eventType == b"windows_generic_MSG":
-            try:
-                if power.is_power_setting_change(message):
-                    QTimer.singleShot(0, lambda: self._on_power_plan_changed(""))
-            except Exception:
-                pass
-        return super().nativeEvent(eventType, message)
+    def _on_power_poll(self):
+        """定时器回调：活动电源方案与上次不同即视为切换，触发轻量提示（不自动跑）。"""
+        scheme = power.get_active_power_scheme()
+        if not scheme or scheme == self._last_seen_scheme:
+            return
+        self._last_seen_scheme = scheme
+        self._on_power_plan_changed(scheme)
 
     def _check_cpu_signature(self):
         """检测 CPU 是否更换：更换则清空全部旧校准数据，当作首次启动重新校准。"""
@@ -3191,6 +3189,9 @@ class MainWindow(QMainWindow):
     def _on_power_plan_changed(self, new_scheme):
         """电源计划切换：轻量提示 + 自动套用该计划下已记录的阈值（若有）。不自动跑校准。"""
         scheme = new_scheme or power.get_active_power_scheme()
+        if not scheme:
+            return  # 无法判定当前方案，静默忽略
+        self._last_seen_scheme = scheme  # 与轮询去重，避免同一切换重复提示
         per = calibrate.read_per_scheme_floor_px(scheme) if scheme else None
         if per is not None:
             # 把该计划的记录值同步到通用键，使显示与兜底都与当前计划一致。
@@ -3583,13 +3584,6 @@ class MainWindow(QMainWindow):
         self._jxl_loading = False
 
     def closeEvent(self, event):
-        # 注销电源通知（若有），避免在窗口销毁后保留悬空注册。
-        if self._power_notify_handle is not None:
-            try:
-                power.unregister_power_notification(self._power_notify_handle)
-            except Exception:
-                pass
-            self._power_notify_handle = None
         # Persist the window layout so "where I left it" survives a restart.
         self._save_geometry()
         # Persist the JXL output parameters so they survive a restart too.

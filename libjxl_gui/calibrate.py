@@ -87,6 +87,7 @@ def bench(png, nt, effort, runs):
             subprocess.run(
                 [cjxl, png, out, "--num_threads", str(nt), "-e", str(effort)],
                 check=True, capture_output=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except subprocess.CalledProcessError:
             return None
