@@ -14,6 +14,11 @@ import subprocess
 import sys
 
 try:
+    import ctypes
+except ImportError:
+    ctypes = None
+
+try:
     import winreg
 except ImportError:
     winreg = None
@@ -87,3 +92,100 @@ def cpu_signature():
     parts.append(getattr(sys, "platform", ""))
     parts.append(str(os.cpu_count() or 1))
     return "|".join(p for p in parts if p)
+
+
+# ---------------------------------------------------------------------------
+# 插拔电状态（AC / DC）与电源模式（最佳能效 / 平衡 / 最佳性能）
+# 这两个信号独立影响 CPU 频率策略（从而改变大图并行的 speedup 曲线），
+# 与「电源计划」共同构成完整的「电源状态」三元组。
+# ---------------------------------------------------------------------------
+
+def get_ac_status():
+    """返回当前供电状态：``'ac'``（接通电源）/ ``'dc'``（电池）/ ``'unknown'``。
+
+    基于 Win32 ``GetSystemPowerStatus`` 的 ``ACLineStatus`` 字段（零进程、无闪窗，
+    可安全轮询）。非 Windows 返回 ``'unknown'``。
+    """
+    if sys.platform != "win32" or ctypes is None:
+        return "unknown"
+    try:
+        class _SPS(ctypes.Structure):
+            _fields_ = [
+                ("ACLineStatus", ctypes.c_byte),
+                ("BatteryFlag", ctypes.c_byte),
+                ("BatteryLifePercent", ctypes.c_byte),
+                ("Reserved1", ctypes.c_byte),
+                ("BatteryLifeTime", ctypes.c_ulong),
+                ("BatteryFullLifeTime", ctypes.c_ulong),
+            ]
+        st = _SPS()
+        if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(st)):
+            if st.ACLineStatus == 0:
+                return "dc"
+            if st.ACLineStatus == 1:
+                return "ac"
+    except Exception:
+        pass
+    return "unknown"
+
+
+# EffectivePowerMode 枚举 -> 规范名（Windows 11 设置里的「电源模式」三选项）。
+_POWER_MODE_NAMES = {
+    0: "unknown",
+    1: "battery_saver",     # 电池省电模式（Win11 独立开关，偏最节能）
+    2: "best_efficiency",   # 最佳能效
+    3: "balanced",          # 平衡
+    4: "best_performance",  # 最佳性能（部分硬件也用 5）
+    5: "best_performance",
+}
+# Win11 标准电源模式 overlay 子项 GUID -> 规范名（注册表兜底用）。
+_POWER_MODE_GUIDS = {
+    "a1841308-3541-4fab-bc81-f71556f20b4a": "best_efficiency",
+    "ded574b5-45c0-4f42-8737-46345c09c238": "best_performance",
+}
+
+
+def get_power_mode():
+    """返回当前电源模式规范名：``best_efficiency`` / ``balanced`` /
+    ``best_performance`` / ``battery_saver`` / ``unknown``。
+
+    优先用 Win32 ``PowerGetEffectivePowerMode``（Windows 10 1809+ 导出，直接给出
+    生效的电源模式）；不可用时回退到注册表 overlay 兜底（遍历活动方案下
+    ``54533251-...`` 组里各模式子项的选中索引）。非 Windows 或本机无该机制时
+    返回 ``'unknown'``（调用方据此不误触发）。
+    """
+    if sys.platform != "win32" or ctypes is None:
+        return "unknown"
+    # 1) Win32 API（最可靠，Windows 11 桌面版应可用）。
+    try:
+        fn = ctypes.windll.powrprof.PowerGetEffectivePowerMode
+        fn.restype = ctypes.c_uint
+        fn.argtypes = []
+        name = _POWER_MODE_NAMES.get(int(fn()), "unknown")
+        if name != "unknown":
+            return name
+    except Exception:
+        pass
+    # 2) 注册表 overlay 兜底：遍历活动方案下 54533251 组，找选中(index=1)的模式。
+    if winreg is not None:
+        try:
+            scheme = get_active_power_scheme()
+            if scheme:
+                ac = (get_ac_status() == "ac")
+                base = (r"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes"
+                        r"\%s\54533251-82be-4824-96c1-47b60b740d00" % scheme)
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base)
+                n = winreg.QueryInfoKey(key)[0]
+                for i in range(n):
+                    guid = winreg.EnumKey(key, i).lower()
+                    mapped = _POWER_MODE_GUIDS.get(guid)
+                    if mapped is None:
+                        continue
+                    idx_name = "ACSettingIndex" if ac else "DCSettingIndex"
+                    idx = winreg.QueryValueEx(
+                        winreg.OpenKey(key, guid), idx_name)[0]
+                    if idx == 1:
+                        return mapped
+        except Exception:
+            pass
+    return "unknown"
