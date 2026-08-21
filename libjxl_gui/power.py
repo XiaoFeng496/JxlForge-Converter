@@ -5,6 +5,13 @@ r"""Windows 电源计划与 CPU 指纹的轻量探测（供大图阈值按计划
   优先读注册表 HKLM\...\Power\User\PowerSchemes\ActivePowerScheme（零进程、无闪窗、
   可安全轮询，且值随方案切换由系统同步更新）；读不到时回退到 powercfg（带
   CREATE_NO_WINDOW，避免开 GUI 时闪黑框）。非 Windows 返回 None。
+- get_ac_status(): 返回供电状态 'ac'（插电）/'dc'（电池）/'unknown'（基于
+  Win32 GetSystemPowerStatus，零进程、无闪窗、可轮询）。
+- get_power_mode(): 返回电源模式 'best_efficiency'/'balanced'/'best_performance'/
+  'unknown'（读注册表 ActiveOverlayAc/DcPowerScheme 的 overlay GUID，Win11 电源
+  模式滑块即改写此键，与方案独立；G-Helper 等第三方工具切模式也生效）。
+- get_power_state(): 组合以上三者返回当前完整电源状态三元组 (scheme, ac, mode)，
+  供大图阈值按完整电源状态记忆与自动切换。
 - cpu_signature(): 返回可标识 CPU 型号的字符串（注册表 ProcessorNameString +
   逻辑核心数等）；用于检测硬件是否更换。
 """
@@ -170,3 +177,20 @@ def get_power_mode():
         return _OVERLAY_MODE_GUIDS.get(guid, "unknown")
     except Exception:
         return "unknown"
+
+
+def get_power_state():
+    """返回当前完整电源状态三元组 ``(scheme, ac, mode)``。
+
+    各分量分别由 get_active_power_scheme / get_ac_status / get_power_mode 获取；
+    其中 ``'unknown'`` 会被归一为 ``None``，使状态键不会因某维度读不到而过度特化。
+    供大图阈值按完整电源状态记忆与自动切换。
+    """
+    scheme = get_active_power_scheme()
+    ac = get_ac_status()
+    mode = get_power_mode()
+    return (
+        scheme,
+        None if ac == "unknown" else ac,
+        None if mode == "unknown" else mode,
+    )

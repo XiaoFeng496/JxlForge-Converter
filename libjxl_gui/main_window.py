@@ -343,20 +343,27 @@ def estimate_floor_px(cores):
     return mp * 1000 * 1000
 
 
-def read_big_image_floor_px(cores, scheme=None):
+def read_big_image_floor_px(cores, scheme=None, ac=None, mode=None):
     """从 QSettings 读取已校准的大图像素地板；缺省时回退启发式估计值。
 
-    scheme 给定时优先取该电源方案专属阈值（切换计划后自动套用已记录值）；否则按
-    当前活动电源计划（power.get_active_power_scheme）自动选择。无记录则回退
-    estimate_floor_px(cores)。
+    scheme/ac/mode 给定时优先取该电源状态专属阈值（切换计划/插拔电/电源模式后
+    自动套用已记录值）；任一为 None 时按当前实际电源状态自动补全。读取遵循
+    「精确复合键 → 计划键 → 通用键」回退链（见 calibrate.read_stored_floor_px）。
+    无记录则回退 estimate_floor_px(cores)。
     """
     cores = cores or (os.cpu_count() or 1)
-    if scheme is None:
+    if scheme is None or ac is None or mode is None:
         try:
-            scheme = power.get_active_power_scheme()
+            cur_scheme, cur_ac, cur_mode = power.get_power_state()
         except Exception:
-            scheme = None
-    stored = calibrate.read_stored_floor_px(scheme=scheme)
+            cur_scheme = cur_ac = cur_mode = None
+        if scheme is None:
+            scheme = cur_scheme
+        if ac is None:
+            ac = cur_ac
+        if mode is None:
+            mode = cur_mode
+    stored = calibrate.read_stored_floor_px(scheme=scheme, ac=ac, mode=mode)
     if stored is not None:
         return stored
     return estimate_floor_px(cores)
@@ -1636,7 +1643,7 @@ class MainWindow(QMainWindow):
         self._calib_worker = None    # 后台校准线程（或 None）
         self._auto_calibrate_enabled = False  # 由 __main__ 在真实启动时置 True
         self._calib_auto_checked = False      # 首次 show 已决策是否自动校准
-        self._last_seen_scheme = None     # 上次见到的活动电源方案 GUID（轮询比对用）
+        self._last_seen_state = None     # 上次见到的完整电源状态三元组（轮询比对用）
         self._power_poll_timer = None     # 电源方案轮询定时器（真实启动时创建）
         self._menu_warmed = False  # folder-history popup pre-warm DONE
         self._warm_fallback_scheduled = False  # idle fallback timer armed
@@ -3180,7 +3187,7 @@ class MainWindow(QMainWindow):
         选注册表轮询而非 WM_POWERBROADCAST 监听：注册表值随方案切换由系统同步更新、
         零进程、不闪窗，且不受窗口消息路由影响，比 nativeEvent 可靠。
         """
-        self._last_seen_scheme = power.get_active_power_scheme()
+        self._last_seen_state = power.get_power_state()
         if self._power_poll_timer is None:
             self._power_poll_timer = QTimer(self)
             self._power_poll_timer.setInterval(2000)
@@ -3188,12 +3195,13 @@ class MainWindow(QMainWindow):
         self._power_poll_timer.start()
 
     def _on_power_poll(self):
-        """定时器回调：活动电源方案与上次不同即视为切换，触发轻量提示（不自动跑）。"""
-        scheme = power.get_active_power_scheme()
-        if not scheme or scheme == self._last_seen_scheme:
+        """定时器回调：完整电源状态（计划/插拔电/模式）与上次不同即视为切换，触发
+        轻量提示（不自动跑）。"""
+        state = power.get_power_state()
+        if state == self._last_seen_state:
             return
-        self._last_seen_scheme = scheme
-        self._on_power_plan_changed(scheme)
+        self._last_seen_state = state
+        self._on_power_state_changed(state)
 
     def _check_cpu_signature(self):
         """检测 CPU 是否更换：更换则清空全部旧校准数据，当作首次启动重新校准。"""
@@ -3214,43 +3222,46 @@ class MainWindow(QMainWindow):
                 "检测到 CPU 型号变化，已清除旧校准数据，将按新硬件重新校准。")
             self.statusBar().showMessage("CPU 已更换，已清除旧阈值并将重新校准")
 
-    def _on_power_plan_changed(self, new_scheme):
-        """电源计划切换：轻量提示 + 自动套用该计划下已记录的阈值（若有）。不自动跑校准。"""
-        scheme = new_scheme or power.get_active_power_scheme()
-        if not scheme:
-            return  # 无法判定当前方案，静默忽略
-        self._last_seen_scheme = scheme  # 与轮询去重，避免同一切换重复提示
-        per = calibrate.read_per_scheme_floor_px(scheme) if scheme else None
+    def _on_power_state_changed(self, new_state):
+        """电源状态（计划/插拔电/模式任一变化）：轻量提示 + 自动套用该状态下已记录的
+        阈值（若有）。不自动跑校准。"""
+        scheme, ac, mode = new_state
+        if not (scheme or ac or mode):
+            return  # 无法判定当前状态，静默忽略
+        self._last_seen_state = new_state  # 与轮询去重，避免同一切换重复提示
+        per = calibrate.read_per_state_floor_px(new_state) if new_state else None
         if per is not None:
-            # 把该计划的记录值同步到通用键，使显示与兜底都与当前计划一致。
-            calibrate.write_floor_px(per, scheme=scheme)
+            # 把该状态的记录值同步到通用键，使显示与兜底都与当前状态一致。
+            calibrate.write_floor_px(per, scheme=scheme, ac=ac, mode=mode)
             mp = per / 1_000_000.0
             self.statusBar().showMessage(
-                "电源计划已切换，已自动套用该计划的校准阈值（约 %.1f MP），如需更精确可重新校准"
+                "电源状态已切换，已自动套用该状态下的校准阈值（约 %.1f MP），如需更精确可重新校准"
                 % mp)
             self.log_edit.appendPlainText(
-                "电源计划发生变化（%s）：检测到该计划下已记录的阈值，已自动套用（约 %.1f MP）。"
-                % (scheme or "未知", mp))
+                "电源状态发生变化（计划=%s，供电=%s，模式=%s）：检测到该状态下已记录的阈值，"
+                "已自动套用（约 %.1f MP）。"
+                % (scheme or "未知", ac or "未知", mode or "未知", mp))
         else:
-            self.statusBar().showMessage("电源计划发生变化，建议重新校准大图阈值")
+            self.statusBar().showMessage("电源状态发生变化，建议重新校准大图阈值")
             self.log_edit.appendPlainText(
-                "电源计划发生变化（%s）：当前计划无已记录阈值，建议点击「一键校准大图阈值」重新校准。"
-                % (scheme or "未知"))
+                "电源状态发生变化（计划=%s，供电=%s，模式=%s）：当前状态无已记录阈值，"
+                "建议点击「一键校准大图阈值」重新校准。"
+                % (scheme or "未知", ac or "未知", mode or "未知"))
         self._refresh_calib_value_label()
 
     def _refresh_calib_value_label(self):
         """刷新设置页「当前已校准阈值」说明文字。"""
         cores = os.cpu_count() or 1
         if calibrate.has_calibration():
-            floor = read_big_image_floor_px(cores)
+            state = power.get_power_state()
+            floor = read_big_image_floor_px(cores)  # 已按当前电源状态读取
             mp = floor / 1_000_000.0
-            # 电源计划相关提醒：阈值按 CPU 与电源计划记忆，切换计划后建议重校准
-            # 或自动套用该计划下已记录的值。
-            scheme = power.get_active_power_scheme()
-            if scheme and calibrate.read_per_scheme_floor_px(scheme) is not None:
-                note = "（已套用当前电源计划下记录的阈值）"
+            # 电源状态相关提醒：阈值按 CPU 与完整电源状态（计划/插拔电/模式）记忆，
+            # 切换后建议重校准或自动套用该状态记录值。
+            if calibrate.read_per_state_floor_px(state) is not None:
+                note = "（已套用当前电源状态记录的阈值）"
             else:
-                note = "（切换电源计划如接电/电池后，建议重新校准；或会自动套用该计划记录值）"
+                note = "（当前电源状态无记录，建议重新校准；或会自动套用同计划记录值）"
             self.calib_value_label.setText(
                 "当前已校准阈值：约 %.1f MP（%d 像素）。%s"
                 % (mp, floor, note)
@@ -3258,7 +3269,7 @@ class MainWindow(QMainWindow):
         else:
             self.calib_value_label.setText(
                 "当前使用默认阈值（尚未校准）。建议点击上方按钮进行一次校准；"
-                "阈值会按本机 CPU 与电源计划分别记忆。"
+                "阈值会按本机 CPU 与电源状态（计划/插拔电/模式）分别记忆。"
             )
 
     def _on_calibrate_clicked(self):
@@ -5872,15 +5883,15 @@ class CalibrateWorker(QThread):
             max_mp=self.max_mp,
         )
         if floor_px is not None:
-            # 按当前电源计划记录阈值（同时写通用键与方案专属键），并记下 CPU 指纹，
-            # 以便切换计划自动套用、或换硬件时丢弃旧数据。
-            scheme = None
+            # 按当前完整电源状态记录阈值（同时写通用键、状态专属复合键、兼容方案键），
+            # 并记下 CPU 指纹，以便切换计划/插拔电/模式自动套用、或换硬件时丢弃旧数据。
             try:
-                scheme = power.get_active_power_scheme()
+                state = power.get_power_state()
                 calibrate.write_cpu_signature(power.cpu_signature())
             except Exception:
-                pass
-            calibrate.write_floor_px(floor_px, scheme=scheme)
+                state = (None, None, None)
+            calibrate.write_floor_px(
+                floor_px, scheme=state[0], ac=state[1], mode=state[2])
         self.done_signal.emit(floor_px)
 
 

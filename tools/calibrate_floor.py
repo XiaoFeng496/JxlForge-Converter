@@ -35,7 +35,7 @@ from libjxl_gui.calibrate import (  # noqa: E402
 )
 from libjxl_gui.power import (  # noqa: E402
     cpu_signature,
-    get_active_power_scheme,
+    get_power_state,
 )
 
 
@@ -58,20 +58,21 @@ def main():
         print("校准未完成（未找到 cjxl 或测量失败）。")
         return 1
 
-    # 按当前电源计划分别记忆阈值，并记下 CPU 指纹（与应用内按钮同一真源）。
+    # 按当前完整电源状态（计划/插拔电/模式）分别记忆阈值，并记下 CPU 指纹
+    # （与应用内按钮同一真源）。
     try:
-        scheme = get_active_power_scheme()
+        scheme, ac, mode = get_power_state()
         write_cpu_signature(cpu_signature())
     except Exception:
-        scheme = None
-    write_floor_px(floor_px, scheme=scheme)
+        scheme = ac = mode = None
+    write_floor_px(floor_px, scheme=scheme, ac=ac, mode=mode)
     mp = floor_px / 1_000_000.0
     print("")
     print("已写入 QSettings（conversion 组）：big_image_floor_px = %d（约 %.1fMP）。"
           % (floor_px, mp))
     if scheme:
-        print("已按当前电源计划（%s）记录该阈值，切换计划后将自动套用或需重新校准。"
-              % scheme)
+        print("已按当前电源状态（计划=%s，供电=%s，模式=%s）记录该阈值，"
+              "切换后将自动套用或需重新校准。" % (scheme, ac or "?", mode or "?"))
     print("下次转换将直接使用该校准值。目标加速比 = %.1f。"
           % BIG_IMAGE_TARGET_SPEEDUP)
     return 0

@@ -25,7 +25,8 @@ BIG_IMAGE_FLOOR_KEY = "big_image_floor_px"
 
 # 按电源计划分别记忆阈值：每个方案存一份 big_image_floor_px__<scheme_guid>。
 CALIB_SCHEME_KEY = "calib_scheme"          # 最近一次校准时的活动方案 GUID
-CALIB_SCHEMES_KEY = "calib_schemes"        # 已校准方案 GUID 列表（逗号分隔）
+CALIB_SCHEMES_KEY = "calib_schemes"        # 已校准方案 GUID 列表（逗号分隔，旧式）
+CALIB_MODE_KEY = "calib_mode"              # 最近一次校准时的电源模式
 CALIB_CPU_KEY = "calib_cpu_signature"      # 校准时的 CPU 指纹，用于检测换硬件
 
 # 粗采样分辨率（兆像素）。如需更精细可追加中间档。
@@ -181,43 +182,74 @@ def _settings():
     return QSettings(QSettings.IniFormat, QSettings.UserScope, "libjxl", "libjxl-gui")
 
 
-def floor_key_for_scheme(scheme):
-    """某电源方案专属的阈值键名。"""
-    return "big_image_floor_px__" + scheme
+def floor_key_for_state(state):
+    """某电源状态（三元组）专属的阈值键名。
+
+    state = (scheme, ac, mode)：
+      * scheme 电源计划 GUID（power.get_active_power_scheme）
+      * ac 供电状态 'ac'/'dc'/'unknown'（power.get_ac_status）
+      * mode 电源模式 'best_efficiency'/'balanced'/'best_performance'/'unknown'
+        （power.get_power_mode，Windows 11 电源模式 overlay）
+    键形如 ``big_image_floor_px__<scheme>__<ac>__<mode>``。注意当 ac/mode 为 None
+    时元组退化为旧式 ``big_image_floor_px__<scheme>``（向后兼容老校准数据）。
+    """
+    scheme, ac, mode = state
+    key = BIG_IMAGE_FLOOR_KEY
+    if scheme:
+        key += "__" + scheme
+    if ac:
+        key += "__" + ac
+    if mode:
+        key += "__" + mode
+    return key
 
 
-def write_floor_px(floor_px, scheme=None):
+def write_floor_px(floor_px, scheme=None, ac=None, mode=None):
     """把已校准的像素地板写入 QSettings 的 conversion 组（应用重启后仍生效）。
 
-    scheme 为当前活动电源方案 GUID（来自 power.get_active_power_scheme）：
-    提供时，除写入通用键 big_image_floor_px 外，还会写一份该方案专属键，并登记到
-    已校准方案列表，使切换电源计划时可自动套用。
+    记录当前完整电源状态 (scheme, ac, mode)：除写入通用键 big_image_floor_px 外，
+    同时写一份状态专属复合键，并（兼容地）写一份旧式「仅方案」专属键。切换电源
+    计划/插拔电/电源模式时，状态专属键用于精确自动套用；缺失时回退旧式方案键或
+    通用键（详见 read_stored_floor_px 的回退链）。
     """
+    state = (scheme, ac, mode)
     settings = _settings()
     settings.beginGroup("conversion")
     settings.setValue(BIG_IMAGE_FLOOR_KEY, str(floor_px))
+    settings.setValue(floor_key_for_state(state), str(floor_px))
+    # 兼容旧读取：仅按方案维度也写一份，使未分别校准的维度能回退套用。
     if scheme:
-        settings.setValue(floor_key_for_scheme(scheme), str(floor_px))
-        raw = settings.value(CALIB_SCHEMES_KEY, "")
-        schemes = [x for x in str(raw).split(",") if x] if raw else []
-        if scheme not in schemes:
-            schemes.append(scheme)
-        settings.setValue(CALIB_SCHEMES_KEY, ",".join(schemes))
+        settings.setValue(floor_key_for_state((scheme, None, None)), str(floor_px))
         settings.setValue(CALIB_SCHEME_KEY, scheme)
+    if mode:
+        settings.setValue(CALIB_MODE_KEY, mode)
     settings.endGroup()
 
 
-def read_stored_floor_px(scheme=None):
+def read_stored_floor_px(scheme=None, ac=None, mode=None):
     """返回已存储的像素地板（int）或 None。
 
-    scheme 给定时优先返回该方案专属键；否则（或专属键缺失）回退通用键；都没有返
-    回 None。调用方据此决定是否回退到 estimate_floor_px 启发式。
+    回退链（精确优先）：
+      1. 状态专属复合键 big_image_floor_px__<scheme>__<ac>__<mode>
+      2. 旧式方案键 big_image_floor_px__<scheme>（该计划下校准过即命中）
+      3. 通用键 big_image_floor_px
+    都无则返回 None，调用方据此回退到 estimate_floor_px 启发式。
     """
     settings = _settings()
     settings.beginGroup("conversion")
     try:
+        # 1) 精确复合键
+        raw = settings.value(floor_key_for_state((scheme, ac, mode)), None)
+        if raw is not None:
+            try:
+                iv = int(raw)
+                if 0 <= iv < 10 ** 18:
+                    return iv
+            except (ValueError, TypeError):
+                pass
+        # 2) 旧式方案键
         if scheme:
-            raw = settings.value(floor_key_for_scheme(scheme), None)
+            raw = settings.value(floor_key_for_state((scheme, None, None)), None)
             if raw is not None:
                 try:
                     iv = int(raw)
@@ -225,6 +257,7 @@ def read_stored_floor_px(scheme=None):
                         return iv
                 except (ValueError, TypeError):
                     pass
+        # 3) 通用键
         raw = settings.value(BIG_IMAGE_FLOOR_KEY, None)
         if raw is not None:
             try:
@@ -238,12 +271,12 @@ def read_stored_floor_px(scheme=None):
         settings.endGroup()
 
 
-def read_per_scheme_floor_px(scheme):
-    """仅返回某方案专属键的值（int 或 None），用于判断是否已为该方案记录过。"""
+def read_per_state_floor_px(state):
+    """仅返回某状态专属复合键的值（int 或 None），用于判断是否已为该状态记录过。"""
     settings = _settings()
     settings.beginGroup("conversion")
     try:
-        raw = settings.value(floor_key_for_scheme(scheme), None)
+        raw = settings.value(floor_key_for_state(state), None)
     finally:
         settings.endGroup()
     if raw is not None:
@@ -280,18 +313,21 @@ def read_cpu_signature():
 
 
 def clear_all_calibration():
-    """清空全部校准数据（通用键、各方案专属键、方案列表、CPU 指纹），用于换硬件后
+    """清空全部校准数据（通用键、各状态/方案专属键、CPU 指纹），用于换硬件后
     丢弃旧阈值、当作首次启动重新校准。"""
     settings = _settings()
     settings.beginGroup("conversion")
     try:
         settings.remove(BIG_IMAGE_FLOOR_KEY)
-        raw = settings.value(CALIB_SCHEMES_KEY, "")
-        schemes = [x for x in str(raw).split(",") if x] if raw else []
-        for sch in schemes:
-            settings.remove(floor_key_for_scheme(sch))
+        # 枚举并删除所有 big_image_floor_px__* 前缀的状态专属键（三元组组合多，
+        # 无法预列，故遍历 conversion 组全部键名做前缀匹配删除）。
+        n = settings.childKeys() if hasattr(settings, "childKeys") else []
+        for name in n:
+            if isinstance(name, str) and name.startswith(BIG_IMAGE_FLOOR_KEY + "__"):
+                settings.remove(name)
         settings.remove(CALIB_SCHEMES_KEY)
         settings.remove(CALIB_SCHEME_KEY)
+        settings.remove(CALIB_MODE_KEY)
         settings.remove(CALIB_CPU_KEY)
     finally:
         settings.endGroup()

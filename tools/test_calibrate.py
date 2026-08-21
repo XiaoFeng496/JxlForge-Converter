@@ -114,9 +114,11 @@ def _fake_run(progress_cb=None, log_cb=None, effort=7, runs=3, max_mp=64):
     return 12_000_000
 
 
-def _fake_write(px, scheme=None):
+def _fake_write(px, scheme=None, ac=None, mode=None):
     written["px"] = px
     written["scheme"] = scheme
+    written["ac"] = ac
+    written["mode"] = mode
 
 
 calibrate.run_calibration = _fake_run
@@ -134,32 +136,45 @@ calibrate.run_calibration = _real_run
 calibrate.write_floor_px = _real_write
 
 
-# --- 5. per-scheme storage + CPU signature + clear -----------------------
+# --- 5. per-state storage (scheme+ac+mode) + CPU signature + clear -------
 calibrate.clear_all_calibration()
 check("clear_all leaves no calibration", calibrate.has_calibration() is False)
 
+# 5a) 旧式单方案写入（ac/mode 为 None）应落到 big_image_floor_px__plan-aaa，向后兼容
 calibrate.write_floor_px(5_000_000, scheme="plan-aaa")
-check("per-scheme write sets generic", calibrate.read_stored_floor_px() == 5_000_000)
-check("per-scheme write sets scheme key",
-      calibrate.read_per_scheme_floor_px("plan-aaa") == 5_000_000)
+check("scheme write sets generic", calibrate.read_stored_floor_px() == 5_000_000)
+check("scheme write sets scheme key",
+      calibrate.read_per_state_floor_px(("plan-aaa", None, None)) == 5_000_000)
 check("unknown scheme falls back to generic",
       calibrate.read_stored_floor_px(scheme="plan-bbb") == 5_000_000)
-check("unknown scheme has no per-scheme key",
-      calibrate.read_per_scheme_floor_px("plan-bbb") is None)
+check("unknown scheme has no per-state key",
+      calibrate.read_per_state_floor_px(("plan-bbb", None, None)) is None)
 
-calibrate.write_floor_px(6_000_000, scheme="plan-bbb")
-check("second scheme stored separately",
-      calibrate.read_per_scheme_floor_px("plan-aaa") == 5_000_000)
-check("second scheme overrides generic",
-      calibrate.read_stored_floor_px(scheme="plan-bbb") == 6_000_000)
+# 5b) 完整三元组（方案+插电+模式）独立成复合键，且回退到方案键
+calibrate.write_floor_px(7_000_000, scheme="plan-aaa", ac="ac", mode="best_performance")
+check("full-state composite key stored",
+      calibrate.read_per_state_floor_px(("plan-aaa", "ac", "best_performance")) == 7_000_000)
+check("full-state exact wins over scheme key",
+      calibrate.read_stored_floor_px(scheme="plan-aaa", ac="ac", mode="best_performance") == 7_000_000)
+check("different mode falls back to scheme key",
+      calibrate.read_stored_floor_px(scheme="plan-aaa", ac="ac", mode="balanced") == 7_000_000)
+check("different ac falls back to scheme key",
+      calibrate.read_stored_floor_px(scheme="plan-aaa", ac="dc", mode="best_performance") == 7_000_000)
+
+# 5c) 同一方案两个模式分别校准后各精确套用
+calibrate.write_floor_px(9_000_000, scheme="plan-aaa", ac="ac", mode="balanced")
+check("two modes stored separately (perf)",
+      calibrate.read_stored_floor_px(scheme="plan-aaa", ac="ac", mode="best_performance") == 7_000_000)
+check("two modes stored separately (balanced)",
+      calibrate.read_stored_floor_px(scheme="plan-aaa", ac="ac", mode="balanced") == 9_000_000)
 
 calibrate.write_cpu_signature("cpu-sig-1")
 check("cpu signature round-trip", calibrate.read_cpu_signature() == "cpu-sig-1")
 
 calibrate.clear_all_calibration()
 check("after clear: no calibration", calibrate.has_calibration() is False)
-check("after clear: per-scheme key gone",
-      calibrate.read_per_scheme_floor_px("plan-aaa") is None)
+check("after clear: composite key gone",
+      calibrate.read_per_state_floor_px(("plan-aaa", "ac", "best_performance")) is None)
 check("after clear: cpu signature gone",
       calibrate.read_cpu_signature() is None)
 
@@ -187,6 +202,25 @@ if sys.platform == "win32":
         check("registry scheme matches powercfg (skipped: %s)" % _e, True)
 else:
     check("non-win32: get_active_power_scheme is None", _scheme is None)
+
+# 电源状态组合 + 模式映射（用 mock 隔离注册表，验证逻辑而非真实读数）
+_pw.get_active_power_scheme = lambda: "sch-1"
+_pw.get_ac_status = lambda: "ac"
+_pw.get_power_mode = lambda: "best_performance"
+check("get_power_state composes tuple",
+      _pw.get_power_state() == ("sch-1", "ac", "best_performance"))
+# unknown 应归一为 None，避免生成带 'unknown' 的特化键
+_pw.get_ac_status = lambda: "unknown"
+_pw.get_power_mode = lambda: "unknown"
+check("get_power_state normalizes unknown to None",
+      _pw.get_power_state() == ("sch-1", None, None))
+# 模式 overlay GUID -> 规范名映射（与 G-Helper 日志实测对应）
+check("overlay mode map: best_efficiency",
+      _pw._OVERLAY_MODE_GUIDS.get("961cc777-2547-4f9d-8174-7d86181b8a7a") == "best_efficiency")
+check("overlay mode map: balanced",
+      _pw._OVERLAY_MODE_GUIDS.get("00000000-0000-0000-0000-000000000000") == "balanced")
+check("overlay mode map: best_performance",
+      _pw._OVERLAY_MODE_GUIDS.get("ded574b5-45a0-4f42-8737-46345c09c238") == "best_performance")
 
 
 shutil.rmtree(_TMP, ignore_errors=True)
