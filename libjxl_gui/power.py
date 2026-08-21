@@ -129,63 +129,44 @@ def get_ac_status():
     return "unknown"
 
 
-# EffectivePowerMode 枚举 -> 规范名（Windows 11 设置里的「电源模式」三选项）。
-_POWER_MODE_NAMES = {
-    0: "unknown",
-    1: "battery_saver",     # 电池省电模式（Win11 独立开关，偏最节能）
-    2: "best_efficiency",   # 最佳能效
-    3: "balanced",          # 平衡
-    4: "best_performance",  # 最佳性能（部分硬件也用 5）
-    5: "best_performance",
-}
-# Win11 标准电源模式 overlay 子项 GUID -> 规范名（注册表兜底用）。
-_POWER_MODE_GUIDS = {
-    "a1841308-3541-4fab-bc81-f71556f20b4a": "best_efficiency",
-    "ded574b5-45c0-4f42-8737-46345c09c238": "best_performance",
+# Win11 电源模式（overlay scheme）注册表位置：
+#   HKLM\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes
+#     ActiveOverlayAcPowerScheme  (插电时当前模式 GUID)
+#     ActiveOverlayDcPowerScheme  (电池时当前模式 GUID)
+# 与 ActivePowerScheme（电源计划）独立：切换「最佳能效/平衡/最佳性能」只改 overlay，
+# 不改计划 GUID。由系统或第三方切换工具（如 G-Helper）改写，可靠、零进程、可轮询。
+# 实测映射（G-Helper 日志 + 用户三模式验证）：
+_OVERLAY_MODE_GUIDS = {
+    "961cc777-2547-4f9d-8174-7d86181b8a7a": "best_efficiency",  # 最佳能效
+    "00000000-0000-0000-0000-000000000000": "balanced",         # 无 overlay，跟随计划/平衡
+    "ded574b5-45a0-4f42-8737-46345c09c238": "best_performance",  # 最佳性能
 }
 
 
 def get_power_mode():
     """返回当前电源模式规范名：``best_efficiency`` / ``balanced`` /
-    ``best_performance`` / ``battery_saver`` / ``unknown``。
+    ``best_performance`` / ``unknown``。
 
-    优先用 Win32 ``PowerGetEffectivePowerMode``（Windows 10 1809+ 导出，直接给出
-    生效的电源模式）；不可用时回退到注册表 overlay 兜底（遍历活动方案下
-    ``54533251-...`` 组里各模式子项的选中索引）。非 Windows 或本机无该机制时
-    返回 ``'unknown'``（调用方据此不误触发）。
+    读取注册表 ``ActiveOverlayAcPowerScheme``（插电时）/
+    ``ActiveOverlayDcPowerScheme``（电池时）当前 overlay GUID 并映射。该键由系统
+    或电源模式切换工具（G-Helper 等）在切换「最佳能效/平衡/最佳性能」时改写，是
+    可靠的、零进程、可轮询的信号。
+
+    注：Win32 ``PowerGetEffectivePowerMode`` 在本机 powrprof.dll 未导出，故不使用。
+    非 Windows 或读不到时返回 ``'unknown'``（调用方据此不误触发）。
     """
-    if sys.platform != "win32" or ctypes is None:
+    if sys.platform != "win32" or winreg is None:
         return "unknown"
-    # 1) Win32 API（最可靠，Windows 11 桌面版应可用）。
+    ac = (get_ac_status() == "ac")
+    value_name = "ActiveOverlayAcPowerScheme" if ac else "ActiveOverlayDcPowerScheme"
     try:
-        fn = ctypes.windll.powrprof.PowerGetEffectivePowerMode
-        fn.restype = ctypes.c_uint
-        fn.argtypes = []
-        name = _POWER_MODE_NAMES.get(int(fn()), "unknown")
-        if name != "unknown":
-            return name
-    except Exception:
-        pass
-    # 2) 注册表 overlay 兜底：遍历活动方案下 54533251 组，找选中(index=1)的模式。
-    if winreg is not None:
+        hk, path = _POWER_SCHEMES_KEY
+        key = winreg.OpenKey(hk, path)
         try:
-            scheme = get_active_power_scheme()
-            if scheme:
-                ac = (get_ac_status() == "ac")
-                base = (r"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes"
-                        r"\%s\54533251-82be-4824-96c1-47b60b740d00" % scheme)
-                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base)
-                n = winreg.QueryInfoKey(key)[0]
-                for i in range(n):
-                    guid = winreg.EnumKey(key, i).lower()
-                    mapped = _POWER_MODE_GUIDS.get(guid)
-                    if mapped is None:
-                        continue
-                    idx_name = "ACSettingIndex" if ac else "DCSettingIndex"
-                    idx = winreg.QueryValueEx(
-                        winreg.OpenKey(key, guid), idx_name)[0]
-                    if idx == 1:
-                        return mapped
-        except Exception:
-            pass
-    return "unknown"
+            guid, _typ = winreg.QueryValueEx(key, value_name)
+        finally:
+            winreg.CloseKey(key)
+        guid = str(guid).strip().lower()
+        return _OVERLAY_MODE_GUIDS.get(guid, "unknown")
+    except Exception:
+        return "unknown"

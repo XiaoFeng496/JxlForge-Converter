@@ -17,26 +17,57 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import libjxl_gui.power as power  # noqa: E402
 
+try:
+    import winreg
+except ImportError:
+    winreg = None
+
+
+def _raw_overlay_guids():
+    if winreg is None:
+        return "n/a", "n/a"
+    base = r"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes"
+    out = {}
+    for name in ("ActiveOverlayAcPowerScheme", "ActiveOverlayDcPowerScheme"):
+        try:
+            k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base)
+            try:
+                out[name] = winreg.QueryValueEx(k, name)[0]
+            finally:
+                winreg.CloseKey(k)
+        except Exception:
+            out[name] = "ERR"
+    return out.get("ActiveOverlayAcPowerScheme", "?"), out.get(
+        "ActiveOverlayDcPowerScheme", "?")
+
 
 def snapshot():
-    return (
-        power.get_active_power_scheme(),
-        power.get_ac_status(),
-        power.get_power_mode(),
-    )
+    scheme = power.get_active_power_scheme()
+    ac = power.get_ac_status()
+    mode = power.get_power_mode()
+    ac_guid, dc_guid = _raw_overlay_guids()
+    # 当前生效的 overlay：插电看 AC，电池看 DC
+    effective = ac_guid if ac == "ac" else dc_guid
+    return scheme, ac, mode, ac_guid, dc_guid, effective
 
 
 def main():
     watch = "--watch" in sys.argv
     try:
         while True:
-            scheme, ac, mode = snapshot()
-            line = "scheme=%-40s ac=%-8s mode=%-16s" % (scheme, ac, mode)
+            scheme, ac, mode, ac_guid, dc_guid, effective = snapshot()
+            print("[%s]"
+                  % (time.strftime("%H:%M:%S") if watch else ""))
+            print("  电源计划 scheme : %s" % scheme)
+            print("  供电状态 ac     : %s" % ac)
+            print("  电源模式 mode   : %s" % mode)
+            print("  overlay AC GUID : %s" % ac_guid)
+            print("  overlay DC GUID : %s" % dc_guid)
+            print("  -> 生效 overlay : %s" % effective)
             if watch:
-                print("[%s] %s" % (time.strftime("%H:%M:%S"), line))
+                print("-" * 60)
                 time.sleep(2)
             else:
-                print(line)
                 break
     except KeyboardInterrupt:
         if watch:
