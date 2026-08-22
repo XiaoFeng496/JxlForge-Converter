@@ -17,13 +17,23 @@ _display_path 让 PIL 能读 JXL/AVIF；解码失败时只显示文件名而非�
 
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QElapsedTimer
 from PySide6.QtWidgets import QApplication, QSizePolicy
 
 app = QApplication.instance() or QApplication(sys.argv)
+
+
+def pump(ms=5000):
+    """Spin the event loop so the async preview worker + drain can run."""
+    t = QElapsedTimer()
+    t.start()
+    while t.elapsed() < ms:
+        QApplication.processEvents()
+        time.sleep(0.005)
 
 from libjxl_gui import main_window as mw
 
@@ -89,6 +99,7 @@ try:
 
     # 不抛异常即视为修复生效。
     win._render_action_preview()
+    pump()  # 异步解码：等 worker + drain 回填
     check("_display_path was consulted by render",
           called["n"] >= 1)
     check("jxl preview shows the canvas (not the message)",
@@ -116,6 +127,7 @@ try:
     win._refresh_preview_sources()
     win.preview_source_combo.setCurrentIndex(0)
     win._render_action_preview()
+    pump()  # 异步：等失败结果回填到 preview_msg
 
     check("decode-failed -> canvas hidden",
           win.preview_view.isHidden() is True)

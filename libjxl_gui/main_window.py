@@ -2400,6 +2400,13 @@ class MainWindow(QMainWindow):
         self._preview_original_pixmap = None
         self._preview_processed_pixmap = None
         self.preview_view.setVisible(False)
+        # 动作页预览异步状态：解码（djxl/Pillow）+ apply_actions 全部在子线程
+        # 完成，主线程只做 QPixmap.fromImage 回填，杜绝大图切换标签/选源时 GUI
+        # 冻结（与输入页缩略图/尺寸卡顿同源）。epoch 令牌丢弃过期结果。
+        self._action_preview_epoch = 0
+        self._action_preview_queue = queue.Queue()
+        self._action_preview_drain = None
+        self._action_preview_busy = False
 
         self.zoom_in_button.clicked.connect(
             lambda: self.preview_view.zoom(1.2))
@@ -5107,6 +5114,51 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     PREVIEW_MAX_SIDE = 1400  # cap the preview source so rendering stays snappy
 
+
+    class _ActionPreviewWorker(QRunnable):
+        """在子线程解码动作页预览源（JXL 走 djxl、AVIF 走 Pillow）+ 应用动作，
+        产出 original / processed 两张 QImage 回传主线程。QPixmap 不能跨线程，
+        故 worker 只构建 QImage，主线程再做 QPixmap.fromImage 回填。"""
+
+        def __init__(self, host, epoch, path, max_side, actions):
+            super().__init__()
+            self.host = host
+            self.epoch = epoch
+            self.path = path
+            self.max_side = max_side
+            self.actions = actions  # list[dict]，JSON 安全、可跨线程传递
+
+        def run(self):
+            try:
+                from PIL import Image
+                from libjxl_gui import processor
+                loadable = _display_path(self.path)
+                if loadable is None:
+                    raise RuntimeError(
+                        "无法解码该图片（%s）" % os.path.basename(self.path))
+                img = Image.open(loadable)
+                img.load()
+                w, h = img.size
+                if max(w, h) > self.max_side:
+                    scale = self.max_side / float(max(w, h))
+                    img = img.resize(
+                        (max(1, int(round(w * scale))),
+                         max(1, int(round(h * scale)))),
+                        Image.LANCZOS,
+                    )
+                original_qi = MainWindow._pil_to_qimage(img)
+                if self.actions:
+                    processed = processor.apply_actions(
+                        img.copy(), self.actions)
+                    processed_qi = MainWindow._pil_to_qimage(processed)
+                else:
+                    processed_qi = original_qi
+                self.host._action_preview_queue.put(
+                    (self.epoch, original_qi, processed_qi, None))
+            except Exception as exc:  # noqa: BLE001 - 把错误回传主线程显示
+                self.host._action_preview_queue.put(
+                    (self.epoch, None, None, str(exc)))
+
     def _on_tab_changed(self, index):
         if self.tabs.widget(index) == self.actions_tab:
             self._render_action_preview()
@@ -5147,54 +5199,76 @@ class MainWindow(QMainWindow):
             self.preview_msg.setVisible(True)
             self._preview_original_pixmap = None
             self._preview_processed_pixmap = None
+            self._action_preview_epoch += 1  # 作废任何在途 worker
+            self._stop_action_preview_drain()
             return
-        try:
-            from PIL import Image
-            from . import processor
-            # JXL/AVIF PIL 不能原生读，先用 _display_path 走 djxl/Pillow 解到 PNG。
-            # 失败（None）则抛错以便落入下面的异常分支显示明确的失败信息。
-            loadable = _display_path(path)
-            if loadable is None:
-                raise RuntimeError(
-                    "无法解码该图片（%s）" % os.path.basename(path))
-            img = Image.open(loadable)
-            img.load()
-            w, h = img.size
-            if max(w, h) > self.PREVIEW_MAX_SIDE:
-                scale = self.PREVIEW_MAX_SIDE / float(max(w, h))
-                img = img.resize(
-                    (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
-                    Image.LANCZOS,
-                )
-            # Keep both the original and the processed result so the 显示原图
-            # button can switch between them without re-decoding from disk.
-            self._preview_original_pixmap = QPixmap.fromImage(
-                self._pil_to_qimage(img)
-            )
-            actions = self._collect_actions()
-            if actions:
-                processed = processor.apply_actions(img.copy(), actions)
-                self._preview_processed_pixmap = QPixmap.fromImage(
-                    self._pil_to_qimage(processed)
-                )
-            else:
-                self._preview_processed_pixmap = self._preview_original_pixmap
+        # 解码（djxl/Pillow）+ apply_actions 全部移到子线程；主线程只负责
+        # 投递与回填，切标签 / 选大图源都不会再冻结 GUI。epoch 令牌保证只
+        # 有最新一次请求的回传结果被采用。
+        self._action_preview_epoch += 1
+        epoch = self._action_preview_epoch
+        actions = self._collect_actions()
+        if self._thumb_pool is None:
+            self._thumb_pool = QThreadPool(self)
+        worker = self._ActionPreviewWorker(
+            self, epoch, path, self.PREVIEW_MAX_SIDE, actions)
+        self._action_preview_busy = True
+        self._ensure_action_preview_drain()
+        # 切换瞬间先给出「加载中」提示，避免旧图 / 空白闪现；真正结果由
+        # _drain_action_preview 异步回填。
+        self.preview_view.setVisible(False)
+        self.preview_msg.setText("预览加载中…")
+        self.preview_msg.setVisible(True)
+        self._thumb_pool.start(worker)
+
+    def _ensure_action_preview_drain(self):
+        if self._action_preview_drain is None:
+            self._action_preview_drain = QTimer(self)
+            self._action_preview_drain.timeout.connect(
+                self._drain_action_preview)
+            self._action_preview_drain.start(16)
+
+    def _stop_action_preview_drain(self):
+        if self._action_preview_drain is not None:
+            self._action_preview_drain.stop()
+            self._action_preview_drain = None
+
+    def _drain_action_preview(self):
+        handled = False
+        while True:
+            try:
+                epoch, original_qi, processed_qi, err = \
+                    self._action_preview_queue.get_nowait()
+            except queue.Empty:
+                break
+            handled = True
+            # 过期结果（源 / 动作已变）：直接丢弃，绝不回填到新选择。
+            if epoch != self._action_preview_epoch:
+                continue
+            self._action_preview_busy = False
+            if err is not None:
+                # 只显文件名而非完整路径，避免长路径撑大窗口（同 test 断言）。
+                path = self._current_preview_source()
+                err_text = err
+                if path:
+                    full = os.path.abspath(path) + os.sep
+                    err_text = err_text.replace(full, "")
+                    err_text = err_text.replace(path, os.path.basename(path))
+                self.preview_view.setVisible(False)
+                self.preview_msg.setText("预览失败：%s" % err_text)
+                self.preview_msg.setVisible(True)
+                self._preview_original_pixmap = None
+                self._preview_processed_pixmap = None
+                continue
+            # 子线程产出的 QImage 在此转 QPixmap（仅一次拷贝，极快）。
+            self._preview_original_pixmap = QPixmap.fromImage(original_qi)
+            self._preview_processed_pixmap = QPixmap.fromImage(processed_qi)
             self._apply_preview_pixmap()
             self.preview_view.setVisible(True)
             self.preview_msg.setVisible(False)
-        except Exception as exc:  # noqa: BLE001 - surface any preview failure
-            # 只显式文件名而不是完整路径，避免长路径把 QLabel /
-            # 整个窗口撑高。结合 _build_actions_tab 里给 preview_msg 设置的
-            # word wrap + Maximum 垂直策略 + 最大高度上限，错误信息再多也
-            # 不会破坏布局。
-            err_text = str(exc)
-            if path:
-                full = os.path.abspath(path) + os.sep
-                err_text = err_text.replace(full, "")
-                err_text = err_text.replace(path, os.path.basename(path))
-            self.preview_view.setVisible(False)
-            self.preview_msg.setText("预览失败：%s" % err_text)
-            self.preview_msg.setVisible(True)
+        # 队列空且无在途请求时停止节拍器，避免常驻空转。
+        if not handled and not self._action_preview_busy:
+            self._stop_action_preview_drain()
 
     def _apply_preview_pixmap(self):
         """Show the pixmap for the current mode (processed / original)."""
