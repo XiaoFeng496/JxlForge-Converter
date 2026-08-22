@@ -395,7 +395,7 @@ _fd_w[0].setChecked(False)
 # ---------------------------------------------------------------------------
 # 10. 输出页整页滚动（方案①：高级参数展开不再撑大窗口，靠滚动条）
 # ---------------------------------------------------------------------------
-from PySide6.QtWidgets import QScrollArea, QFrame
+from PySide6.QtWidgets import QScrollArea, QFrame, QCheckBox
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPalette
 check("输出页已包进 QScrollArea", isinstance(w.output_scroll, QScrollArea))
@@ -540,6 +540,32 @@ check("持久化勾选态：新窗口编码参数整体禁用",
       and (not w_cc2.adv_threads_toggle.isEnabled())
       and (not w_cc2.reset_adv_button.isEnabled()))
 clear_jxl_output()
+
+
+
+# ---------------------------------------------------------------------------
+# 11. 回归：复选框在窗口失焦时不应变黑（与 radio/progress_bar 同源）
+#     根因：Qt 对失焦窗口的控件用 QPalette.Inactive 组绘制。原生 Windows 样式下
+#     勾选框的选中指示器由 QPalette.Accent 驱动，Active 组是系统强调色(蓝)，
+#     而 Inactive 组解析为黑，导致失焦变黑。_sync_inactive_palette 把 Inactive
+#     组同步成 Active 组，须覆盖 QCheckBox（此前只覆盖了 QRadioButton）。
+# ---------------------------------------------------------------------------
+def _all_cb_inactive_eq_active(win):
+    app_pal = QApplication.palette()
+    ok = True
+    for cb in win.findChildren(QCheckBox):
+        if cb.palette().color(QPalette.ColorGroup.Inactive, QPalette.Accent) != \
+                app_pal.color(QPalette.ColorGroup.Active, QPalette.Accent):
+            ok = False
+            break
+    return ok
+
+w_cb = fresh_window()
+check("复选框 Inactive 组 Accent 已同步为 Active（失焦不变黑）",
+      _all_cb_inactive_eq_active(w_cb))
+check("radio 仍保持 Inactive==Active（同源保护不被破坏）",
+      w_cb.progress_bar.palette().color(QPalette.ColorGroup.Inactive, QPalette.Accent)
+      == QApplication.palette().color(QPalette.ColorGroup.Active, QPalette.Accent))
 
 
 print()

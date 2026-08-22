@@ -2084,9 +2084,9 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("就绪")
         self.setAcceptDrops(True)
 
-        # Radio buttons keep their selected (blue) colour even when the window
-        # loses focus instead of dimming to gray (see _sync_radio_inactive_palette).
-        self._sync_radio_inactive_palette()
+        # Radio buttons and checkboxes keep their selected (blue) colour even
+        # when the window loses focus (see _sync_inactive_palette).
+        self._sync_inactive_palette()
 
     def _build_input_tab(self):
         widget = QWidget()
@@ -2953,9 +2953,9 @@ class MainWindow(QMainWindow):
         # 与下拉框用 Fusion 规避闪烁的做法一致。Fusion 主题下本就是 Fusion，无副作用。
         self.progress_bar.setStyle(_fusion_style())
         # Fusion 样式下窗口失焦会把进度条填充色暗化/变黑；把 Inactive 组
-        # 同步成 Active 组规避（复用 _sync_radio_inactive_palette 的同一逻辑）。
+        # 同步成 Active 组规避（复用 _sync_inactive_palette 的同一逻辑）。
         # 这里先调一次，保证构建阶段即生效，_apply_theme/系统主题切换时也会再调。
-        self._sync_radio_inactive_palette()
+        self._sync_inactive_palette()
         layout.addWidget(self.progress_bar)
 
         progress_row = QHBoxLayout()
@@ -4979,12 +4979,22 @@ class MainWindow(QMainWindow):
         self.folder_menu.setMinimumWidth(combined_w)
         self.folder_menu.popup(pos)
 
-    def _sync_radio_inactive_palette(self):
-        """Keep every radio button's Inactive palette group equal to its Active
-        group, so a selected radio does not dim to gray when the window loses
-        focus (Qt otherwise draws inactive controls with the QPalette.Inactive
-        palette). Re-derived from the live application palette so it also tracks
-        theme switches."""
+    def _sync_inactive_palette(self):
+        """Keep every selection-indicator control's Inactive palette group
+        equal to its Active group, so a selected control does not dim / turn
+        black when the window loses focus.
+
+        Root cause: Qt repaints the controls of an unfocused window using the
+        QPalette.Inactive colour group. Under the native Windows style the
+        checked indicator of a radio/checkbox is drawn with the QPalette.Accent
+        role, whose Inactive-group value resolves to black while the Active
+        group holds the OS accent (blue). Syncing Inactive -> Active makes the
+        control keep its focused colour when unfocused. Re-derived from the live
+        application palette so it also tracks system theme switches.
+
+        Only radio buttons and checkboxes are covered here: both are driven by
+        the Accent role. Push buttons are intentionally left out so their
+        genuine inactive dimming is preserved."""
         app_pal = QApplication.palette()
         synced = QPalette(app_pal)
         for role_int in range(
@@ -4998,6 +5008,8 @@ class MainWindow(QMainWindow):
             )
         for rb in self.findChildren(QRadioButton):
             rb.setPalette(synced)
+        for cb in self.findChildren(QCheckBox):
+            cb.setPalette(synced)
         # 进度条同样规避 Fusion 样式在窗口失焦时把填充色暗化/变黑：
         # 把 Inactive 组设为与 Active 组一致，失焦时颜色保持焦点态。
         if hasattr(self, "progress_bar"):
@@ -5012,7 +5024,7 @@ class MainWindow(QMainWindow):
             self.folder_menu.setPalette(QApplication.palette())
             if self.folder_menu.isVisible():
                 self._rebuild_folder_menu()
-            self._sync_radio_inactive_palette()
+            self._sync_inactive_palette()
         super().changeEvent(event)
 
     # ---- output location / filename persistence (QSettings) ----------
@@ -5196,7 +5208,7 @@ class MainWindow(QMainWindow):
                       getattr(self, "effort_combo", None)):
             if combo is not None:
                 self._set_combo_min_width(combo)
-        self._sync_radio_inactive_palette()
+        self._sync_inactive_palette()
         self.statusBar().showMessage(
             "主题已切换为：%s" % _THEME_LABELS.get(theme, theme))
 
