@@ -2378,7 +2378,17 @@ class MainWindow(QMainWindow):
         self.preview_msg.setWordWrap(True)
         self.preview_msg.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.preview_msg.setMaximumHeight(120)
-        right_layout.addWidget(self.preview_msg)
+        # 把 preview_msg 包进一个带上下 stretch 的容器，让它垂直居中于预览区；
+        # 否则在 QVBoxLayout 里它会和底部的 hint 一起被推到顶部（"往上飘"）。
+        # 容器自身用 stretch=1 占满中间区域，并在下方 4 处显隐切换点手动同步
+        # 可见性——它与 preview_view 互斥，避免抢 stretch 空间。
+        self.preview_msg_container = QWidget()
+        msg_container_layout = QVBoxLayout(self.preview_msg_container)
+        msg_container_layout.setContentsMargins(0, 0, 0, 0)
+        msg_container_layout.addStretch(1)
+        msg_container_layout.addWidget(self.preview_msg)
+        msg_container_layout.addStretch(1)
+        right_layout.addWidget(self.preview_msg_container, stretch=1)
 
         hint = QLabel("预览为示意效果，可能与最终输出不完全一致。")
         hint.setStyleSheet("color: #888; font-size: 11px;")
@@ -5197,6 +5207,7 @@ class MainWindow(QMainWindow):
         if path is None:
             self.preview_view.setVisible(False)
             self.preview_msg.setVisible(True)
+            self.preview_msg_container.setVisible(True)
             self._preview_original_pixmap = None
             self._preview_processed_pixmap = None
             self._action_preview_epoch += 1  # 作废任何在途 worker
@@ -5219,6 +5230,7 @@ class MainWindow(QMainWindow):
         self.preview_view.setVisible(False)
         self.preview_msg.setText("预览加载中…")
         self.preview_msg.setVisible(True)
+        self.preview_msg_container.setVisible(True)
         self._thumb_pool.start(worker)
 
     def _ensure_action_preview_drain(self):
@@ -5257,6 +5269,7 @@ class MainWindow(QMainWindow):
                 self.preview_view.setVisible(False)
                 self.preview_msg.setText("预览失败：%s" % err_text)
                 self.preview_msg.setVisible(True)
+                self.preview_msg_container.setVisible(True)
                 self._preview_original_pixmap = None
                 self._preview_processed_pixmap = None
                 continue
@@ -5266,6 +5279,7 @@ class MainWindow(QMainWindow):
             self._apply_preview_pixmap()
             self.preview_view.setVisible(True)
             self.preview_msg.setVisible(False)
+            self.preview_msg_container.setVisible(False)
         # 队列空且无在途请求时停止节拍器，避免常驻空转。
         if not handled and not self._action_preview_busy:
             self._stop_action_preview_drain()

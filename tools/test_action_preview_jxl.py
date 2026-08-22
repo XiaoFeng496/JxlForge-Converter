@@ -144,6 +144,59 @@ try:
 finally:
     mw._display_path = original_display_path
 
+# --- Bug 3: 预览区无图时 2 行提示文本不要"往上飘" ----------------
+# 根因：right_layout 是简单 QVBoxLayout，preview_view 隐藏后，
+# preview_msg (Maximum 垂直策略 + MaxHeight(120)) 和 hint 都被推到顶部。
+# 修复：preview_msg 包进带上下 addStretch(1) 的容器，stretch=1 占中间，
+# 通过 4 个 setVisible 调用点同步切换容器可见性（与 preview_view 互斥）。
+check("preview_msg_container exists",
+      hasattr(win, "preview_msg_container"))
+container = win.preview_msg_container
+
+# 容器应带垂直 stretch，把 preview_msg 顶到中间而不是顶部。
+container_layout = container.layout()
+n_stretches = sum(
+    1 for i in range(container_layout.count())
+    if container_layout.itemAt(i).spacerItem() is not None
+)
+check("container has stretches above and below preview_msg",
+      n_stretches >= 2)
+
+# 当前状态：上一段失败场景里 preview_msg 是可见的，容器应同步可见。
+# 用 isHidden() 而非 isVisible()——offscreen 下窗口未 show() 时
+# isVisible() 永远返回 False，但 isHidden() 只看 widget 自身的显隐状态。
+check("container visible when preview_msg visible",
+      win.preview_msg.isHidden() is False
+      and container.isHidden() is False)
+
+# 模拟"成功加载图片"：preview_msg 隐藏 → 容器也应隐藏，避免抢
+# preview_view 的 stretch 空间。
+win.preview_msg.setVisible(False)
+win.preview_msg_container.setVisible(False)
+QApplication.processEvents()
+check("container hidden when preview_msg hidden",
+      win.preview_msg.isHidden() is True
+      and container.isHidden() is True)
+
+# 恢复原状态以便不影响后续断言 / 清理。
+win.preview_msg.setVisible(True)
+win.preview_msg_container.setVisible(True)
+
+# 关键布局不变量：hint 必须在 right_layout 中排在 preview_msg_container
+# 之后——这样"示意效果"那行永远贴底，不被预览消息挤到中间。
+# offscreen 下 widget 几何坐标未计算，改用 layout 顺序断言（更稳定）。
+right = win.tabs.widget(1)  # 动作标签是第 1 个 tab（输入=0）
+from PySide6.QtWidgets import QLabel as _QL
+hint_labels = [w for w in right.findChildren(_QL)
+               if "示意效果" in w.text()]
+check("hint label still exists", len(hint_labels) == 1)
+hint = hint_labels[0]
+parent_layout = hint.parent().layout()
+container_idx = parent_layout.indexOf(win.preview_msg_container)
+hint_idx = parent_layout.indexOf(hint)
+check("hint sits below preview_msg_container in layout (anchored to bottom)",
+      container_idx >= 0 and hint_idx > container_idx)
+
 print()
 print("PASSED=%d  FAILURES=%d" % (passed, len(failures)))
 for f in failures:
