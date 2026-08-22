@@ -97,9 +97,16 @@ if have_jxl_tools:
     check("image info labels format JXL", "JXL" in info)
     check("image info parses dimensions", "120 x 80" in info)
 
-    # 4) Preview dialog loads a non-null pixmap for .jxl.
+    # 4) Preview dialog no longer decodes synchronously in __init__ (the freeze
+    #    fix): it returns immediately with no pixmap, then loads async.
     dlg = mw.PreviewDialog(jxl_path, win)
-    check("preview pixmap is non-null for jxl", not dlg.base_pixmap.isNull())
+    check("preview dialog returns without synchronous decode (jxl)",
+          dlg.scroll is None)
+    # Drive the background loader to completion and let the GUI thread apply it.
+    if dlg._loader is not None:
+        dlg._loader.wait()
+        app.processEvents()
+    check("preview loads after async decode (jxl)", dlg.scroll is not None)
 else:
     print("(JXL checks skipped)")
 
@@ -122,9 +129,14 @@ if have_avif:
     check("image info labels format AVIF", "AVIF" in info_a)
     check("image info parses avif dimensions", "96 x 64" in info_a)
 
-    # 8) Preview dialog loads a non-null pixmap for .avif.
+    # 8) Preview dialog loads asynchronously for .avif too.
     dlg_a = mw.PreviewDialog(avif_path, win)
-    check("preview pixmap is non-null for avif", not dlg_a.base_pixmap.isNull())
+    check("preview dialog returns without synchronous decode (avif)",
+          dlg_a.scroll is None)
+    if dlg_a._loader is not None:
+        dlg_a._loader.wait()
+        app.processEvents()
+    check("preview loads after async decode (avif)", dlg_a.scroll is not None)
 else:
     print("(AVIF checks skipped)")
 

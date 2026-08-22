@@ -38,6 +38,7 @@ import shutil
 import shlex
 import tempfile
 import threading
+import queue
 
 # 移到回收站依赖 send2trash（Windows 上走 IFileOperation）；缺失时不阻断整个
 # 程序启动，_move_to_recycle_bin 会给出清晰报错，调用方据此保留原文件。
@@ -60,6 +61,8 @@ from PySide6.QtCore import (
     QSettings,
     QTimer,
     QThread,
+    QThreadPool,
+    QRunnable,
     Signal,
 )
 from PySide6.QtGui import (
@@ -147,7 +150,15 @@ from . import converter, processor, formats
 _DECODE_TO_TEMP_EXTS = {".jxl", ".avif", ".pfm", ".pam", ".pgx"}
 
 _DECODE_TEMP_CACHE = {}       # src_path -> 解码出的临时可显示文件（PNG/PPM）路径
+# 线程安全锁：异步预览（_PreviewLoader）与后续缩略图线程池都可能在子线程里
+# 读/写该缓存，必须加锁，否则会出现竞态（同一文件被并发解码两次、缓存写入错位）。
+_DECODE_TEMP_CACHE_LOCK = threading.Lock()
 _DECODE_TEMP_DIR = None
+
+# 缩略图像素缓存（path, px) -> QImage 与悬停信息缓存 path -> str 都可能在
+# 子线程（缩略图线程池 / 异步预览 worker）与 GUI 线程并发访问，各配一把锁。
+_THUMB_IMG_LOCK = threading.Lock()      # 保护主窗口的 _thumb_cache（存 QImage）
+_INFO_CACHE_LOCK = threading.Lock()     # 保护主窗口的 _info_cache
 
 # 懒加载的像素尺寸缓存，供缩略图 / 悬停信息 / 转换调度分类复用。
 # 模块级 + 锁：双队列调度器可能在子线程（ConvertWorker）内调用，需线程安全。
@@ -247,13 +258,15 @@ def _display_path(path):
     """
     if not path.lower().endswith(tuple(_DECODE_TO_TEMP_EXTS)):
         return path
-    cached = _DECODE_TEMP_CACHE.get(path)
+    with _DECODE_TEMP_CACHE_LOCK:
+        cached = _DECODE_TEMP_CACHE.get(path)
     if cached is not None and os.path.isfile(cached):
         return cached
     try:
         decoded = _decode_to_temp_file(path)
         if decoded is not None:
-            _DECODE_TEMP_CACHE[path] = decoded
+            with _DECODE_TEMP_CACHE_LOCK:
+                _DECODE_TEMP_CACHE[path] = decoded
             return decoded
     except Exception:
         pass
@@ -265,33 +278,40 @@ _jxl_display_path = _display_path
 
 
 def get_image_dims(path):
-    """返回图像的 ``(width, height)`` 像素尺寸。
+    """返回图像的 ``(width, height)`` 像素尺寸（**不阻塞** GUI 线程）。
 
-    按需懒加载并按路径缓存，同一文件不会被重复测量。对原生支持的格式是
-    O(1) 操作（``QImageReader`` 只读取文件头，不解码像素数据）。对 JXL / AVIF /
-    PFM / PAM / PGX 则复用 :func:`_display_path` 已解码的临时文件——缩略图 /
-    预览本就要解码，这一步顺带就能拿到尺寸，不额外增加解码开销。EXR 通过
-    :func:`formats.parse_exr_header` 仅读头部即可得到尺寸，同样不解码像素。
+    原生格式只读取文件头（O(1)，不解码像素数据）。JXL / AVIF / PFM / PAM / PGX
+    等需要解码才能知道尺寸；本函数**不**在调用线程里同步跑解码器——若此前
+    预览 / 缩略图已解码过（命中 ``_DECODE_TEMP_CACHE``），则直接读已解码文件
+    头（仍是 O(1)）；否则返回 ``(0, 0)``，由上层（``MainWindow._ensure_dims``）
+    异步解码后回填 ``_DIMS_CACHE`` 并刷新 UI。这样拖入大图时主线程绝不会被
+    ``djxl`` 子进程阻塞。EXR 仅解析头部即可得尺寸，同样不解码像素。
 
-    任何失败（文件缺失、格式不可解）均返回 ``(0, 0)`` 而非抛异常，调用方把
-    零值视为「未知 / 非图像」即可。
+    任何失败均返回 ``(0, 0)`` 而非抛异常，调用方把零值视为「未知 / 非图像」。
     """
     with _DIMS_CACHE_LOCK:
         cached = _DIMS_CACHE.get(path)
     if cached is not None:
         return cached
     w = h = 0
-    try:
-        display = _display_path(path)
-        if display is not None:
-            reader = QImageReader(display)
-            if reader.canRead():
-                size = reader.size()
-                if size.isValid() and not size.isNull():
-                    w, h = size.width(), size.height()
-    except Exception:
-        pass
-    # EXR 等只解析头部的格式：QImageReader 读不了，用头部元数据补尺寸。
+    # 1) 原生格式：只读文件头，不解码像素。
+    reader = QImageReader(path)
+    if reader.canRead():
+        size = reader.size()
+        if size.isValid() and not size.isNull():
+            w, h = size.width(), size.height()
+    # 2) 需解码格式：先看是否已有解码好的临时文件（预览 / 缩略图可能已解过），
+    #    有则直接读其头，仍然是 O(1) 不阻塞。
+    if not (w and h):
+        with _DECODE_TEMP_CACHE_LOCK:
+            disp = _DECODE_TEMP_CACHE.get(path)
+        if disp is not None and os.path.isfile(disp):
+            r2 = QImageReader(disp)
+            if r2.canRead():
+                s2 = r2.size()
+                if s2.isValid() and not s2.isNull():
+                    w, h = s2.width(), s2.height()
+    # 3) EXR 等只解析头部即得尺寸信息。
     if not (w and h):
         ext = os.path.splitext(path)[1].lower()
         if ext == ".exr":
@@ -1070,19 +1090,67 @@ class PreviewScroll(QGraphicsView):
             self.fit()
 
 
+class _PreviewLoader(QThread):
+    """在 GUI 线程之外解码预览图，避免双击预览大图时主线程卡顿。
+
+    之前 ``PreviewDialog.__init__`` 直接在 GUI 线程里 ``_display_path``（JXL 走
+    djxl 子进程、AVIF 走 Pillow，皆为同步阻塞）+ ``QPixmap(path)``（整图全分辨率
+    解码），大图会冻结事件循环，表现为「顿一下 / 短暂无响应」。
+
+    本 worker 把解码放到后台线程，并向 GUI 线程回传 ``QImage``（**不是**
+    ``QPixmap``——QPixmap 必须留在 GUI 线程，跨线程创建会崩溃）。解码分辨率按
+    预览可视区（窗口尺寸 × DPR）上限钳制：预览本就 fit-to-window，解 8k 原图纯属
+    浪费算力与内存，按显示尺寸解码即可。
+    """
+
+    loaded = Signal(QImage)
+    failed = Signal(str)
+
+    def __init__(self, path, max_w, max_h):
+        super().__init__()
+        self.path = path
+        self.max_w = max(1, int(max_w))
+        self.max_h = max(1, int(max_h))
+
+    def run(self):
+        try:
+            display = _display_path(self.path)
+            if display is None:
+                self.failed.emit(self.path)
+                return
+            reader = QImageReader(display)
+            size = reader.size()
+            w = size.width() if size.isValid() else 0
+            h = size.height() if size.isValid() else 0
+            if w > 0 and h > 0 and (w > self.max_w or h > self.max_h):
+                scale = min(self.max_w / w, self.max_h / h)
+                reader.setScaledSize(
+                    QSize(max(1, int(w * scale)), max(1, int(h * scale)))
+                )
+            img = reader.read()
+            if img.isNull():
+                self.failed.emit(self.path)
+                return
+            self.loaded.emit(img)
+        except Exception:
+            self.failed.emit(self.path)
+
+
 class PreviewDialog(QDialog):
     """Centered image preview with wheel zoom and drag-to-pan."""
 
     def __init__(self, path, parent=None):
         super().__init__(parent)
         self.path = path
-        # Qt cannot load JXL / AVIF / PFM / PAM / PGX natively, so for those we
-        # ask _display_path to return a decoded temporary file first; for every
-        # other format this just returns the path. EXR is handled separately
-        # below — it is only shown as header metadata, never rendered to pixels.
+        self._closed = False
+        self._loader = None      # 后台解码线程（异步预览时）
+        self._center = None      # 当前中央控件（占位 / 预览 / 错误）
+        self.scroll = None
+        # EXR 是浮点 HDR，不渲染像素，只解析并展示头部元数据（纯头部读取，很快，
+        # 保持同步即可）。其余格式改为异步加载：先放「加载中」占位，由 _PreviewLoader
+        # 在子线程解码，完成后在 GUI 线程把 QImage 转 QPixmap 并替换占位。这样双击
+        # 大图不再冻结事件循环（顿一下 / 短暂无响应）。
         is_exr = path.lower().endswith(".exr")
-        display = None if is_exr else _display_path(path)
-        self.base_pixmap = QPixmap(display) if display else QPixmap()
 
         name = os.path.basename(path)
         self.setWindowTitle("预览：%s" % name)
@@ -1115,7 +1183,6 @@ class PreviewDialog(QDialog):
 
         if is_exr:
             # EXR 是浮点 HDR 格式，不渲染像素；仅解析并展示头部元数据。
-            self.scroll = None
             try:
                 meta = formats.parse_exr_header(path)
                 msg = QLabel(formats.exr_metadata_text(meta))
@@ -1127,19 +1194,15 @@ class PreviewDialog(QDialog):
             font = msg.font()
             font.setFamily("Consolas, Menlo, monospace")
             msg.setFont(font)
-            root.addWidget(msg, stretch=1)
-        elif self.base_pixmap.isNull():
-            self.scroll = None
-            msg = QLabel(self._preview_error_message(path))
-            msg.setAlignment(Qt.AlignCenter)
-            msg.setWordWrap(True)
-            root.addWidget(msg, stretch=1)
+            self._set_center(msg)
         else:
-            self.scroll = PreviewScroll(self)
-            self.scroll.set_pixmap(self.base_pixmap)
-            root.addWidget(self.scroll, stretch=1)
+            loading = QLabel("正在加载预览…")
+            loading.setAlignment(Qt.AlignCenter)
+            loading.setWordWrap(True)
+            self._set_center(loading)
+            self._start_loader(path)
 
-        # 无渲染对象（EXR 元数据 / 解码失败）时隐藏缩放按钮。
+        # 无渲染对象（EXR 元数据 / 加载失败）时隐藏缩放按钮。
         if self.scroll is None:
             self.zoom_in_button.hide()
             self.zoom_out_button.hide()
@@ -1151,6 +1214,62 @@ class PreviewDialog(QDialog):
         self.zoom_actual_button.clicked.connect(self._zoom_actual)
         self.fit_button.clicked.connect(self._fit)
         self.close_button.clicked.connect(self.close)
+
+    # ------------------------------------------------------------------
+    # 异步预览加载
+    # ------------------------------------------------------------------
+    def _set_center(self, widget):
+        """替换中央区域（工具栏之下）的控件，旧控件延迟销毁。"""
+        if self._center is not None:
+            self.layout().removeWidget(self._center)
+            self._center.deleteLater()
+        self._center = widget
+        self.layout().addWidget(widget, stretch=1)
+
+    def _start_loader(self, path):
+        """启动后台解码线程；解码上限钳到预览可视区（窗口尺寸 × DPR）。"""
+        dpr = max(1.0, float(self.devicePixelRatio()))
+        # 下限 512 保证小窗也有合理清晰度；硬上限 4096 防止 4K 多屏下解码过大。
+        max_w = max(512, min(int(self.width() * dpr), 4096))
+        max_h = max(512, min(int(self.height() * dpr), 4096))
+        loader = _PreviewLoader(path, max_w, max_h)
+        loader.loaded.connect(self._on_preview_loaded)
+        loader.failed.connect(self._on_preview_failed)
+        loader.finished.connect(loader.deleteLater)
+        self._loader = loader
+        loader.start()
+
+    def _on_preview_loaded(self, img):
+        if self._closed:
+            return
+        pix = QPixmap.fromImage(img)
+        self.scroll = PreviewScroll(self)
+        self.scroll.set_pixmap(pix)
+        self._set_center(self.scroll)
+        self.zoom_in_button.show()
+        self.zoom_out_button.show()
+        self.zoom_actual_button.show()
+        self.fit_button.show()
+
+    def _on_preview_failed(self, path):
+        if self._closed:
+            return
+        self.scroll = None
+        msg = QLabel(self._preview_error_message(path))
+        msg.setAlignment(Qt.AlignCenter)
+        msg.setWordWrap(True)
+        self._set_center(msg)
+        self.zoom_in_button.hide()
+        self.zoom_out_button.hide()
+        self.zoom_actual_button.hide()
+        self.fit_button.hide()
+
+    def closeEvent(self, event):
+        # 关闭时若后台解码仍在跑，置标志并请求线程退出；线程结束后自清理。
+        self._closed = True
+        if self._loader is not None:
+            self._loader.quit()
+        super().closeEvent(event)
 
     @staticmethod
     def _preview_error_message(path):
@@ -1633,11 +1752,25 @@ class MainWindow(QMainWindow):
         self.input_files = []   # list of absolute file paths
         self._convert_worker = None  # background conversion thread (or None)
         self._stop_requested = False  # True while a user-initiated stop is pending
-        self._thumb_cache = {}  # (path, size) -> QPixmap  (avoid regenerating)
+        self._thumb_cache = {}  # (path, px) -> QImage  (线程安全；主线程 fromImage 成 QPixmap)
         self._info_cache = {}   # path -> tooltip text  (avoid re-reading files)
         self._placeholder_cache = {}  # size -> placeholder QPixmap
-        self._thumb_timer = None  # batch timer for async thumbnail generation
-        self._thumb_queue = []   # pending (item, path, box_square) batches
+        # 缩略图异步解码（Phase 2）：解码在子线程线程池内完成，GUI 线程只做回填。
+        self._thumb_pool = None          # QThreadPool（懒加载）
+        self._thumb_timer = None         # 投递节拍器：每 tick 向线程池投一批 worker
+        self._thumb_queue = []           # 待投递任务：(path, box_square, px)
+        self._thumb_items = {}           # 当前列表有效映射：path -> QListWidgetItem
+        self._thumb_epoch = 0            # 每次重建列表自增，作废在途 worker 的过期结果
+        self._thumb_paused = False       # 拖拽/框选进行中：暂停投递新 worker
+        self._thumb_inflight = 0         # 已投递、尚未回填的 worker 数
+        self._thumb_results = queue.Queue()  # 子线程 -> 主线程 的结果队列
+        self._thumb_drain_timer = None   # 主线程抽取结果队列的节拍器
+        # 尺寸异步预取（Phase 3）：get_image_dims 不再同步解码，需解码的大图
+        # 由 _DimsWorker 在子线程取尺寸，回填 _DIMS_CACHE 后刷新可见 item 的
+        # tooltip 与分辨率列，彻底消除拖入大图时的主线程阻塞。
+        self._dims_inflight = set()
+        self._dims_queue = queue.Queue()  # 子线程 -> 主线程：解码完成的 path
+        self._dims_drain_timer = None
         self._sized = False     # resize-to-fit (6x3) once, on first show
         self._env_refreshed = False  # _refresh_environment done once, after show
         self._calib_worker = None    # 后台校准线程（或 None）
@@ -3720,11 +3853,16 @@ class MainWindow(QMainWindow):
         mode = getattr(self, "_last_view", "缩略图")
         is_icon = mode in THUMB_SIZES
         icon_size = THUMB_SIZES.get(mode, QSize(96, 96))
-        # Cancel any in-flight thumbnail batch from a previous refresh so a rapid
-        # view switch / reorder never lets stale batches repaint dead items.
+        # 作废上一轮任何在途的缩略图 worker：自增 epoch，旧 worker 的结果会被
+        # _drain_thumb_results 按 epoch 丢弃，绝不回填到新列表的 item 上。
         if getattr(self, "_thumb_timer", None) is not None:
             self._thumb_timer.stop()
             self._thumb_timer = None
+        self._stop_thumb_drain()
+        self._thumb_epoch += 1
+        self._thumb_items = {}
+        self._thumb_results = queue.Queue()
+        self._thumb_inflight = 0
         self._thumb_paused = False
         self._thumb_queue = []
         # Preserve the scroll position across the rebuild so a reorder (or any
@@ -3738,25 +3876,30 @@ class MainWindow(QMainWindow):
             gs.width(), gs.height() - self.list_delegate.NAME_BAND
         ) - 2 * THUMB_PAD
         placeholder = self._placeholder_thumbnail(box_square)
+        # 缩略图按 box_square * dpr 的实际设备像素解码，delegate 1:1 绘制；
+        # 整批 item 同 box_square、同 dpr，故 px 只算一次。
+        dpr = self._thumb_dpr()
+        px = max(1, int(round(box_square * dpr)))
         self.input_list.clear()
         for path in self.input_files:
             name = os.path.basename(path)
             item = QListWidgetItem(name)
             item.setData(Qt.UserRole, path)
             if is_icon:
-                # Defer the (slow) per-image work: show a gray placeholder and a
-                # bare tooltip immediately, then fill thumbnails + info in small
-                # batches on a timer so the first switch to a thumbnail mode
-                # stays responsive instead of blocking on a synchronous decode
-                # of every image.
+                # 先显示灰占位 + 同步给个基础 tooltip（_image_info 很快，不含
+                # 解码）；重活（缩略图解码）移交给子线程线程池，结果经
+                # _thumb_items 映射回填，避免阻塞 GUI。
                 item.setData(Qt.DecorationRole, placeholder)
-                self._thumb_queue.append((item, path, box_square))
+                self._thumb_items[path] = item
+                self._thumb_queue.append((path, box_square, px))
             else:
                 tip = self._info_cache.get(path)
                 if tip is None:
                     tip = self._image_info(path)
                     self._info_cache[path] = tip
                 item.setToolTip(tip)
+                # 列表视图下异步补齐尺寸（详情视图不可见，不在此投 worker）。
+                self._ensure_dims(path)
             self.input_list.addItem(item)
         self._apply_filter(self.filter_edit.text())
         self.input_list.updateGeometries()
@@ -3769,6 +3912,7 @@ class MainWindow(QMainWindow):
         # after the layout settles so a reorder never snaps the view to top.
         self._restore_scroll(vbar, hbar, saved_v, saved_h)
         # Kick off batched thumbnail generation (no-op when not in icon mode).
+        # 投递节拍器每 tick 向线程池投一批 worker；真正解码在子线程完成。
         if self._thumb_queue:
             self._thumb_timer = QTimer(self)
             self._thumb_timer.timeout.connect(self._process_thumb_batch)
@@ -3794,27 +3938,33 @@ class MainWindow(QMainWindow):
         return pix
 
     def _process_thumb_batch(self):
-        """Decode a few thumbnails (and lazily compute their tooltips) per timer
-        tick. Spreading the work keeps the UI interactive during the first
-        switch to a thumbnail view with hundreds of images."""
+        """每个 tick 向线程池投递一批缩略图解码 worker（不再在主线程同步解码）。
+
+        真正的解码在子线程完成，结果经 ``_thumb_results`` 队列回传，由
+        ``_drain_thumb_results`` 在主线程回填。投递节拍器停转时机不变：队列清空即停。
+        """
         queue = getattr(self, "_thumb_queue", None)
         if not queue:
             if getattr(self, "_thumb_timer", None) is not None:
                 self._thumb_timer.stop()
                 self._thumb_timer = None
             return
+        if getattr(self, "_thumb_paused", False):
+            return  # 拖拽/框选中：暂不投递，等待 _resume_thumb_batch
+        if self._thumb_pool is None:
+            self._thumb_pool = QThreadPool(self)
+        epoch = self._thumb_epoch
         batch = queue[:THUMB_BATCH]
         self._thumb_queue = queue[THUMB_BATCH:]
-        for item, path, box_square in batch:
-            tip = self._info_cache.get(path)
-            if tip is None:
-                tip = self._image_info(path)
-                self._info_cache[path] = tip
-            item.setToolTip(tip)
-            item.setData(Qt.DecorationRole, self._make_thumbnail(path, box_square))
+        for path, box_square, px in batch:
+            worker = self._ThumbWorker(self, epoch, path, box_square, px)
+            self._thumb_inflight += 1
+            self._thumb_pool.start(worker)
+        self._start_thumb_drain()
         if not self._thumb_queue:
-            self._thumb_timer.stop()
-            self._thumb_timer = None
+            if getattr(self, "_thumb_timer", None) is not None:
+                self._thumb_timer.stop()
+                self._thumb_timer = None
 
     def _pause_thumb_batch(self):
         """Stop the thumbnail decode timer WITHOUT discarding the queue, so a
@@ -3889,6 +4039,11 @@ class MainWindow(QMainWindow):
             if tip is None:
                 tip = self._image_info(path)
                 self._info_cache[path] = tip
+            # 仅当详情视图真正可见时才异步补齐尺寸；不可见时尺寸由缩略图 /
+            # 列表视图的对应路径负责，避免对不可见表格重复投解码 worker。
+            if getattr(self, "input_stack", None) is not None and \
+                    self.input_stack.currentWidget() is self.input_table:
+                self._ensure_dims(path)
             for c, (key, _l, _v, _w, _a) in enumerate(TABLE_COLUMNS):
                 item = QTableWidgetItem(self._table_cell_text(meta, key))
                 item.setTextAlignment(_a)
@@ -4046,14 +4201,11 @@ class MainWindow(QMainWindow):
         except OSError:
             created = 0.0
         added = self._table_added.get(path, modified)
-        w = h = area = 0
+        w, h = get_image_dims(path)
+        area = w * h
         res_text = ratio_text = "-"
         ratio_value = 0.0
-        reader = QImageReader(path)
-        size = reader.size()
-        if size.isValid() and size.width() > 0 and size.height() > 0:
-            w, h = size.width(), size.height()
-            area = w * h
+        if w and h:
             res_text = "%d × %d" % (w, h)
             g = math.gcd(w, h)
             rw, rh = w // g, h // g
@@ -4310,7 +4462,11 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, _do)
 
     def _refresh_input_views(self):
-        self._refresh_table()
+        # 详情表格仅在可见时重建：拖入 / 集合变化无需为不可见表格做整表重建
+        # （此前还会在每条路径上同步跑 djxl 取尺寸，是拖入大图卡顿的根因）。
+        if getattr(self, "input_stack", None) is not None and \
+                self.input_stack.currentWidget() is self.input_table:
+            self._refresh_table()
         self._refresh_list()
         # 输入集合变化会影响命令预览里的 --lossless_jpeg=0（有损 + JPG 时），
         # 这里统一刷新一次，使预览与实际命令保持同步。
@@ -4371,71 +4527,268 @@ class MainWindow(QMainWindow):
         return 1.0
 
     def _make_thumbnail(self, path, size=96):
-        """Return a *square* thumbnail ``QPixmap`` (letterboxed) so every item
-        box keeps the same aspect ratio regardless of the source proportions.
+        """返回正方形缩略图 ``QPixmap``（letterbox 居中），主线程同步路径。
 
-        The pixmap is rendered at ``size * dpr`` device pixels. The delegate
-        draws it 1:1 (it reads the same ``view.devicePixelRatio()``), so it is
-        sharp on HiDPI screens and never re-rendered. Results are cached per
-        (path, size) so reordering / refreshing hundreds of files does not
-        re-decode every image from disk each time.
-
-        Decoding is done straight to the thumbnail size via ``QImageReader``
-        (with the source aspect ratio preserved through letterboxing). For large
-        source images this is dramatically faster than loading the full bitmap
-        and then scaling it down.
+        供需要立即拿到结果的调用（如测试、同步回退）使用；常规列表缩略图已改走
+        子线程异步解码（见 ``_process_thumb_batch``）。解码分辨率按 ``size * dpr``
+        上限钳制，复用 ``_thumb_cache``（存 QImage）避免重复解码。
         """
-        key = (path, size)
-        cached = self._thumb_cache.get(key)
-        if cached is not None:
-            return cached
         dpr = self._thumb_dpr()
         px = max(1, int(round(size * dpr)))
-        thumb = QPixmap(px, px)
-        thumb.fill(THUMB_PLACEHOLDER_BG)
+        img, _tip = self._decode_thumb(path, px)
+        if img is None or img.isNull():
+            pm = QPixmap(px, px)
+            pm.fill(THUMB_PLACEHOLDER_BG)
+            return pm
+        return QPixmap.fromImage(img)
 
+    @staticmethod
+    def _decode_to_qimage(path, px):
+        """子线程调用：把 path 解码成 px×px 离屏 ``QImage``（letterbox 居中）。
+
+        绝不创建/操作 QPixmap（QPixmap 只能在 GUI 线程使用）。失败时返回灰色
+        占位 QImage，调用方据此继续显示占位，不会崩溃。
+        """
+        img = QImage(px, px, QImage.Format_ARGB32)
+        img.fill(THUMB_PLACEHOLDER_BG)
         try:
             display = _display_path(path)
             if display is None:
-                # JXL decode failed (or not a loadable image at all): keep the
-                # gray placeholder rather than crashing on a null pixmap.
-                self._thumb_cache[key] = thumb
-                return thumb
+                return img
             reader = QImageReader(display)
             src_size = reader.size()
             if src_size.isValid() and not src_size.isNull():
                 sw, sh = src_size.width(), src_size.height()
+                # 顺带把原图尺寸记进 _DIMS_CACHE，详情/列表视图不必再单独解码。
+                with _DIMS_CACHE_LOCK:
+                    if _DIMS_CACHE.get(path) in (None, (0, 0)):
+                        _DIMS_CACHE[path] = (sw, sh)
                 scale = min(px / sw, px / sh)
                 fw = max(1, int(round(sw * scale)))
                 fh = max(1, int(round(sh * scale)))
                 reader.setScaledSize(QSize(fw, fh))
-                img = reader.read()
-                if not img.isNull():
-                    painter = QPainter(thumb)
-                    painter.drawImage((px - fw) // 2, (px - fh) // 2, img)
+                rimg = reader.read()
+                if not rimg.isNull():
+                    painter = QPainter(img)
+                    painter.drawImage((px - fw) // 2, (px - fh) // 2, rimg)
                     painter.end()
-                    self._thumb_cache[key] = thumb
-                    return thumb
+                    return img
         except Exception:
             pass
-
-        # Fallback: decode the full pixmap and scale it down.
+        # 兜底：整图解码后缩放（原生 QImageReader 失败时的退路）。
         display = _display_path(path)
         if display is None:
-            self._thumb_cache[key] = thumb
-            return thumb
-        src = QPixmap(display)
+            return img
+        src = QImage(display)
         if src.isNull():
-            self._thumb_cache[key] = thumb
-            return thumb
+            return img
+        with _DIMS_CACHE_LOCK:
+            if _DIMS_CACHE.get(path) in (None, (0, 0)):
+                _DIMS_CACHE[path] = (src.width(), src.height())
         scaled = src.scaled(px, px, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        painter = QPainter(thumb)
+        painter = QPainter(img)
         x = (px - scaled.width()) // 2
         y = (px - scaled.height()) // 2
-        painter.drawPixmap(x, y, scaled)
+        painter.drawImage(x, y, scaled)
         painter.end()
-        self._thumb_cache[key] = thumb
-        return thumb
+        return img
+
+    def _decode_thumb(self, path, px):
+        """线程安全的缩略图解码入口：返回 ``(QImage, tooltip)``。
+
+        在子线程调用。复用模块级锁保护的 ``_thumb_cache``（QImage）与 ``_info_cache``，
+        避免重复解码与重复读取文件头。
+        """
+        with _INFO_CACHE_LOCK:
+            tip = self._info_cache.get(path)
+        if tip is None:
+            tip = self._image_info(path)
+            with _INFO_CACHE_LOCK:
+                self._info_cache.setdefault(path, tip)
+        img_key = (path, px)
+        with _THUMB_IMG_LOCK:
+            cached = self._thumb_cache.get(img_key)
+        if cached is not None:
+            return cached, tip
+        img = self._decode_to_qimage(path, px)
+        with _THUMB_IMG_LOCK:
+            self._thumb_cache[img_key] = img
+        return img, tip
+
+    class _ThumbWorker(QRunnable):
+        """在 ``QThreadPool`` 内同步解码单张缩略图，完成后把结果放入主窗口队列。
+
+        不在 worker 内直接操作 GUI（QPixmap / QListWidgetItem 均不可跨线程），而是
+        把 ``(epoch, path, box_square, QImage, tip)`` 放进 ``host._thumb_results``，
+        由主线程的 drain 定时器取出回填——彻底避开 QRunnable 信号的生命周期陷阱。
+        """
+
+        def __init__(self, host, epoch, path, box_square, px):
+            super().__init__()
+            self.host = host
+            self.epoch = epoch
+            self.path = path
+            self.box_square = box_square
+            self.px = px
+
+        def run(self):
+            try:
+                img, tip = self.host._decode_thumb(self.path, self.px)
+            except Exception:
+                img, tip = None, ""
+            self.host._thumb_results.put(
+                (self.epoch, self.path, self.box_square, img, tip)
+            )
+
+
+    class _DimsWorker(QRunnable):
+        """在子线程异步解码取尺寸，完成后通知主线程刷新。
+
+        与 ``_ThumbWorker`` 同策略：不持有/操作任何 GUI 对象，只把解码完成的
+        ``path`` 放入主窗口队列，由主线程 ``_drain_dims`` 抽取后刷新可见 item
+        的 tooltip 与分辨率列。主线程调用 ``_ensure_dims`` 只做去重判断，
+        绝不在此路径上同步跑 ``djxl``。
+        """
+
+        def __init__(self, host, path):
+            super().__init__()
+            self.host = host
+            self.path = path
+
+        def run(self):
+            try:
+                disp = _display_path(self.path)
+                if disp is not None:
+                    reader = QImageReader(disp)
+                    if reader.canRead():
+                        size = reader.size()
+                        if size.isValid() and not size.isNull():
+                            with _DIMS_CACHE_LOCK:
+                                _DIMS_CACHE[self.path] = (
+                                    size.width(), size.height())
+            except Exception:
+                pass
+            finally:
+                # 无论解码成功与否都通知主线程（成功刷新尺寸，失败则从在途集合移除）。
+                try:
+                    self.host._dims_queue.put(self.path)
+                except Exception:
+                    pass
+
+    def _ensure_dims(self, path):
+        """尺寸未知时异步解码补齐，绝不阻塞主线程。
+
+        被 ``_refresh_table`` / ``_refresh_list`` 每行调用：主线程只做去重判断，
+        真正的解码在 ``_thumb_pool`` 子线程跑；完成后 ``_drain_dims`` 刷新可见
+        item。已解码（缓存命中）或已在途则跳过。
+        """
+        with _DIMS_CACHE_LOCK:
+            cur = _DIMS_CACHE.get(path)
+        if cur and cur != (0, 0):
+            return
+        if path in self._dims_inflight:
+            return
+        self._dims_inflight.add(path)
+        if self._thumb_pool is None:
+            self._thumb_pool = QThreadPool(self)
+        self._thumb_pool.start(self._DimsWorker(self, path))
+        self._start_dims_drain()
+
+    def _start_dims_drain(self):
+        if getattr(self, "_dims_drain_timer", None) is not None:
+            return
+        t = QTimer(self)
+        t.timeout.connect(self._drain_dims)
+        t.start(16)
+        self._dims_drain_timer = t
+
+    def _drain_dims(self):
+        q = self._dims_queue
+        while not q.empty():
+            path = q.get()
+            self._dims_inflight.discard(path)
+            self._refresh_dims_for(path)
+        if not self._dims_inflight and q.empty():
+            t = getattr(self, "_dims_drain_timer", None)
+            if t is not None:
+                t.stop()
+                self._dims_drain_timer = None
+
+    def _refresh_dims_for(self, path):
+        """尺寸补齐后刷新该 path 在所有可见视图里的 tooltip 与分辨率/比率列。"""
+        with _INFO_CACHE_LOCK:
+            self._info_cache.pop(path, None)
+        self._file_meta.pop(path, None)
+        tip = self._image_info(path)
+        with _INFO_CACHE_LOCK:
+            self._info_cache[path] = tip
+        # 详细信息表格
+        table = self.input_table
+        for r in range(table.rowCount()):
+            it0 = table.item(r, 0)
+            if it0 is None or it0.data(Qt.UserRole) != path:
+                continue
+            for c in range(table.columnCount()):
+                cell = table.item(r, c)
+                if cell is None:
+                    continue
+                cell.setToolTip(tip)
+                if TABLE_COLUMNS[c][0] in ("resolution", "ratio"):
+                    cell.setText(
+                        self._table_cell_text(
+                            self._file_metadata(path), TABLE_COLUMNS[c][0]))
+            break
+        # 列表视图
+        for i in range(self.input_list.count()):
+            it = self.input_list.item(i)
+            if it is not None and it.data(Qt.UserRole) == path:
+                it.setToolTip(tip)
+                break
+        # 缩略图视图
+        titem = self._thumb_items.get(path)
+        if titem is not None:
+            titem.setToolTip(tip)
+
+    def _drain_thumb_results(self):
+        """主线程节拍器：取出子线程解码结果并回填到对应 item。
+
+        用 epoch 令牌丢弃陈旧结果（列表已重建的旧 worker）；已从列表移除的 item
+        通过 ``_thumb_items`` 映射查找失败而跳过。回填只做 QPixmap.fromImage
+        （一次浅拷贝，极快），不触碰任何解码重活。
+        """
+        q = self._thumb_results
+        while not q.empty():
+            epoch, path, box_square, img, tip = q.get()
+            self._thumb_inflight = max(0, self._thumb_inflight - 1)
+            if epoch != self._thumb_epoch:
+                continue  # 列表已重建，结果过期，丢弃
+            item = self._thumb_items.get(path)
+            if item is None:
+                continue  # item 已不在当前列表
+            if img is not None and not img.isNull():
+                pm = QPixmap.fromImage(img)
+                item.setData(Qt.DecorationRole, pm)
+                # 缩略图解码完成：原图尺寸已可得，刷新 tooltip（含尺寸信息）。
+                self._refresh_dims_for(path)
+            elif tip:
+                item.setToolTip(tip)
+            self._thumb_items.pop(path, None)
+        if self._thumb_inflight <= 0 and q.empty():
+            self._stop_thumb_drain()
+
+    def _start_thumb_drain(self):
+        if getattr(self, "_thumb_drain_timer", None) is not None:
+            return
+        t = QTimer(self)
+        t.timeout.connect(self._drain_thumb_results)
+        t.start(16)  # ~60fps 抽取，解码完成尽快显示
+        self._thumb_drain_timer = t
+
+    def _stop_thumb_drain(self):
+        t = getattr(self, "_thumb_drain_timer", None)
+        if t is not None:
+            t.stop()
+            self._thumb_drain_timer = None
 
     def _image_info(self, path):
         name = os.path.basename(path)
