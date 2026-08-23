@@ -197,6 +197,66 @@ hint_idx = parent_layout.indexOf(hint)
 check("hint sits below preview_msg_container in layout (anchored to bottom)",
       container_idx >= 0 and hint_idx > container_idx)
 
+# --- Bug 4: 清空输入后预览区不应残留「预览加载中…」 ----------------
+# 根因：path is None 分支只显示 preview_msg 却未重置文本；若此前进入过
+# 「加载中」状态（文本被改写成"预览加载中…"），清空输入再回动作页就会
+# 一直显示「加载中」。修复：None 分支把文本重置为初始提示。
+class _NoOpPool:
+    def start(self, worker):
+        pass  # 不真正派发子线程，避免副作用影响文本断言
+
+
+saved_pool = win._thumb_pool
+win._thumb_pool = _NoOpPool()
+
+EMPTY_HINT = "请先在「输入」标签添加图片，\n再在此处预览动作效果。"
+
+# 1) 有图 → 进入「加载中」状态
+win.input_files = [os.path.join(tmpdir, "sample.jxl")]
+win._refresh_preview_sources()
+win._render_action_preview()
+check("render-with-image enters 'loading' state text",
+      win.preview_msg.text() == "预览加载中…")
+
+# 2) 清空输入 → path=None 分支应重置文本（不再是「加载中」）
+win.input_files = []
+win._refresh_preview_sources()
+win._render_action_preview()
+check("clearing input resets preview hint (no 'loading' residual)",
+      "预览加载中" not in win.preview_msg.text()
+      and EMPTY_HINT in win.preview_msg.text())
+
+win._thumb_pool = saved_pool
+
+# --- Bug 5: 切换预览图片后自动 fit 到屏幕；peek 不重置缩放 ----------
+# 根因：_apply_preview_pixmap 只 set_pixmap 不 fit，切换图片沿用上一张缩放。
+# 修复：fit=True 时（正常切图）调用 view.fit()；peek 传 fit=False 保留缩放。
+from PySide6.QtGui import QPixmap as _QPixmap
+
+fit_calls = {"n": 0}
+_orig_fit = win.preview_view.fit
+
+
+def _spy_fit():
+    fit_calls["n"] += 1
+
+
+win.preview_view.fit = _spy_fit
+win.preview_view.isVisible = lambda: True  # offscreen 下绕过真实可见性守卫
+
+win._preview_processed_pixmap = _QPixmap(100, 100)
+win._preview_mode = "processed"
+win._apply_preview_pixmap(fit=True)
+# fit 已改为 singleShot(0) 延迟到下一事件循环执行（等布局落定再 fit），
+# 故需 pump 事件循环让计时器触发后再断言。
+QApplication.processEvents()
+check("switching image triggers fit-to-screen", fit_calls["n"] == 1)
+win._apply_preview_pixmap(fit=False)  # 模拟按住显示原图（peek）
+QApplication.processEvents()
+check("peek does not reset zoom (skips fit)", fit_calls["n"] == 1)
+
+win.preview_view.fit = _orig_fit
+
 print()
 print("PASSED=%d  FAILURES=%d" % (passed, len(failures)))
 for f in failures:

@@ -1087,7 +1087,9 @@ class PreviewScroll(QGraphicsView):
     def showEvent(self, event):
         super().showEvent(event)
         if self._fit_on_show:
-            self.fit()
+            # 延迟到下一事件循环再 fit：setVisible 触发的布局重算（resize）是异步
+            # 的，立即 fit 会拿到 0/旧的 viewport 尺寸，把图片缩得过小。
+            QTimer.singleShot(0, self.fit)
 
 
 class _PreviewLoader(QThread):
@@ -5206,6 +5208,12 @@ class MainWindow(QMainWindow):
         path = self._current_preview_source()
         if path is None:
             self.preview_view.setVisible(False)
+            # 必须重置文本：否则若此前进入过「加载中」状态（文本已被改写成
+            # "预览加载中…"），此处只隐藏 preview_view、显示 preview_msg 却
+            # 保留了旧文本，清空输入后再回动作页就会一直显示「加载中」。
+            self.preview_msg.setText(
+                "请先在「输入」标签添加图片，\n再在此处预览动作效果。"
+            )
             self.preview_msg.setVisible(True)
             self.preview_msg_container.setVisible(True)
             self._preview_original_pixmap = None
@@ -5276,16 +5284,26 @@ class MainWindow(QMainWindow):
             # 子线程产出的 QImage 在此转 QPixmap（仅一次拷贝，极快）。
             self._preview_original_pixmap = QPixmap.fromImage(original_qi)
             self._preview_processed_pixmap = QPixmap.fromImage(processed_qi)
-            self._apply_preview_pixmap()
+            # 先让视图可见、隐藏提示容器（两者均占 stretch=1），再回填并 fit：
+            # 否则 fit 时 preview_msg_container 仍可见会抢走一半高度，导致图片偏小；
+            # fit 内部再经 singleShot(0) 推迟到布局落定后执行，拿到真实 viewport。
             self.preview_view.setVisible(True)
             self.preview_msg.setVisible(False)
             self.preview_msg_container.setVisible(False)
+            self._apply_preview_pixmap()
         # 队列空且无在途请求时停止节拍器，避免常驻空转。
         if not handled and not self._action_preview_busy:
             self._stop_action_preview_drain()
 
-    def _apply_preview_pixmap(self):
-        """Show the pixmap for the current mode (processed / original)."""
+    def _apply_preview_pixmap(self, fit=True):
+        """显示当前模式（处理后 / 原图）的 pixmap。
+
+        fit=True 时切换图片后自动 fit 到屏幕（消除沿用上一张缩放比例的问题）；
+        peek（按住显示原图 / 松开恢复）传 fit=False，避免重置用户的手动缩放。
+        fit 通过 singleShot(0) 推迟到下一事件循环执行——setVisible / 兄弟控件
+        显隐触发的布局重算（resize）是异步的，同步 fit 会拿到尚未落定的 viewport
+        尺寸，导致图片被缩得很小。
+        """
         pix = (
             self._preview_original_pixmap
             if self._preview_mode == "original"
@@ -5293,20 +5311,22 @@ class MainWindow(QMainWindow):
         )
         if pix is not None:
             self.preview_view.set_pixmap(pix)
+            if fit and self.preview_view.isVisible():
+                QTimer.singleShot(0, self.preview_view.fit)
 
     def _preview_show_original(self):
         """Press-and-hold peek: show the un-processed source image."""
         if self._preview_original_pixmap is None:
             return
         self._preview_mode = "original"
-        self._apply_preview_pixmap()
+        self._apply_preview_pixmap(fit=False)
 
     def _preview_show_processed(self):
         """Release: return to the processed (action-applied) preview."""
         if self._preview_processed_pixmap is None:
             return
         self._preview_mode = "processed"
-        self._apply_preview_pixmap()
+        self._apply_preview_pixmap(fit=False)
 
     def _preview_actual(self):
         self.preview_view.zoom_to_actual()
