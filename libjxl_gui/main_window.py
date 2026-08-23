@@ -153,6 +153,13 @@ _DECODE_TEMP_CACHE = {}       # src_path -> 解码出的临时可显示文件（
 # 线程安全锁：异步预览（_PreviewLoader）与后续缩略图线程池都可能在子线程里
 # 读/写该缓存，必须加锁，否则会出现竞态（同一文件被并发解码两次、缓存写入错位）。
 _DECODE_TEMP_CACHE_LOCK = threading.Lock()
+
+# 预览解码余量：预览图按「窗口尺寸 × DPR × 此系数」解码上限，而非压到窗口本身。
+# 这样 fit 到窗口时是「从大到小缩」，清晰；窗口放大 / 高分屏也有余量。
+# 之前把下限钉死 512，导致小窗口预览图被压到 ≤512 而明显变糊 —— 这是「分辨率变低」的根因。
+_PREVIEW_DECODE_SCALE = 1.5
+# 预览解码硬上限（防止 4K/8K 巨图一次性解码吃光内存），仅作 OOM 保护而非清晰度牺牲。
+_PREVIEW_DECODE_CAP = 4096
 _DECODE_TEMP_DIR = None
 
 # 缩略图像素缓存（path, px) -> QImage 与悬停信息缓存 path -> str 都可能在
@@ -1243,11 +1250,20 @@ class PreviewDialog(QDialog):
         self.layout().addWidget(widget, stretch=1)
 
     def _start_loader(self, path):
-        """启动后台解码线程；解码上限钳到预览可视区（窗口尺寸 × DPR）。"""
+        """启动后台解码线程；解码上限钳到「窗口尺寸 × DPR × 余量」。
+
+        注意：下限必须是「窗口本身尺寸」，绝不能压到比窗口小（之前钉死 512
+        导致小窗口预览图被压扁而明显变糊）。fit 永远是从大到小缩，留足余量
+        才能保证清晰，并在窗口放大 / 高分屏下仍有放大空间。
+        """
         dpr = max(1.0, float(self.devicePixelRatio()))
-        # 下限 512 保证小窗也有合理清晰度；硬上限 4096 防止 4K 多屏下解码过大。
-        max_w = max(512, min(int(self.width() * dpr), 4096))
-        max_h = max(512, min(int(self.height() * dpr), 4096))
+        win_w = max(1, int(self.width() * dpr))
+        win_h = max(1, int(self.height() * dpr))
+        cap_w = min(int(win_w * _PREVIEW_DECODE_SCALE), _PREVIEW_DECODE_CAP)
+        cap_h = min(int(win_h * _PREVIEW_DECODE_SCALE), _PREVIEW_DECODE_CAP)
+        # 下限取窗口尺寸本身：原图比窗口小则原样解码（不放大），比窗口大则按余量解码。
+        max_w = max(win_w, cap_w) if win_w < _PREVIEW_DECODE_CAP else _PREVIEW_DECODE_CAP
+        max_h = max(win_h, cap_h) if win_h < _PREVIEW_DECODE_CAP else _PREVIEW_DECODE_CAP
         loader = _PreviewLoader(path, max_w, max_h)
         loader.loaded.connect(self._on_preview_loaded)
         loader.failed.connect(self._on_preview_failed)
@@ -1262,6 +1278,11 @@ class PreviewDialog(QDialog):
         self.scroll = PreviewScroll(self)
         self.scroll.set_pixmap(pix)
         self._set_center(self.scroll)
+        # 显式延迟一拍 fit：_set_center 把 scroll 加入布局，dialog 尺寸此时才最终
+        # 落定；若立即 fit 会拿到 0 / 旧的 viewport 而缩得偏小（scroll.showEvent
+        # 里的 singleShot 也可能在 dialog 布局完成前触发）。fit() 内部对
+        # viewport<=0 有重试兜底，双保险确保用最终尺寸 fit。
+        QTimer.singleShot(0, self.scroll.fit)
         self.zoom_in_button.show()
         self.zoom_out_button.show()
         self.zoom_actual_button.show()
@@ -5138,7 +5159,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Actions-tab live preview
     # ------------------------------------------------------------------
-    PREVIEW_MAX_SIDE = 1400  # cap the preview source so rendering stays snappy
+    # 动作页预览解码上限改为动态计算（见 _render_action_preview），不再用常量。
 
 
     class _ActionPreviewWorker(QRunnable):
@@ -5243,8 +5264,14 @@ class MainWindow(QMainWindow):
         actions = self._collect_actions()
         if self._thumb_pool is None:
             self._thumb_pool = QThreadPool(self)
+        # 解码上限按「主窗口尺寸 × DPR × 余量」动态计算（而非钉死 1400）：
+        # 若预览区比 1400 大（宽屏），原图被缩到 1400 反而比区域小，fit 时
+        # 被迫放大而变糊。动态上限保证 fit 始终「从大到小缩」，清晰。
+        dpr = max(1.0, float(self.devicePixelRatio()))
+        win_side = max(1, int(self.width() * dpr * _PREVIEW_DECODE_SCALE))
+        max_side = min(win_side, _PREVIEW_DECODE_CAP)
         worker = self._ActionPreviewWorker(
-            self, epoch, path, self.PREVIEW_MAX_SIDE, actions)
+            self, epoch, path, max_side, actions)
         self._action_preview_busy = True
         self._ensure_action_preview_drain()
         # 切换瞬间先给出「加载中」提示，避免旧图 / 空白闪现；真正结果由
