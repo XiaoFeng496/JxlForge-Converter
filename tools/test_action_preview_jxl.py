@@ -257,6 +257,61 @@ check("peek does not reset zoom (skips fit)", fit_calls["n"] == 1)
 
 win.preview_view.fit = _orig_fit
 
+# --- Bug 7: 连续多次「适应窗口」结果必须一致 ------------------------
+# 根因：Qt 的 fitInView 是在「当前 transform」基础上叠加缩放系数；不重置的话
+# 第二次 fit 会在第一次的缩放上再缩一层，导致首次大、再次更小。
+# 修复：fit() 内先 resetTransform() 再 fitInView，每次都从 1:1 重算。
+import types as _types
+
+_scroll = win.preview_view
+_scroll.set_pixmap(_QPixmap(200, 100))  # 给一个非空 pixmap 让 _pixmap_item 就绪
+_orig_isvis = _scroll.isVisible
+_orig_viewport = _scroll.viewport
+_orig_reset = _scroll.resetTransform
+_orig_fitInView = _scroll.fitInView
+_fit_seq = []
+
+
+def _spy_reset():
+    _fit_seq.append("reset")
+    _orig_reset()
+
+
+def _spy_fitInView(*a, **k):
+    _fit_seq.append("fitInView")
+    _orig_fitInView(*a, **k)
+
+
+_scroll.isVisible = lambda: True  # offscreen 下绕过真实可见性守卫
+_vp = _types.SimpleNamespace(width=lambda: 200, height=lambda: 150)
+_scroll.viewport = lambda: _vp
+_scroll.resetTransform = _spy_reset
+_scroll.fitInView = _spy_fitInView
+_scroll._fit_on_show = False
+
+_scroll.fit()  # 第一次（当前 transform 为单位阵）
+check("fit resets transform before fitInView (1st)",
+      _fit_seq == ["reset", "fitInView"])
+
+_scroll.scale(0.5, 0.5)  # 模拟第一次 fit 后已留下缩放 transform
+_fit_seq.clear()
+_scroll.fit()  # 第二次（必须重置后再 fit，否则更小）
+check("fit resets transform before fitInView (2nd)",
+      _fit_seq == ["reset", "fitInView"])
+# 关键不变量：第一次 fit 与第二次 fit 的缩放系数必须一致（都从 reset 后的
+# 1:1 起点重算）。offscreen 下 dpr≠1 导致绝对 m11 不是 1，故比较两次是否相等。
+_m11_1 = _scroll.transform().m11()
+_scroll.scale(0.3, 0.3)  # 再制造一次「已缩放」状态
+_scroll.fit()
+_m11_2 = _scroll.transform().m11()
+check("repeated fit yields consistent scale across calls",
+      abs(_m11_1 - _m11_2) < 1e-6)
+
+_scroll.isVisible = _orig_isvis
+_scroll.viewport = _orig_viewport
+_scroll.resetTransform = _orig_reset
+_scroll.fitInView = _orig_fitInView
+
 print()
 print("PASSED=%d  FAILURES=%d" % (passed, len(failures)))
 for f in failures:

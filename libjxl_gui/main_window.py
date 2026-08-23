@@ -1072,8 +1072,22 @@ class PreviewScroll(QGraphicsView):
             self.zoom(1.0 / cur)
 
     def fit(self):
-        if self._pixmap_item is None:
+        if self._pixmap_item is None or not self.isVisible():
             return
+        vp = self.viewport()
+        if vp.width() <= 0 or vp.height() <= 0:
+            # 几何尚未就绪（刚 setVisible / 兄弟控件显隐导致布局未落定），
+            # 推迟到下一事件循环，拿到真实 viewport 尺寸再 fit，避免缩得过小。
+            retries = getattr(self, "_fit_retries", 0)
+            if retries < 8:
+                self._fit_retries = retries + 1
+                QTimer.singleShot(0, self.fit)
+            return
+        self._fit_retries = 0
+        # 必须先 resetTransform 再 fitInView：Qt 的 fitInView 是在「当前
+        # transform」基础上叠加缩放系数，不重置的话第二次 fit 会在第一次的
+        # 缩放上再缩一层，导致「首次 fit 大、再次 fit 更小」的不一致。
+        self.resetTransform()
         self.fitInView(self._pixmap_item, Qt.KeepAspectRatio)
         self._fit_on_show = False
 
