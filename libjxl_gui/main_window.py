@@ -1091,43 +1091,32 @@ class PreviewScroll(QGraphicsView):
                 self._fit_retries = retries + 1
                 QTimer.singleShot(0, self.fit)
             return
-        # 强制布局同步落定：viewport 的最终尺寸由祖先 layout 异步决定，
-        # 放大后点「适应窗口」时，本次调用可能早于 layout 把最终尺寸
-        # 投递给 viewport（表现为「先比适应窗口小一点、再点一次才对」）。
-        # 因此先沿祖先链 activate 所有 layout 并 pump 一拍事件循环，确保
-        # viewport 拿到最终尺寸，再 resetTransform + fitInView。
-        w = self
-        while w is not None:
-            lay = w.layout()
-            if lay is not None:
-                lay.activate()
-            w = w.parentWidget()
-        QApplication.processEvents()
-        vp = self.viewport()
-        if vp.width() <= 0 or vp.height() <= 0:
-            retries = getattr(self, "_fit_retries", 0)
-            if retries < 8:
-                self._fit_retries = retries + 1
-                QTimer.singleShot(0, self.fit)
-            return
         self._fit_retries = 0
-        # 必须先 resetTransform 再 fitInView：Qt 的 fitInView 是在「当前
-        # transform」基础上叠加缩放系数，不重置的话第二次 fit 会在第一次的
-        # 缩放上再缩一层，导致「首次 fit 大、再次 fit 更小」的不一致。
+        # 关键：临时关闭滚动条，使 viewport 尺寸不受「当前缩放态滚动条」干扰。
+        # 否则放大时滚动条占宽/高，viewport 偏小，fit 基于偏小 viewport 缩得
+        # 「比窗口小一点点」且需再点一次才对。关掉后 viewport 即最终（最大）尺寸，
+        # 单次 resetTransform + scale 精确贴合，无需 processEvents（避免闪烁）。
+        # setScrollBarPolicy 同步触发 updateGeometries 重算 viewport 几何，
+        # 紧接其后的 viewport().rect() 已是「无滚动条」尺寸，不依赖事件循环，
+        # 故不会在中途 paint 出中间态（无闪烁）。
+        h_old = self.horizontalScrollBarPolicy()
+        v_old = self.verticalScrollBarPolicy()
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.resetTransform()
-        # resetTransform 后滚动条可能消失，viewport 尺寸会随之变化（异步）；
-        # 若不 pump 一拍，紧接着的 fitInView 会拿到「滚动条仍在」时的旧 viewport，
-        # 把图缩得偏小（放大后点适应窗口「先小一点、再点一次才对」的根因）。
-        # 这里强制 viewport 尺寸落定后再 fitInView，保证一次到位。
-        QApplication.processEvents()
-        vp = self.viewport()
-        if vp.width() <= 0 or vp.height() <= 0:
-            retries = getattr(self, "_fit_retries", 0)
-            if retries < 8:
-                self._fit_retries = retries + 1
-                QTimer.singleShot(0, self.fit)
-            return
-        self.fitInView(self._pixmap_item, Qt.KeepAspectRatio)
+        rect = self.viewport().rect()
+        if rect.width() > 0 and rect.height() > 0:
+            pix = self._pixmap_item.pixmap()
+            pw = pix.width()
+            ph = pix.height()
+            if pw > 0 and ph > 0:
+                # 直接按 viewport rect 算缩放（KeepAspectRatio 取 min 维度），
+                # 用 scale() 应用——比 fitInView 少一层隐式边距，图片精确贴合窗口。
+                s = min(rect.width() / pw, rect.height() / ph)
+                self.scale(s, s)
+        # 恢复滚动条策略：fit 后图 <= 无滚动条 viewport，不会触发滚动条，无副作用。
+        self.setHorizontalScrollBarPolicy(h_old)
+        self.setVerticalScrollBarPolicy(v_old)
         self._fit_on_show = False
 
     def wheelEvent(self, event):
