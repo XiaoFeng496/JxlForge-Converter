@@ -154,12 +154,13 @@ _DECODE_TEMP_CACHE = {}       # src_path -> 解码出的临时可显示文件（
 # 读/写该缓存，必须加锁，否则会出现竞态（同一文件被并发解码两次、缓存写入错位）。
 _DECODE_TEMP_CACHE_LOCK = threading.Lock()
 
-# 预览解码余量：预览图按「窗口尺寸 × DPR × 此系数」解码上限，而非压到窗口本身。
-# 这样 fit 到窗口时是「从大到小缩」，清晰；窗口放大 / 高分屏也有余量。
-# 之前把下限钉死 512，导致小窗口预览图被压到 ≤512 而明显变糊 —— 这是「分辨率变低」的根因。
-_PREVIEW_DECODE_SCALE = 1.5
-# 预览解码硬上限（防止 4K/8K 巨图一次性解码吃光内存），仅作 OOM 保护而非清晰度牺牲。
-_PREVIEW_DECODE_CAP = 4096
+# 预览解码策略：默认按「原生分辨率」解码（不再为 fit 而缩小），fit 到窗口时
+# 永远是「从大到小缩」，清晰无糊。用户反馈 2560×1440 截图也糊，根因是旧逻辑按
+# 「窗口 × DPR × 1.5」钳制解码上限（如窗口 1190 宽则解码上限仅 1785，原图被压小后
+# fit 放大糊掉）。放开后一般截图/照片均原生解码，fit 始终清晰。
+# 仅保留一个极端巨图的 OOM 保护上限：单边超过此值的超巨图（如拼接图 / 8K+）才
+# 等比缩到此值以内，避免一次性解码吃光内存。正常图片（≤此值）一律原生解码。
+_PREVIEW_OOM_CAP = 8192
 _DECODE_TEMP_DIR = None
 
 # 缩略图像素缓存（path, px) -> QImage 与悬停信息缓存 path -> str 都可能在
@@ -1090,11 +1091,42 @@ class PreviewScroll(QGraphicsView):
                 self._fit_retries = retries + 1
                 QTimer.singleShot(0, self.fit)
             return
+        # 强制布局同步落定：viewport 的最终尺寸由祖先 layout 异步决定，
+        # 放大后点「适应窗口」时，本次调用可能早于 layout 把最终尺寸
+        # 投递给 viewport（表现为「先比适应窗口小一点、再点一次才对」）。
+        # 因此先沿祖先链 activate 所有 layout 并 pump 一拍事件循环，确保
+        # viewport 拿到最终尺寸，再 resetTransform + fitInView。
+        w = self
+        while w is not None:
+            lay = w.layout()
+            if lay is not None:
+                lay.activate()
+            w = w.parentWidget()
+        QApplication.processEvents()
+        vp = self.viewport()
+        if vp.width() <= 0 or vp.height() <= 0:
+            retries = getattr(self, "_fit_retries", 0)
+            if retries < 8:
+                self._fit_retries = retries + 1
+                QTimer.singleShot(0, self.fit)
+            return
         self._fit_retries = 0
         # 必须先 resetTransform 再 fitInView：Qt 的 fitInView 是在「当前
         # transform」基础上叠加缩放系数，不重置的话第二次 fit 会在第一次的
         # 缩放上再缩一层，导致「首次 fit 大、再次 fit 更小」的不一致。
         self.resetTransform()
+        # resetTransform 后滚动条可能消失，viewport 尺寸会随之变化（异步）；
+        # 若不 pump 一拍，紧接着的 fitInView 会拿到「滚动条仍在」时的旧 viewport，
+        # 把图缩得偏小（放大后点适应窗口「先小一点、再点一次才对」的根因）。
+        # 这里强制 viewport 尺寸落定后再 fitInView，保证一次到位。
+        QApplication.processEvents()
+        vp = self.viewport()
+        if vp.width() <= 0 or vp.height() <= 0:
+            retries = getattr(self, "_fit_retries", 0)
+            if retries < 8:
+                self._fit_retries = retries + 1
+                QTimer.singleShot(0, self.fit)
+            return
         self.fitInView(self._pixmap_item, Qt.KeepAspectRatio)
         self._fit_on_show = False
 
@@ -1250,20 +1282,16 @@ class PreviewDialog(QDialog):
         self.layout().addWidget(widget, stretch=1)
 
     def _start_loader(self, path):
-        """启动后台解码线程；解码上限钳到「窗口尺寸 × DPR × 余量」。
+        """启动后台解码线程；默认按原生分辨率解码，仅超大图做 OOM 保护。
 
-        注意：下限必须是「窗口本身尺寸」，绝不能压到比窗口小（之前钉死 512
-        导致小窗口预览图被压扁而明显变糊）。fit 永远是从大到小缩，留足余量
-        才能保证清晰，并在窗口放大 / 高分屏下仍有放大空间。
+        解码不再为 fit 而缩小：一般截图 / 照片（单边 ≤ ``_PREVIEW_OOM_CAP``）一律
+        原生解码，fit 到窗口时永远是「从大到小缩」，清晰无糊。单边超过
+        ``_PREVIEW_OOM_CAP`` 的超巨图（8K+ / 拼接图）才等比缩到此值以内，避免
+        一次性解码吃光内存。
         """
-        dpr = max(1.0, float(self.devicePixelRatio()))
-        win_w = max(1, int(self.width() * dpr))
-        win_h = max(1, int(self.height() * dpr))
-        cap_w = min(int(win_w * _PREVIEW_DECODE_SCALE), _PREVIEW_DECODE_CAP)
-        cap_h = min(int(win_h * _PREVIEW_DECODE_SCALE), _PREVIEW_DECODE_CAP)
-        # 下限取窗口尺寸本身：原图比窗口小则原样解码（不放大），比窗口大则按余量解码。
-        max_w = max(win_w, cap_w) if win_w < _PREVIEW_DECODE_CAP else _PREVIEW_DECODE_CAP
-        max_h = max(win_h, cap_h) if win_h < _PREVIEW_DECODE_CAP else _PREVIEW_DECODE_CAP
+        # 传入 OOM 保护上限作为唯一钳制：worker 仅在原图单边超过它时才缩放，
+        # 否则按原生分辨率解码。
+        max_w = max_h = _PREVIEW_OOM_CAP
         loader = _PreviewLoader(path, max_w, max_h)
         loader.loaded.connect(self._on_preview_loaded)
         loader.failed.connect(self._on_preview_failed)
@@ -5264,12 +5292,9 @@ class MainWindow(QMainWindow):
         actions = self._collect_actions()
         if self._thumb_pool is None:
             self._thumb_pool = QThreadPool(self)
-        # 解码上限按「主窗口尺寸 × DPR × 余量」动态计算（而非钉死 1400）：
-        # 若预览区比 1400 大（宽屏），原图被缩到 1400 反而比区域小，fit 时
-        # 被迫放大而变糊。动态上限保证 fit 始终「从大到小缩」，清晰。
-        dpr = max(1.0, float(self.devicePixelRatio()))
-        win_side = max(1, int(self.width() * dpr * _PREVIEW_DECODE_SCALE))
-        max_side = min(win_side, _PREVIEW_DECODE_CAP)
+        # 解码上限 = OOM 保护上限：一般图片（单边 ≤ _PREVIEW_OOM_CAP）按原生
+        # 分辨率解码，fit 始终「从大到小缩」清晰；仅超巨图才等比缩到上限以内。
+        max_side = _PREVIEW_OOM_CAP
         worker = self._ActionPreviewWorker(
             self, epoch, path, max_side, actions)
         self._action_preview_busy = True
