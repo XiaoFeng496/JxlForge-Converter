@@ -1995,7 +1995,7 @@ class MainWindow(QMainWindow):
             if calibrate.has_calibration():
                 self._refresh_calib_value_label()
             else:
-                QTimer.singleShot(1000, self._auto_calibrate)
+                QTimer.singleShot(2000, self._auto_calibrate)
         # Restore the output / output-location / conversion-priority settings
         # OFF the startup critical path. These only touch output/settings-tab
         # widgets, which are not visible on the first-painted input tab, so
