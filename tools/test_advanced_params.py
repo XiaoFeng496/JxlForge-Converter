@@ -568,6 +568,16 @@ check("radio 仍保持 Inactive==Active（同源保护不被破坏）",
       == QApplication.palette().color(QPalette.ColorGroup.Active, QPalette.Accent))
 
 
+# ---------------------------------------------------------------------------
+# 12. 回归：高级参数「JXL 容器 (--container)」复选框悬停提示说明保留元数据
+#     根因：ICC 颜色配置只能存于 JXL 容器（jxlC box），纯码流(--container=0)会丢弃；
+#     故在容器开关上注明启用即保留 Exif/XMP/ICC 等元数据，呼应此约束。
+# ---------------------------------------------------------------------------
+_container_check = w_cc2._adv_widgets["container"][0]
+check("JXL 容器复选框悬停提示说明保留元数据",
+      _container_check.toolTip() == "启用可保留元数据（如 Exif、XMP、ICC 颜色配置等）")
+
+
 print()
 print("TOTAL %d, FAIL %d" % (total, len(failures)))
 sys.exit(1 if failures else 0)

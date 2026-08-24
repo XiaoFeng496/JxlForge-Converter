@@ -1772,6 +1772,7 @@ _ADVANCED_SCHEMA = [
     # 容器输出（全部模式可用）
     {"key": "container", "flag": "--container", "label": "JXL 容器 (--container)",
      "kind": "bool_value", "default": False, "value": 1,
+     "tip": "启用可保留元数据（如 Exif、XMP、ICC 颜色配置等）",
      "group": "容器输出", "modes": ("lossy", "lossless", "lossless_jpeg")},
     {"key": "codestream_level", "flag": "--codestream_level", "label": "码流等级 (--codestream_level)",
      "kind": "int", "default": 5, "min": 0, "max": 10,
@@ -2840,6 +2841,9 @@ class MainWindow(QMainWindow):
             row = QHBoxLayout()
             check = QCheckBox(s["label"])
             check.setChecked(False)
+            tip = s.get("tip")
+            if tip:
+                check.setToolTip(tip)
             row.addWidget(check)
             val_w = None
             if s["kind"] == "double":
@@ -2861,6 +2865,8 @@ class MainWindow(QMainWindow):
                 if idx >= 0:
                     val_w.setCurrentIndex(idx)
                 row.addWidget(val_w)
+            if val_w is not None and tip:
+                val_w.setToolTip(tip)
             # switch / bool_value：仅复选框，无独立值控件
             sub_layouts[s["group"]].addLayout(row)
             self._adv_widgets[s["key"]] = (check, val_w, s)
