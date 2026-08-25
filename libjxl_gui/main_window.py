@@ -2578,6 +2578,7 @@ class MainWindow(QMainWindow):
                 self._save_jxl_output(),
                 self._update_cmd_preview(),
                 self._update_format_hint(),
+                self._update_discard_checkbox_state(),
             )
         )
         fmt_row.addStretch(1)
@@ -2800,6 +2801,19 @@ class MainWindow(QMainWindow):
         self.on_exist_combo.currentTextChanged.connect(
             lambda _=None: self._save_jxl_output()
         )
+        # 「编码结果更大时丢弃输出（保留原文件）」：仅 JXL 输出生效。勾选后，
+        # 当 JXL 输出字节数 ≥ 原文件时，丢弃该无用 JXL 输出、保留原文件；
+        # 否则照常保留 JXL。PNG/JPEG 输出时此选项无意义，自动置灰。默认不勾选。
+        self.discard_if_larger_check = QCheckBox("编码结果更大时丢弃输出（保留原文件）")
+        self.discard_if_larger_check.setToolTip(
+            "勾选后，当 JXL 输出文件不小于原文件时，丢弃该 JXL 并保留原文件"
+            "（转换无收益）。仅 JXL 输出生效；选 PNG/JPEG 输出时自动禁用。"
+        )
+        self.discard_if_larger_check.toggled.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        options_layout.addWidget(self.discard_if_larger_check)
+
         # 「保持原创建时间」/「保持原修改时间」：勾选后，成功转换的输出文件
         # 将继承原文件的对应时间戳（而非使用转换当天的当前时间）。默认不勾选。
         self.preserve_ctime_check = QCheckBox("保持原创建时间")
@@ -3830,11 +3844,22 @@ class MainWindow(QMainWindow):
         # 保持时间戳：输出文件继承原文件的创建/修改时间（QSettings 直接存 bool）。
         settings.setValue("preserve_ctime", self.preserve_ctime_check.isChecked())
         settings.setValue("preserve_mtime", self.preserve_mtime_check.isChecked())
+        # 编码结果更大时丢弃输出（保留原文件）：仅 JXL 输出生效。
+        settings.setValue("discard_if_larger", self.discard_if_larger_check.isChecked())
         self._save_advanced(settings)
         # 自定义命令：勾选状态 + 已编辑的命令文本。
         settings.setValue("custom_cmd_on", self.custom_cmd_check.isChecked())
         settings.setValue("custom_cmd_text", self.cmd_edit.text())
         settings.endGroup()
+
+    def _update_discard_checkbox_state(self):
+        """按当前输出格式刷新「编码结果更大时丢弃输出」复选框的可用状态。
+
+        JXL 输出时启用（该选项才有意义）；选 PNG/JPEG 输出时置灰禁用，
+        因为这两种格式不能因「输出更大」而被丢弃（用户是主动选定它们的）。
+        """
+        enabled = self._current_output_format() == "jxl"
+        self.discard_if_larger_check.setEnabled(enabled)
 
     def _load_jxl_output(self):
         """Restore persisted JXL encode parameters onto the output-tab widgets.
@@ -3888,6 +3913,13 @@ class MainWindow(QMainWindow):
             str(settings.value("preserve_mtime", False)).strip().lower()
             in ("true", "1", "yes", "on")
         )
+        # 恢复「编码结果更大时丢弃输出（保留原文件）」勾选状态（同 delete_original 解析）。
+        self.discard_if_larger_check.setChecked(
+            str(settings.value("discard_if_larger", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
+        # 根据恢复后的输出格式刷新「丢弃输出」复选框的可用状态（PNG/JPEG 时置灰）。
+        self._update_discard_checkbox_state()
         # 恢复自定义命令：用 blockSignals 避免触发 _on_custom_cmd_toggled 的
         # 预填逻辑覆盖已持久化的命令文本。
         self.custom_cmd_check.blockSignals(True)
@@ -6158,6 +6190,7 @@ class MainWindow(QMainWindow):
             adv_threads_enabled=self.adv_num_threads_toggle.isChecked(),
             out_fmt=out_fmt,
             delete_original=self.delete_original_check.isChecked(),
+            discard_if_larger=self.discard_if_larger_check.isChecked(),
             preserve_ctime=self.preserve_ctime_check.isChecked(),
             preserve_mtime=self.preserve_mtime_check.isChecked(),
         )
@@ -6527,7 +6560,8 @@ class ConvertWorker(QThread):
                  quality=None, lossless_jpeg=False,
                  priority=converter.DEFAULT_PRIORITY, advanced=None,
                  custom_cmd=None, cpu_cores="auto", adv_threads_enabled=False,
-             out_fmt="jxl", delete_original=False,
+             out_fmt="jxl", discard_if_larger=False,
+             delete_original=False,
              preserve_ctime=False, preserve_mtime=False):
         super().__init__()
         self.jobs = jobs
@@ -6552,6 +6586,8 @@ class ConvertWorker(QThread):
         self._out_fmt = out_fmt
         # 删除原文件：勾选时，成功转换的源文件在批处理结束后由主线程移入回收站。
         self.delete_original = delete_original
+        # 编码结果更大时丢弃输出（保留原文件）：仅 JXL 输出生效；PNG/JPEG 不适用。
+        self.discard_if_larger = discard_if_larger
         # 保持时间戳：成功转换后是否把输出文件的时间属性还原为与原文件一致。
         self.preserve_ctime = preserve_ctime
         self.preserve_mtime = preserve_mtime
@@ -6857,11 +6893,11 @@ class ConvertWorker(QThread):
                     res = fut.result()
                 except Exception as exc:
                     res = (False, "处理出错：%s" % exc, 0, 0, True)
-                ok, message, tag, in_size, out_size, stopped = res
+                ok, message, tag, in_size, out_size, stopped, discarded = res
                 if stopped:
                     continue
                 self._record_result(idx, src, ok, message, in_size,
-                                   out_size, tag)
+                                   out_size, tag, discarded)
             submit_next()
         if self._stopped:
             for fut in list(futures):
@@ -6876,10 +6912,10 @@ class ConvertWorker(QThread):
             return
         idx, job = indexed_job
         res = self._process_job(idx, *job)
-        ok, message, tag, in_size, out_size, stopped = res
+        ok, message, tag, in_size, out_size, stopped, discarded = res
         if stopped:
             return
-        self._record_result(idx, job[0], ok, message, in_size, out_size, tag)
+        self._record_result(idx, job[0], ok, message, in_size, out_size, tag, discarded)
 
     def _effective_cores(self):
         """返回有效核心数（'auto' -> 本机逻辑核心数）。"""
@@ -6990,10 +7026,28 @@ class ConvertWorker(QThread):
                         pass
             # 若运行过程中被中止，子进程被杀会返回失败；标记为 stopped 不计入统计。
             if (not ok) and self._stopped:
-                return (False, message, "", in_size, 0, True)
-            # 保持时间戳：成功转换后把输出文件的时间属性还原为与原文件一致。
-            # 任一失败都不影响转换结果（ok 保持 True），仅记日志。
-            if ok and (self.preserve_mtime or self.preserve_ctime):
+                return (False, message, "", in_size, 0, True, False)
+            out_size = _safe_getsize(out_path) if ok else 0
+            discarded = False
+            # 编码结果更大时丢弃输出（保留原文件）：仅 JXL 输出适用。
+            # PNG/JPEG 是用户主动选定的输出格式，不能因「更大」而丢弃。
+            if (ok and self.discard_if_larger and self._out_fmt == "jxl"
+                    and in_size > 0 and out_size >= in_size):
+                try:
+                    if os.path.exists(out_path):
+                        os.remove(out_path)
+                    discarded = True
+                    self.log_signal.emit(
+                        "编码结果较大（%d ≥ %d 字节），已丢弃 JXL 输出，保留原文件。"
+                        % (out_size, in_size)
+                    )
+                except OSError as exc:
+                    self.log_signal.emit(
+                        "丢弃较大 JXL 输出失败（已保留）：%s —— %s" % (out_path, exc)
+                    )
+            # 保持时间戳：成功且未丢弃时，把输出文件的时间属性还原为与原文件一致。
+            # 任一失败都不影响转换结果（ok 保持 True），仅记日志；丢弃的输出已不存在。
+            if ok and not discarded and (self.preserve_mtime or self.preserve_ctime):
                 try:
                     if self.preserve_mtime:
                         _preserve_mtime(src, out_path)
@@ -7003,13 +7057,13 @@ class ConvertWorker(QThread):
                     self.log_signal.emit(
                         "保持时间戳失败（已忽略）：%s —— %s" % (out_path, exc)
                     )
-            out_size = _safe_getsize(out_path) if ok else 0
-            return (ok, message, tag, in_size, out_size, False)
+            return (ok, message, tag, in_size, (0 if discarded else out_size), False, discarded)
         except Exception as exc:
             stopped = self._stopped
-            return (False, "处理出错：%s" % exc, "", in_size, 0, stopped)
+            return (False, "处理出错：%s" % exc, "", in_size, 0, stopped, False)
 
-    def _record_result(self, index, src, ok, message, in_size, out_size, tag):
+    def _record_result(self, index, src, ok, message, in_size, out_size, tag,
+                       discarded=False):
         """Update running statistics and emit the per-file log block.
 
         The '>>> [n/m] path' header and the size/failure line are emitted here
@@ -7024,15 +7078,17 @@ class ConvertWorker(QThread):
             self._stat_out_bytes += out_size
             self._stat_ok += 1
             # 删除原文件：本文件已成功转换，登记源路径，待主线程批处理结束后
-            # 统一移入回收站（失败文件不登记，保留原文件）。
-            if self.delete_original:
+            # 统一移入回收站。但若本次「丢弃了输出」（无产出），则视为未成功产出，
+            # 不登记源——与「保留原文件」语义一致，避免误删原文件。
+            if self.delete_original and not discarded:
                 self._ok_sources.append(src)
             # 优先用 cjxl 真实输出抓取的编码标签；若解析为空（如 djxl 解码、
             # 自定义命令无 Encoding 行），兜底用规则推导。
             final_tag = tag or self._encode_tag()
-            self.log_signal.emit(
-                _format_size_change(in_size, out_size, final_tag)
-            )
+            if not discarded:
+                self.log_signal.emit(
+                    _format_size_change(in_size, out_size, final_tag)
+                )
         else:
             self._stat_err += 1
             self.log_signal.emit("处理失败：%s" % message)
