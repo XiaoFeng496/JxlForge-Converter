@@ -430,6 +430,51 @@ def _move_to_recycle_bin(path):
     send2trash.send2trash(path)
 
 
+def _preserve_mtime(src, dst):
+    """将 dst 的修改时间（及访问时间）设为与原文件 src 一致（跨平台 os.utime）。
+
+    使用纳秒精度，避免大文件或接近的源/目标时间被截断为整数秒。
+    失败抛异常，由调用方决定是否忽略（不计入转换失败）。
+    """
+    st = os.stat(src)
+    os.utime(dst, ns=(st.st_atime_ns, st.st_mtime_ns))
+
+
+def _preserve_ctime(src, dst):
+    """将 dst 的创建时间设为与原文件 src 一致（仅 Windows；需 pywin32）。
+
+    非 Windows 平台没有「创建时间」这一独立属性，直接返回（此选项在该平台无意义）。
+    os.utime 无法修改创建时间，故 Windows 下必须用 win32file.SetFileTime。
+    缺少 pywin32 时抛 RuntimeError，由调用方 try/except 容错（转换结果不受影响）。
+    """
+    import sys
+    if sys.platform != "win32":
+        return
+    st = os.stat(src)
+    try:
+        import pywintypes
+        import win32file
+    except ImportError:
+        raise RuntimeError(
+            "未安装 pywin32，无法保持创建时间；请先安装：pip install pywin32"
+        )
+    ctime = pywintypes.Time(st.st_ctime)
+    handle = win32file.CreateFile(
+        dst,
+        win32file.FILE_WRITE_ATTRIBUTES,
+        win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE
+        | win32file.FILE_SHARE_DELETE,
+        None,
+        win32file.OPEN_EXISTING,
+        win32file.FILE_ATTRIBUTE_NORMAL,
+        None,
+    )
+    try:
+        win32file.SetFileTime(handle, ctime, None, None)
+    finally:
+        handle.Close()
+
+
 # ----------------------------------------------------------------------
 # Logging helpers for the 状态 (status) tab conversion report
 # ----------------------------------------------------------------------
@@ -2755,6 +2800,28 @@ class MainWindow(QMainWindow):
         self.on_exist_combo.currentTextChanged.connect(
             lambda _=None: self._save_jxl_output()
         )
+        # 「保持原创建时间」/「保持原修改时间」：勾选后，成功转换的输出文件
+        # 将继承原文件的对应时间戳（而非使用转换当天的当前时间）。默认不勾选。
+        self.preserve_ctime_check = QCheckBox("保持原创建时间")
+        self.preserve_ctime_check.setToolTip(
+            "勾选后，成功转换的输出文件将保留原文件的创建时间"
+            "（仅 Windows 有效，需 pywin32；其他平台无创建时间概念，自动忽略）。"
+        )
+        self.preserve_ctime_check.toggled.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        options_layout.addWidget(self.preserve_ctime_check)
+
+        self.preserve_mtime_check = QCheckBox("保持原修改时间")
+        self.preserve_mtime_check.setToolTip(
+            "勾选后，成功转换的输出文件将保留原文件的修改时间"
+            "（文件管理器中显示的「修改日期」与原文件一致）。"
+        )
+        self.preserve_mtime_check.toggled.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        options_layout.addWidget(self.preserve_mtime_check)
+
         # 「删除原文件」：勾选后，转换成功的原文件在批处理结束后移入回收站，
         # 失败的源文件保持不变。默认不勾选（保守，避免误删）。
         self.delete_original_check = QCheckBox("删除原文件（成功转换后移入回收站）")
@@ -3760,6 +3827,9 @@ class MainWindow(QMainWindow):
         settings.setValue("on_exist", self.on_exist_combo.currentText())
         # 删除原文件：勾选后成功转换的源文件移入回收站（QSettings 直接存 bool）。
         settings.setValue("delete_original", self.delete_original_check.isChecked())
+        # 保持时间戳：输出文件继承原文件的创建/修改时间（QSettings 直接存 bool）。
+        settings.setValue("preserve_ctime", self.preserve_ctime_check.isChecked())
+        settings.setValue("preserve_mtime", self.preserve_mtime_check.isChecked())
         self._save_advanced(settings)
         # 自定义命令：勾选状态 + 已编辑的命令文本。
         settings.setValue("custom_cmd_on", self.custom_cmd_check.isChecked())
@@ -3807,6 +3877,15 @@ class MainWindow(QMainWindow):
         # 恢复「删除原文件」勾选状态（INI 把 bool 存为字符串，需显式解析）。
         self.delete_original_check.setChecked(
             str(settings.value("delete_original", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
+        # 恢复「保持原创建时间」/「保持原修改时间」勾选状态（同 delete_original 解析）。
+        self.preserve_ctime_check.setChecked(
+            str(settings.value("preserve_ctime", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
+        self.preserve_mtime_check.setChecked(
+            str(settings.value("preserve_mtime", False)).strip().lower()
             in ("true", "1", "yes", "on")
         )
         # 恢复自定义命令：用 blockSignals 避免触发 _on_custom_cmd_toggled 的
@@ -6079,6 +6158,8 @@ class MainWindow(QMainWindow):
             adv_threads_enabled=self.adv_num_threads_toggle.isChecked(),
             out_fmt=out_fmt,
             delete_original=self.delete_original_check.isChecked(),
+            preserve_ctime=self.preserve_ctime_check.isChecked(),
+            preserve_mtime=self.preserve_mtime_check.isChecked(),
         )
         self._convert_worker.log_signal.connect(self.log_edit.appendPlainText)
         self._convert_worker.status_signal.connect(self.statusBar().showMessage)
@@ -6446,7 +6527,8 @@ class ConvertWorker(QThread):
                  quality=None, lossless_jpeg=False,
                  priority=converter.DEFAULT_PRIORITY, advanced=None,
                  custom_cmd=None, cpu_cores="auto", adv_threads_enabled=False,
-             out_fmt="jxl", delete_original=False):
+             out_fmt="jxl", delete_original=False,
+             preserve_ctime=False, preserve_mtime=False):
         super().__init__()
         self.jobs = jobs
         self.actions = actions  # possibly empty list
@@ -6470,6 +6552,9 @@ class ConvertWorker(QThread):
         self._out_fmt = out_fmt
         # 删除原文件：勾选时，成功转换的源文件在批处理结束后由主线程移入回收站。
         self.delete_original = delete_original
+        # 保持时间戳：成功转换后是否把输出文件的时间属性还原为与原文件一致。
+        self.preserve_ctime = preserve_ctime
+        self.preserve_mtime = preserve_mtime
         # 收集「成功转换」的源文件路径，供主线程在转换结束后移入回收站。
         # 仅当 delete_original 为真且该文件成功（ok）才入列；失败的不入列。
         self._ok_sources = []
@@ -6906,6 +6991,18 @@ class ConvertWorker(QThread):
             # 若运行过程中被中止，子进程被杀会返回失败；标记为 stopped 不计入统计。
             if (not ok) and self._stopped:
                 return (False, message, "", in_size, 0, True)
+            # 保持时间戳：成功转换后把输出文件的时间属性还原为与原文件一致。
+            # 任一失败都不影响转换结果（ok 保持 True），仅记日志。
+            if ok and (self.preserve_mtime or self.preserve_ctime):
+                try:
+                    if self.preserve_mtime:
+                        _preserve_mtime(src, out_path)
+                    if self.preserve_ctime:
+                        _preserve_ctime(src, out_path)
+                except Exception as exc:
+                    self.log_signal.emit(
+                        "保持时间戳失败（已忽略）：%s —— %s" % (out_path, exc)
+                    )
             out_size = _safe_getsize(out_path) if ok else 0
             return (ok, message, tag, in_size, out_size, False)
         except Exception as exc:
