@@ -6091,7 +6091,7 @@ class MainWindow(QMainWindow):
         # the history dropdown and persist, so it's recalled next launch.
         if self.custom_folder_radio.isChecked():
             cf = self.custom_folder_edit.text().strip()
-            if cf and os.path.isdir(cf):
+            if cf:
                 self._add_folder_history(cf)
                 self._save_output_settings()
 
@@ -6473,7 +6473,14 @@ class MainWindow(QMainWindow):
 
         if self.custom_folder_radio.isChecked():
             folder = self.custom_folder_edit.text().strip()
-            if folder and os.path.isdir(folder):
+            if folder:
+                # 手动输入或选择的目标文件夹可能尚不存在：自动创建之，
+                # 否则 os.path.isdir 为 False 会静默回退到原文件夹，
+                # 表现为「手动输入自定义文件夹路径无效」。空路径才回退源目录。
+                try:
+                    os.makedirs(folder, exist_ok=True)
+                except OSError:
+                    pass
                 if getattr(self, "structure_check", None) and self.structure_check.isChecked():
                     # 保留文件夹结构：按源文件相对「根」的子路径，镜像到自定义文件夹下。
                     root = self.input_roots.get(src)
