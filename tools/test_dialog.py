@@ -24,8 +24,11 @@ check("ActionParamDialog exists", hasattr(mw, "ActionParamDialog"))
 check("MainWindow._on_add_action", hasattr(mw.MainWindow, "_on_add_action"))
 check("MainWindow._collect_actions", hasattr(mw.MainWindow, "_collect_actions"))
 check("MainWindow._action_summary", hasattr(mw.MainWindow, "_action_summary"))
-check("MainWindow._process_with_actions",
-      hasattr(mw.MainWindow, "_process_with_actions"))
+# 动作预览在 Phase 4 异步重构中由 _process_with_actions 更名为
+# _render_action_preview（解码 + apply_actions 全部移入子线程
+# _ActionPreviewWorker）。断言当前真实存在的入口。
+check("MainWindow._render_action_preview",
+      hasattr(mw.MainWindow, "_render_action_preview"))
 
 # _action_summary logic (does not touch any Qt state, so a dummy self works).
 s = mw.MainWindow._action_summary

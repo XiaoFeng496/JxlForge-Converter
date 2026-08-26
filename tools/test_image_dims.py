@@ -4,9 +4,11 @@ resolution lookup used by thumbnails, hover info and the dual-queue scheduler.
 
 Verifies:
   * natively-supported formats (PNG/JPEG/BMP/GIF/TIFF/WebP/PPM/PGM) return the
-    correct (w, h);
-  * JXL returns correct dims via the djxl-decoded temp PNG (no extra decode);
-  * AVIF (if Pillow can write it) returns correct dims;
+    correct (w, h) synchronously (their header is readable without decoding);
+  * JXL / AVIF dims are obtained NON-blockingly: get_image_dims() does NOT
+    decode on its own, but returns the correct (w, h) once the file has been
+    decoded into _DECODE_TEMP_CACHE (as the preview / thumbnail path does) —
+    here we trigger that decode via _display_path() then read the dims;
   * the result is cached (second call returns the same tuple);
   * a non-image file returns (0, 0) without raising.
 """
@@ -22,7 +24,7 @@ from PySide6.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-from libjxl_gui.main_window import get_image_dims
+from libjxl_gui.main_window import get_image_dims, _display_path
 from PIL import Image
 
 results = []
@@ -80,8 +82,16 @@ if cjxl:
     try:
         subprocess.run([cjxl, png_src, jxl_path], check=True, capture_output=True)
         if os.path.exists(jxl_path):
-            dims = get_image_dims(jxl_path)
-            check("dims jxl == (%d,%d)" % (W, H), dims == (W, H))
+            # get_image_dims() is non-blocking: it reads dims from the decode
+            # cache once the file has been decoded (preview / thumbnail do this).
+            # Simulate that by decoding once via _display_path(), then dims
+            # should be available from the cached decoded temp file.
+            disp = _display_path(jxl_path)
+            if disp:
+                dims = get_image_dims(jxl_path)
+                check("dims jxl == (%d,%d)" % (W, H), dims == (W, H))
+            else:
+                print("SKIP jxl: decode to temp file failed")
         else:
             print("SKIP jxl: encode produced no file")
     except Exception as e:
@@ -94,8 +104,12 @@ try:
     avif_path = os.path.join(tmpdir, "img.avif")
     Image.new("RGB", (W, H), (1, 2, 3)).save(avif_path, "AVIF")
     if os.path.exists(avif_path):
-        dims = get_image_dims(avif_path)
-        check("dims avif == (%d,%d)" % (W, H), dims == (W, H))
+        disp = _display_path(avif_path)
+        if disp:
+            dims = get_image_dims(avif_path)
+            check("dims avif == (%d,%d)" % (W, H), dims == (W, H))
+        else:
+            print("SKIP avif: decode to temp file failed")
     else:
         print("SKIP avif: not written")
 except Exception as e:

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """Headless regression tests for the "CPU 核心使用数" + 文件级并行池 feature.
 
@@ -17,6 +18,15 @@ _encode_kwargs 的映射与 _resolve_concurrency 的分发逻辑。
 """
 
 from PySide6.QtWidgets import QApplication, QCheckBox, QSpinBox
+from PySide6.QtCore import QCoreApplication, QSettings
+
+# 隔离 QSettings：写入临时目录，避免污染真实 ini（%APPDATA%\libjxl\libjxl-gui.ini）
+# 也被共享 QSettings 状态反向污染导致偶发失败。须在首个 QSettings() 使用前置好。
+QSettings.setDefaultFormat(QSettings.IniFormat)
+QCoreApplication.setOrganizationName("libjxl")
+QCoreApplication.setApplicationName("libjxl-gui")
+_tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
 # 必须在线程创建前确保有 QApplication 实例。
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -69,9 +79,13 @@ if toggle is not None:
 num_check = QCheckBox()
 num_val = QSpinBox()
 # 模拟 _collect_advanced 写入的 _adv_widgets 结构：(check, val_w, schema)
-# 先保留真实 _adv_widgets 引用，供第 7 段（effort 门控）恢复，避免误触 save 时缺键。
+# 先保留真实 _adv_widgets 引用，供第 7 段（effort 门控）恢复。
 real_adv_widgets = window._adv_widgets
-window._adv_widgets = {"num_threads": (num_check, num_val, {})}
+# 关键：只覆盖 num_threads 一项为隔离假控件，其余保留真实控件——否则后续
+# setChecked 触发 _save_jxl_output -> _save_advanced 会遍历完整 schema，残字典
+# 缺 distance 等键而 KeyError（此前批量运行偶发崩溃的根因）。
+window._adv_widgets = dict(real_adv_widgets)
+window._adv_widgets["num_threads"] = (num_check, num_val, {})
 tip_toggle = window.adv_threads_toggle
 
 # 关闭高级参数：num_threads 整体禁用；tooltip 说明由并行池自动控核。
