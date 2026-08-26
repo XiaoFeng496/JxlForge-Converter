@@ -6138,7 +6138,6 @@ class MainWindow(QMainWindow):
         skipped = []
         skipped_jpg = []
         skipped_jpg_nonrecon = []
-        skipped_same = []
         nonrecon_jpg = []
         out_fmt = self._current_output_format()
         # jpeg_hard_skip 是「启用高级参数」的子项：母开关关闭时即便此前勾选过也不生效。
@@ -6168,11 +6167,6 @@ class MainWindow(QMainWindow):
                 if action == "confirm":
                     nonrecon_jpg.append(src)
             out_path = self._build_output_path(src)
-            # 保留原始扩展名 + 原文件夹 + 无后缀时，输出路径可能等于输入路径，
-            # 直接覆盖源文件会造成数据丢失，跳过并提示。
-            if os.path.abspath(out_path) == os.path.abspath(src):
-                skipped_same.append(src)
-                continue
             out_is_jxl = out_path.lower().endswith(".jxl")
             jobs.append((src, out_path, out_is_jxl))
 
@@ -6239,19 +6233,6 @@ class MainWindow(QMainWindow):
                 % len(skipped_jpg_nonrecon)
             )
             for s in skipped_jpg_nonrecon:
-                self.log_edit.appendPlainText("    - %s" % s)
-        # 保留原始扩展名导致输出路径与输入路径相同：跳过以免覆盖源文件。
-        if skipped_same:
-            self.statusBar().showMessage(
-                "已跳过 %d 个文件（输出路径与输入相同，避免覆盖源文件）"
-                % len(skipped_same)
-            )
-            self.log_edit.appendPlainText(
-                "提示：以下 %d 个文件因「保留原始扩展名」使输出路径与输入路径相同，"
-                "跳过以避免覆盖源文件（建议使用自定义文件夹或添加后缀）："
-                % len(skipped_same)
-            )
-            for s in skipped_same:
                 self.log_edit.appendPlainText("    - %s" % s)
         # 输出文件已存在时的冲突策略（替换/询问/跳过/重命名）：在主线程预处理，
         # 不在 worker 线程弹窗。「替换」即 cjxl/djxl 默认覆盖，原样保留 jobs。

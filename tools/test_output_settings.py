@@ -447,26 +447,47 @@ check("开启后：无扩展名输入 -> 回退为格式推导 .png",
       pe._build_output_path("x/y/photo").lower().endswith(".png"))
 pe.format_combo.setCurrentText("JPEG XL (*.jxl)")
 
-# 防覆盖守卫前置：原文件夹 + 无后缀 + 保留扩展名 => 输出路径 == 输入路径。
+# 路径碰撞前置：原文件夹 + 无后缀 + 保留扩展名 => 输出路径 == 输入路径。
 gpre = fresh_window()
 gpre.format_combo.setCurrentText("JPEG XL (*.jxl)")
 gpre.preserve_ext_check.setChecked(True)
 gpre.same_folder_radio.setChecked(True)
 gpre.keep_name_radio.setChecked(True)
 _gpre_src = "x/y/photo.png"
-check("防覆盖守卫前置：原文件夹+无后缀+保留扩展名 使 输出==输入",
+check("路径碰撞前置：原文件夹+无后缀+保留扩展名 使 输出==输入",
       os.path.abspath(gpre._build_output_path(_gpre_src)) == os.path.abspath(_gpre_src))
 
-# 实际触发守卫：单文件输出==输入时被跳过，不创建转换任务（不覆盖源文件）。
+# 独立「同路径兜底」已移除：同路径文件不再被硬编码跳过，而是交给
+# 「当输出文件已经存在时」冲突处理器按用户策略裁决（与所有「输出已存在」
+# 情形一致）。验证：默认策略「替换」下会创建转换任务（不再整文件跳过）。
+_g_src = os.path.join(tempfile.mkdtemp(), "photo.png")
+with open(_g_src, "wb") as f:
+    f.write(b"x")
 g = fresh_window()
 g.format_combo.setCurrentText("JPEG XL (*.jxl)")
 g.preserve_ext_check.setChecked(True)
 g.same_folder_radio.setChecked(True)
 g.keep_name_radio.setChecked(True)
-g.input_files = [os.path.join(tempfile.mkdtemp(), "photo.png")]
+g.input_files = [_g_src]
 g._on_convert()
-check("防覆盖守卫：输出==输入 时文件被跳过（不创建转换任务）",
-      g._convert_worker is None)
+check("移除独立兜底：同路径文件默认「替换」下仍创建转换任务（交冲突处理器）",
+      g._convert_worker is not None)
+
+# 互补验证：冲突策略选「跳过」时，同路径文件由冲突处理器跳过（worker 为 None）。
+# 需先在磁盘上真实写出源文件，冲突处理器据 os.path.exists 判定「已存在」才跳过。
+_g2_src = os.path.join(tempfile.mkdtemp(), "photo.png")
+with open(_g2_src, "wb") as f:
+    f.write(b"x")
+g2 = fresh_window()
+g2.format_combo.setCurrentText("JPEG XL (*.jxl)")
+g2.preserve_ext_check.setChecked(True)
+g2.same_folder_radio.setChecked(True)
+g2.keep_name_radio.setChecked(True)
+g2.on_exist_combo.setCurrentText("跳过")
+g2.input_files = [_g2_src]
+g2._on_convert()
+check("移除独立兜底：冲突策略「跳过」下，同路径文件由处理器跳过",
+      g2._convert_worker is None)
 
 # 持久化 round-trip：开启 -> 重启仍为开启；取消 -> 重启为关闭。
 pr1 = fresh_window()
