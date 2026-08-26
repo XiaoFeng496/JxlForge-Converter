@@ -1850,6 +1850,10 @@ class MainWindow(QMainWindow):
         self._original_app_palette = QApplication.palette()
 
         self.input_files = []   # list of absolute file paths
+        # 每个输入文件对应的「根目录」：用于「保留文件夹结构」时计算相对路径。
+        # 值为该文件被添加时所属文件夹（添加文件夹则为其本身，添加单文件则为其父目录）；
+        # 缺失时回退到 os.path.dirname(src)。
+        self.input_roots = {}
         self._convert_worker = None  # background conversion thread (or None)
         self._stop_requested = False  # True while a user-initiated stop is pending
         self._thumb_cache = {}  # (path, px) -> QImage  (线程安全；主线程 fromImage 成 QPixmap)
@@ -2739,6 +2743,7 @@ class MainWindow(QMainWindow):
                 self.custom_folder_edit.setEnabled(checked),
                 self.custom_folder_dropdown.setEnabled(checked),
                 self.browse_folder_button.setEnabled(checked),
+                self._update_structure_checkbox_state(),
             )
         )
         self.browse_folder_button.clicked.connect(self._on_browse_folder)
@@ -2813,6 +2818,37 @@ class MainWindow(QMainWindow):
             lambda _=None: self._save_jxl_output()
         )
         options_layout.addWidget(self.discard_if_larger_check)
+
+        # 「保留文件夹结构」+ 子选项「保留上级目录」：仅「自定义文件夹」输出模式生效
+        # （「原文件夹」模式下输出本就落在源文件各自所在目录，结构天然保留，无需此选项）。
+        # 勾选后，输出文件按源文件相对「根」的子路径镜像到自定义文件夹；
+        # 子选项额外把根上移一级，使被添加文件夹本身成为输出下的顶层段。默认均不勾选。
+        self.structure_check = QCheckBox("保留文件夹结构")
+        self.structure_check.setToolTip(
+            "勾选后，输出文件将按源文件原有的文件夹层级，镜像到自定义输出文件夹中"
+            "（而非全部拍平到同一目录）。仅「文件夹」输出模式生效；选「原文件夹」时自动禁用。"
+        )
+        self.structure_check.toggled.connect(
+            lambda _=None: (
+                self._save_jxl_output(),
+                self._update_structure_checkbox_state(),
+            )
+        )
+        options_layout.addWidget(self.structure_check)
+
+        _parent_row = QHBoxLayout()
+        _parent_row.addSpacing(20)  # 视觉缩进，表明其为「保留文件夹结构」的子选项
+        self.parent_check = QCheckBox("保留上级目录")
+        self.parent_check.setToolTip(
+            "勾选后，被添加的文件夹本身也会作为一层目录出现在输出中"
+            "（例如拖入「照片」文件夹，输出为 输出目录/照片/图片）。"
+            "仅「保留文件夹结构」已勾选且为「文件夹」输出模式时生效。"
+        )
+        self.parent_check.toggled.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        _parent_row.addWidget(self.parent_check)
+        options_layout.addLayout(_parent_row)
 
         # 「保持原创建时间」/「保持原修改时间」：勾选后，成功转换的输出文件
         # 将继承原文件的对应时间戳（而非使用转换当天的当前时间）。默认不勾选。
@@ -3861,6 +3897,9 @@ class MainWindow(QMainWindow):
         settings.setValue("preserve_mtime", self.preserve_mtime_check.isChecked())
         # 编码结果更大时丢弃输出（保留原文件）：仅 JXL 输出生效。
         settings.setValue("discard_if_larger", self.discard_if_larger_check.isChecked())
+        # 保留文件夹结构 / 保留上级目录：仅「自定义文件夹」输出模式生效。
+        settings.setValue("preserve_structure", self.structure_check.isChecked())
+        settings.setValue("preserve_parent", self.parent_check.isChecked())
         # 保留原始扩展名：开启后输出文件沿用输入扩展名（QSettings 直接存 bool）。
         settings.setValue("preserve_original_extension", self.preserve_ext_check.isChecked())
         self._save_advanced(settings)
@@ -3877,6 +3916,17 @@ class MainWindow(QMainWindow):
         """
         enabled = self._current_output_format() == "jxl"
         self.discard_if_larger_check.setEnabled(enabled)
+
+    def _update_structure_checkbox_state(self):
+        """按输出模式刷新「保留文件夹结构」及其子选项「保留上级目录」的可用状态。
+
+        - 仅「文件夹」（自定义文件夹）输出模式下，保留结构才有意义
+          （「原文件夹」模式下输出本就落在源文件各自所在目录，结构天然保留）；
+        - 子选项「保留上级目录」额外要求主选项已勾选。
+        """
+        main_on = self.custom_folder_radio.isChecked()
+        self.structure_check.setEnabled(main_on)
+        self.parent_check.setEnabled(main_on and self.structure_check.isChecked())
 
     def _load_jxl_output(self):
         """Restore persisted JXL encode parameters onto the output-tab widgets.
@@ -3940,8 +3990,19 @@ class MainWindow(QMainWindow):
             str(settings.value("preserve_original_extension", False)).strip().lower()
             in ("true", "1", "yes", "on")
         )
+        # 恢复「保留文件夹结构」/「保留上级目录」勾选状态（同 delete_original 解析）。
+        self.structure_check.setChecked(
+            str(settings.value("preserve_structure", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
+        self.parent_check.setChecked(
+            str(settings.value("preserve_parent", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
         # 根据恢复后的输出格式刷新「丢弃输出」复选框的可用状态（PNG/JPEG 时置灰）。
         self._update_discard_checkbox_state()
+        # 根据恢复后的输出模式刷新「保留文件夹结构」及其子选项的可用状态。
+        self._update_structure_checkbox_state()
         # 恢复自定义命令：用 blockSignals 避免触发 _on_custom_cmd_toggled 的
         # 预填逻辑覆盖已持久化的命令文本。
         self.custom_cmd_check.blockSignals(True)
@@ -3997,18 +4058,24 @@ class MainWindow(QMainWindow):
 
     def dropEvent(self, event):
         urls = event.mimeData().urls()
-        added = []
+        # 按 root 分组收集：文件夹拖入时其根=该文件夹，单文件拖入时根=None
+        # （由 _add_input_paths 回退到文件自身所在目录）。
+        by_root = {}
         for url in urls:
             if url.isLocalFile():
                 path = os.path.normpath(url.toLocalFile())
                 if os.path.isfile(path):
-                    added.append(path)
+                    by_root.setdefault(None, []).append(path)
                 elif os.path.isdir(path):
-                    added.extend(self._collect_images_from_folder(path))
-        if added:
+                    by_root.setdefault(path, []).extend(
+                        self._collect_images_from_folder(path)
+                    )
+        added_total = sum(len(v) for v in by_root.values())
+        if added_total:
             self.tabs.setCurrentWidget(self.input_tab)
             before = len(self.input_files)
-            self._add_input_paths(added)
+            for root, files in by_root.items():
+                self._add_input_paths(files, root=root)
             self.log_edit.appendPlainText(
                 "通过拖拽添加了 %d 个文件。" % (len(self.input_files) - before)
             )
@@ -4034,28 +4101,28 @@ class MainWindow(QMainWindow):
             self, "选择输入文件", "",
             "图像文件 (*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.jxl *.avif);;所有文件 (*.*)",
         )
-        self._add_input_paths(paths)
+        # 多选文件：每文件的根默认取其父目录（root=None 时 _add_input_paths 回退）。
+        self._add_input_paths(paths, root=None)
 
     def _on_add_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "选择文件夹")
         if not folder:
             return
-        added = []
-        for name in sorted(os.listdir(folder)):
-            ext = os.path.splitext(name)[1].lower()
-            if ext in IMAGE_EXTENSIONS:
-                added.append(os.path.join(folder, name))
-        self._add_input_paths(added)
+        # 递归收集（与拖拽一致），文件夹本身作为这批文件的根。
+        added = self._collect_images_from_folder(folder)
+        self._add_input_paths(added, root=folder)
         if not added:
             self.statusBar().showMessage("该文件夹内未发现支持的图像文件")
 
-    def _add_input_paths(self, paths):
+    def _add_input_paths(self, paths, root=None):
         now = time.time()
         for path in paths:
             if path and path not in self.input_files:
                 self.input_files.append(path)
                 self._table_added[path] = now
                 self._file_meta.pop(path, None)  # recompute on next paint
+                # 记录根目录：显式传入则用之，否则回退到文件自身所在目录。
+                self.input_roots[path] = root if root is not None else os.path.dirname(path)
         self._refresh_input_views()
         self.statusBar().showMessage("已添加 %d 个文件" % len(self.input_files))
 
@@ -6421,7 +6488,32 @@ class MainWindow(QMainWindow):
         if self.custom_folder_radio.isChecked():
             folder = self.custom_folder_edit.text().strip()
             if folder and os.path.isdir(folder):
-                base = os.path.join(folder, os.path.splitext(os.path.basename(src))[0])
+                if getattr(self, "structure_check", None) and self.structure_check.isChecked():
+                    # 保留文件夹结构：按源文件相对「根」的子路径，镜像到自定义文件夹下。
+                    root = self.input_roots.get(src)
+                    if not root:
+                        root = os.path.dirname(src)
+                    # 保留上级目录：根上移一级，使被添加文件夹本身成为输出下的顶层段。
+                    if getattr(self, "parent_check", None) and self.parent_check.isChecked():
+                        parent = os.path.dirname(root)
+                        if parent and parent != root:
+                            root = parent
+                    src_dir = os.path.dirname(src)
+                    try:
+                        rel = os.path.relpath(src_dir, root)
+                    except ValueError:
+                        rel = ""  # 跨盘符等无法取相对路径时退化为拍平
+                    if rel in ("", "."):
+                        out_dir = folder
+                    else:
+                        out_dir = os.path.join(folder, rel)
+                    try:
+                        os.makedirs(out_dir, exist_ok=True)
+                    except OSError:
+                        pass  # 目录创建失败时在编码阶段报错，此处不中断
+                    base = os.path.join(out_dir, os.path.splitext(os.path.basename(src))[0])
+                else:
+                    base = os.path.join(folder, os.path.splitext(os.path.basename(src))[0])
 
         if self.add_suffix_radio.isChecked():
             suffix = self.suffix_edit.text().strip()

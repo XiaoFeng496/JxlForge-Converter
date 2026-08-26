@@ -195,14 +195,18 @@ check("C: non-jpg outputs NOT produced",
 # --- Scenario D: a .jxl input in the default mode is transcoded by cjxl into
 # a .jxl output (re-compress), NOT decoded to PNG. cjxl natively reads JXL,
 # so the large-JXL -> smaller-JXL use case works without a djxl round-trip.
+# 注意：源文件必须放在「输出文件夹之外」的子目录，否则输出路径会等于输入
+# 路径而触发「同路径跳过」（保留原始扩展名 的防覆盖保护），jobs 为空不会建 worker。
 tmpdir4 = tempfile.mkdtemp()
-src_jxl = os.path.join(tmpdir4, "dec.jxl")
+srcdir4 = os.path.join(tmpdir4, "src")
+os.makedirs(srcdir4)
+src_jxl = os.path.join(srcdir4, "dec.jxl")
 with open(src_jxl, "wb") as f:
     f.write(b"x")
 window4 = MainWindow()
 window4.input_files = [src_jxl]
 window4.custom_folder_radio.setChecked(True)
-window4.custom_folder_edit.setText(tmpdir4)
+window4.custom_folder_edit.setText(tmpdir4)  # 输出落在 tmpdir4/dec.jxl（≠ src）
 window4.format_combo.setCurrentText("JPEG XL (*.jxl)")
 logs_d = []
 window4.log_edit.appendPlainText = lambda s: logs_d.append(s)
