@@ -1973,6 +1973,14 @@ class MainWindow(QMainWindow):
         self._load_view_mode()
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            # 转换进行中：ESC 不做任何操作，避免误触退出或中断正在运行的任务。
+            if self._convert_worker is not None and self._convert_worker.isRunning():
+                event.accept()
+                return
+            self.close()
+            event.accept()
+            return
         if event.key() == Qt.Key_F9:
             self._perf_enabled = not self._perf_enabled
             if self._perf_enabled:
