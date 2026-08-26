@@ -454,14 +454,19 @@ def _preserve_ctime(src, dst):
     try:
         import pywintypes
         import win32file
+        import win32con
     except ImportError:
         raise RuntimeError(
             "未安装 pywin32，无法保持创建时间；请先安装：pip install pywin32"
         )
+    # 部分 pywin32 构建未在 win32con/win32file 暴露 FILE_WRITE_ATTRIBUTES
+    # （访问掩码 0x100，仅需写属性的最小权限，无需写文件数据）。缺失时回退字面量，
+    # 避免 AttributeError 导致「保持时间戳失败」频繁误报。
+    FILE_WRITE_ATTRIBUTES = getattr(win32con, "FILE_WRITE_ATTRIBUTES", 0x100)
     ctime = pywintypes.Time(st.st_ctime)
     handle = win32file.CreateFile(
         dst,
-        win32file.FILE_WRITE_ATTRIBUTES,
+        FILE_WRITE_ATTRIBUTES,
         win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE
         | win32file.FILE_SHARE_DELETE,
         None,
