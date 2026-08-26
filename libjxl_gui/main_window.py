@@ -2968,23 +2968,6 @@ class MainWindow(QMainWindow):
                     val_w.currentIndexChanged.connect(self._on_any_adv_changed)
         content_layout.addLayout(grid)
 
-        # 「保留原始扩展名」：输出命名选项（非 cjxl 参数，单独处理，不进
-        # _ADVANCED_SCHEMA）。默认关闭；开启后输出文件沿用输入的扩展名。
-        pe_row = QHBoxLayout()
-        self.preserve_ext_check = QCheckBox("保留原始扩展名")
-        self.preserve_ext_check.setToolTip(
-            "开启后输出文件使用与输入相同的扩展名；"
-            "关闭时用输出格式推导扩展名（如 .jxl / .png / .jpg）。"
-            "若与「原文件夹 + 无后缀」组合导致输出路径等于输入，将跳过该文件以免覆盖源文件。"
-        )
-        self.preserve_ext_check.setChecked(False)
-        pe_row.addWidget(self.preserve_ext_check)
-        pe_row.addStretch(1)
-        content_layout.addLayout(pe_row)
-        # 任一勾选变化都刷新命令预览与「已设置 N 项」摘要（预览不含扩展名，仅计数）。
-        self.preserve_ext_check.toggled.connect(self._on_any_adv_changed)
-        self.preserve_ext_check.toggled.connect(self._save_jxl_output)
-
         self.adv_content.setVisible(False)
         adv_outer.addWidget(self.adv_content)
         enc_layout.addWidget(self.adv_group)
@@ -3059,9 +3042,6 @@ class MainWindow(QMainWindow):
             check, _, _ = self._adv_widgets[s["key"]]
             if check.isEnabled() and check.isChecked():
                 n += 1
-        # 保留原始扩展名（非 cjxl 参数，但同属高级参数，计入「已设置」数量）。
-        if getattr(self, "preserve_ext_check", None) and self.preserve_ext_check.isChecked():
-            n += 1
         self.adv_summary.setText("已设置 %d 项" % n)
 
     def _update_cmd_preview(self, force=False):
@@ -3476,6 +3456,19 @@ class MainWindow(QMainWindow):
         self.jpeg_hard_skip_check.toggled.connect(self._on_jpeg_hard_skip_toggled)
         adv_params_layout.addWidget(self.jpeg_hard_skip_check)
 
+        # 保留原始扩展名：输出命名选项（非 cjxl 参数），独立于此「高级参数」母开关，
+        # 始终可用、不随母开关置灰（它不是 cjxl 专家参数，只是输出文件命名行为）。
+        # 默认关闭；开启后输出文件沿用输入扩展名。持久化复用 _save_jxl_output。
+        self.preserve_ext_check = QCheckBox("保留原始扩展名")
+        self.preserve_ext_check.setToolTip(
+            "开启后输出文件使用与输入相同的扩展名；关闭时用输出格式推导扩展名"
+            "（如 .jxl / .png / .jpg）。若与「原文件夹 + 源文件带扩展名」组合导致"
+            "输出路径等于输入，将跳过该文件以免覆盖源文件。"
+        )
+        self.preserve_ext_check.setChecked(False)
+        self.preserve_ext_check.toggled.connect(self._save_jxl_output)
+        adv_params_layout.addWidget(self.preserve_ext_check)
+
         self.adv_params_group = adv_params_group
         layout.addWidget(adv_params_group)
 
@@ -3732,7 +3725,8 @@ class MainWindow(QMainWindow):
         if group is not None and group.layout() is not None:
             for i in range(group.layout().count()):
                 w = group.layout().itemAt(i).widget()
-                if isinstance(w, QCheckBox) and w is not self.adv_threads_toggle:
+                if isinstance(w, QCheckBox) and w is not self.adv_threads_toggle \
+                        and w is not self.preserve_ext_check:
                     subitems.append(w.text())
         bullet = "\n".join("• %s" % t for t in subitems)
         box.setText(

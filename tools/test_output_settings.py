@@ -24,7 +24,7 @@ import sys
 import os
 import tempfile
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QCheckBox
 from PySide6.QtCore import QCoreApplication, QSettings, Qt, QSize
 from PySide6.QtWidgets import QScrollBar
 
@@ -480,6 +480,28 @@ pr2._save_jxl_output()
 pr3 = fresh_window()
 check("保留原始扩展名 取消后持久化：重启后为关闭",
       pr3.preserve_ext_check.isChecked() is False)
+
+# --- Group 14: 该复选框归属「设置页 - 高级参数区」，而非输出页高级参数折叠组。
+loc = fresh_window()
+check("保留原始扩展名 位于设置页高级参数区（adv_params_group）",
+      loc.preserve_ext_check.parent() is loc.adv_params_group)
+check("保留原始扩展名 不在输出页高级参数折叠组（adv_content）",
+      loc.preserve_ext_check.parent() is not loc.adv_content)
+# 母开关「启用高级参数」不影响其可用性（非 cjxl 专家参数）。
+loc._apply_adv_threads_state(False)
+check("保留原始扩展名 不受母开关关闭影响（始终可用）",
+      loc.preserve_ext_check.isEnabled() is True)
+loc._apply_adv_threads_state(True)
+# 母开关警告弹窗的子项列表不应包含「保留原始扩展名」。
+_warn_subs = []
+_grp = loc.adv_params_group
+for _i in range(_grp.layout().count()):
+    _ww = _grp.layout().itemAt(_i).widget()
+    if isinstance(_ww, QCheckBox) and _ww is not loc.adv_threads_toggle \
+            and _ww is not loc.preserve_ext_check:
+        _warn_subs.append(_ww.text())
+check("保留原始扩展名 不出现在母开关警告子项列表中",
+      "保留原始扩展名" not in _warn_subs)
 
 # Restore the real encode so other test modules are unaffected.
 conv_mod.encode = _real_encode
