@@ -2967,6 +2967,24 @@ class MainWindow(QMainWindow):
                 else:
                     val_w.currentIndexChanged.connect(self._on_any_adv_changed)
         content_layout.addLayout(grid)
+
+        # 「保留原始扩展名」：输出命名选项（非 cjxl 参数，单独处理，不进
+        # _ADVANCED_SCHEMA）。默认关闭；开启后输出文件沿用输入的扩展名。
+        pe_row = QHBoxLayout()
+        self.preserve_ext_check = QCheckBox("保留原始扩展名")
+        self.preserve_ext_check.setToolTip(
+            "开启后输出文件使用与输入相同的扩展名；"
+            "关闭时用输出格式推导扩展名（如 .jxl / .png / .jpg）。"
+            "若与「原文件夹 + 无后缀」组合导致输出路径等于输入，将跳过该文件以免覆盖源文件。"
+        )
+        self.preserve_ext_check.setChecked(False)
+        pe_row.addWidget(self.preserve_ext_check)
+        pe_row.addStretch(1)
+        content_layout.addLayout(pe_row)
+        # 任一勾选变化都刷新命令预览与「已设置 N 项」摘要（预览不含扩展名，仅计数）。
+        self.preserve_ext_check.toggled.connect(self._on_any_adv_changed)
+        self.preserve_ext_check.toggled.connect(self._save_jxl_output)
+
         self.adv_content.setVisible(False)
         adv_outer.addWidget(self.adv_content)
         enc_layout.addWidget(self.adv_group)
@@ -3041,6 +3059,9 @@ class MainWindow(QMainWindow):
             check, _, _ = self._adv_widgets[s["key"]]
             if check.isEnabled() and check.isChecked():
                 n += 1
+        # 保留原始扩展名（非 cjxl 参数，但同属高级参数，计入「已设置」数量）。
+        if getattr(self, "preserve_ext_check", None) and self.preserve_ext_check.isChecked():
+            n += 1
         self.adv_summary.setText("已设置 %d 项" % n)
 
     def _update_cmd_preview(self, force=False):
@@ -3846,6 +3867,8 @@ class MainWindow(QMainWindow):
         settings.setValue("preserve_mtime", self.preserve_mtime_check.isChecked())
         # 编码结果更大时丢弃输出（保留原文件）：仅 JXL 输出生效。
         settings.setValue("discard_if_larger", self.discard_if_larger_check.isChecked())
+        # 保留原始扩展名：开启后输出文件沿用输入扩展名（QSettings 直接存 bool）。
+        settings.setValue("preserve_original_extension", self.preserve_ext_check.isChecked())
         self._save_advanced(settings)
         # 自定义命令：勾选状态 + 已编辑的命令文本。
         settings.setValue("custom_cmd_on", self.custom_cmd_check.isChecked())
@@ -3916,6 +3939,11 @@ class MainWindow(QMainWindow):
         # 恢复「编码结果更大时丢弃输出（保留原文件）」勾选状态（同 delete_original 解析）。
         self.discard_if_larger_check.setChecked(
             str(settings.value("discard_if_larger", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
+        # 恢复「保留原始扩展名」勾选状态（同 delete_original 解析）。
+        self.preserve_ext_check.setChecked(
+            str(settings.value("preserve_original_extension", False)).strip().lower()
             in ("true", "1", "yes", "on")
         )
         # 根据恢复后的输出格式刷新「丢弃输出」复选框的可用状态（PNG/JPEG 时置灰）。
@@ -6049,6 +6077,7 @@ class MainWindow(QMainWindow):
         skipped = []
         skipped_jpg = []
         skipped_jpg_nonrecon = []
+        skipped_same = []
         nonrecon_jpg = []
         out_fmt = self._current_output_format()
         # jpeg_hard_skip 是「启用高级参数」的子项：母开关关闭时即便此前勾选过也不生效。
@@ -6078,6 +6107,11 @@ class MainWindow(QMainWindow):
                 if action == "confirm":
                     nonrecon_jpg.append(src)
             out_path = self._build_output_path(src)
+            # 保留原始扩展名 + 原文件夹 + 无后缀时，输出路径可能等于输入路径，
+            # 直接覆盖源文件会造成数据丢失，跳过并提示。
+            if os.path.abspath(out_path) == os.path.abspath(src):
+                skipped_same.append(src)
+                continue
             out_is_jxl = out_path.lower().endswith(".jxl")
             jobs.append((src, out_path, out_is_jxl))
 
@@ -6144,6 +6178,19 @@ class MainWindow(QMainWindow):
                 % len(skipped_jpg_nonrecon)
             )
             for s in skipped_jpg_nonrecon:
+                self.log_edit.appendPlainText("    - %s" % s)
+        # 保留原始扩展名导致输出路径与输入路径相同：跳过以免覆盖源文件。
+        if skipped_same:
+            self.statusBar().showMessage(
+                "已跳过 %d 个文件（输出路径与输入相同，避免覆盖源文件）"
+                % len(skipped_same)
+            )
+            self.log_edit.appendPlainText(
+                "提示：以下 %d 个文件因「保留原始扩展名」使输出路径与输入路径相同，"
+                "跳过以避免覆盖源文件（建议使用自定义文件夹或添加后缀）："
+                % len(skipped_same)
+            )
+            for s in skipped_same:
                 self.log_edit.appendPlainText("    - %s" % s)
         # 输出文件已存在时的冲突策略（替换/询问/跳过/重命名）：在主线程预处理，
         # 不在 worker 线程弹窗。「替换」即 cjxl/djxl 默认覆盖，原样保留 jobs。
@@ -6369,6 +6416,13 @@ class MainWindow(QMainWindow):
             out_ext = ".png"
         else:
             out_ext = ".jxl"
+
+        # 保留原始扩展名（高级参数，默认关闭）：开启后输出文件沿用输入的扩展名，
+        # 而非按输出格式推导（如 .jxl/.png/.jpg）。输入无扩展名时回退到格式推导值。
+        if getattr(self, "preserve_ext_check", None) and self.preserve_ext_check.isChecked():
+            src_ext = os.path.splitext(src)[1].lower()
+            if src_ext:
+                out_ext = src_ext
 
         if self.custom_folder_radio.isChecked():
             folder = self.custom_folder_edit.text().strip()

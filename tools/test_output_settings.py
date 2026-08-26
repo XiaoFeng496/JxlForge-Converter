@@ -424,6 +424,63 @@ check("jxl input -> png output when format=PNG (decode)",
 check("non-jxl input honors PNG format choice",
       bop._build_output_path("x/y/photo.jpg").lower().endswith(".png"))
 
+# --- Group 13: 高级参数「保留原始扩展名」：默认关闭；开启后输出沿用输入扩展名；
+# 输入无扩展名时回退到格式推导值；与「原文件夹 + 无后缀」组合使输出==输入时，
+# _on_convert 的 skipped_same 守卫会跳过该文件以免覆盖源文件。
+pe = fresh_window()
+check("保留原始扩展名 默认关闭", pe.preserve_ext_check.isChecked() is False)
+
+pe.format_combo.setCurrentText("JPEG XL (*.jxl)")
+pe.preserve_ext_check.setChecked(True)
+check("开启后：png 输入 -> 输出沿用 .png（即便格式=JXL）",
+      pe._build_output_path("x/y/photo.png").lower().endswith(".png"))
+check("开启后：jpg 输入 -> 输出沿用 .jpg",
+      pe._build_output_path("x/y/photo.jpg").lower().endswith(".jpg"))
+pe.preserve_ext_check.setChecked(False)
+check("关闭后：png 输入 -> 输出按格式推导为 .jxl",
+      pe._build_output_path("x/y/photo.png").lower().endswith(".jxl"))
+
+# 输入无扩展名：开启后回退到格式推导值（不强行加空扩展名）。
+pe.preserve_ext_check.setChecked(True)
+pe.format_combo.setCurrentText("PNG (*.png)")
+check("开启后：无扩展名输入 -> 回退为格式推导 .png",
+      pe._build_output_path("x/y/photo").lower().endswith(".png"))
+pe.format_combo.setCurrentText("JPEG XL (*.jxl)")
+
+# 防覆盖守卫前置：原文件夹 + 无后缀 + 保留扩展名 => 输出路径 == 输入路径。
+gpre = fresh_window()
+gpre.format_combo.setCurrentText("JPEG XL (*.jxl)")
+gpre.preserve_ext_check.setChecked(True)
+gpre.same_folder_radio.setChecked(True)
+gpre.keep_name_radio.setChecked(True)
+_gpre_src = "x/y/photo.png"
+check("防覆盖守卫前置：原文件夹+无后缀+保留扩展名 使 输出==输入",
+      os.path.abspath(gpre._build_output_path(_gpre_src)) == os.path.abspath(_gpre_src))
+
+# 实际触发守卫：单文件输出==输入时被跳过，不创建转换任务（不覆盖源文件）。
+g = fresh_window()
+g.format_combo.setCurrentText("JPEG XL (*.jxl)")
+g.preserve_ext_check.setChecked(True)
+g.same_folder_radio.setChecked(True)
+g.keep_name_radio.setChecked(True)
+g.input_files = [os.path.join(tempfile.mkdtemp(), "photo.png")]
+g._on_convert()
+check("防覆盖守卫：输出==输入 时文件被跳过（不创建转换任务）",
+      g._convert_worker is None)
+
+# 持久化 round-trip：开启 -> 重启仍为开启；取消 -> 重启为关闭。
+pr1 = fresh_window()
+pr1.preserve_ext_check.setChecked(True)
+pr1._save_jxl_output()
+pr2 = fresh_window()
+check("保留原始扩展名 持久化：重启后仍为开启",
+      pr2.preserve_ext_check.isChecked() is True)
+pr2.preserve_ext_check.setChecked(False)
+pr2._save_jxl_output()
+pr3 = fresh_window()
+check("保留原始扩展名 取消后持久化：重启后为关闭",
+      pr3.preserve_ext_check.isChecked() is False)
+
 # Restore the real encode so other test modules are unaffected.
 conv_mod.encode = _real_encode
 
