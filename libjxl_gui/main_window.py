@@ -58,6 +58,7 @@ from PySide6.QtCore import (
     QRect,
     QSize,
     Qt,
+    QUrl,
     QSettings,
     QTimer,
     QThread,
@@ -79,6 +80,7 @@ from PySide6.QtGui import (
     QWheelEvent,
     QCursor,
     QMouseEvent,
+    QDesktopServices,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -2924,7 +2926,62 @@ class MainWindow(QMainWindow):
             lambda _=None: self._save_jxl_output()
         )
         options_layout.addWidget(self.delete_original_check)
-        layout.addWidget(options_group)
+
+        # ---- 转换完毕之后的后处理动作 ----
+        # 与「选项」组水平并排：利用「选项」组原本独占整行时在右侧留下的空白，
+        # 避免整页过宽或另起一行。两组均按自身内容宽度紧凑显示，行尾的
+        # addStretch 把剩余空间推到最右，从而「压缩」了选项区右侧的空白。
+        done_group = QGroupBox("转换完毕之后")
+        done_group.setAutoFillBackground(False)
+        done_layout = QVBoxLayout(done_group)
+        self.open_explorer_check = QCheckBox("打开资源管理器")
+        self.open_explorer_check.setToolTip(
+            "转换全部完成后，自动打开输出文件夹（资源管理器窗口）。"
+        )
+        self.open_explorer_check.toggled.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        done_layout.addWidget(self.open_explorer_check)
+
+        self.clear_input_check = QCheckBox('清除"输入"文件')
+        self.clear_input_check.setToolTip(
+            "转换全部完成后，清空输入列表中的文件（不会删除磁盘上的原始文件）。"
+        )
+        self.clear_input_check.toggled.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        done_layout.addWidget(self.clear_input_check)
+
+        self.beep_check = QCheckBox("过程结束时发出提示音")
+        self.beep_check.setToolTip(
+            "转换全部完成后播放一声提示音，便于离开电脑时也能知晓任务结束。"
+        )
+        self.beep_check.toggled.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        done_layout.addWidget(self.beep_check)
+
+        self.exit_after_check = QCheckBox("转换完毕之后退出")
+        self.exit_after_check.setToolTip(
+            "转换全部完成后自动退出本程序。"
+        )
+        self.exit_after_check.toggled.connect(
+            lambda _=None: self._save_jxl_output()
+        )
+        done_layout.addWidget(self.exit_after_check)
+        # 末尾 addStretch(1)：把 4 个复选框全部顶到顶部，剩余垂直空间全部沉底，
+        # 强制「从上到下自然排列、不做垂直均分」（分组框被 50/50 撑高时也不会被拉散）。
+        done_layout.addStretch(1)
+
+        # 「选项」组与「转换完毕之后」组左右各占一半（1:1 均分整行宽度）。
+        # 两者都带 stretch=1、行尾不再 addStretch，从而严格左右对半、不向任一侧偏。
+        # 「转换完毕之后」组内的复选框已在 done_layout 末尾 addStretch 顶到顶部，
+        # 自上而下自然排列，分组框被撑高时也绝不均分。
+        options_done_row = QHBoxLayout()
+        options_done_row.setSpacing(12)
+        options_done_row.addWidget(options_group, 1)
+        options_done_row.addWidget(done_group, 1)
+        layout.addLayout(options_done_row)
 
         layout.addStretch(1)
         # Note: 开始转换 按钮已移至窗口底部常驻栏，此处不再放置。
@@ -3947,6 +4004,11 @@ class MainWindow(QMainWindow):
         # 自定义命令：勾选状态 + 已编辑的命令文本。
         settings.setValue("custom_cmd_on", self.custom_cmd_check.isChecked())
         settings.setValue("custom_cmd_text", self.cmd_edit.text())
+        # 转换完毕之后的后处理动作（4 个独立开关，重启后由 _load_jxl_output 恢复）。
+        settings.setValue("open_explorer", self.open_explorer_check.isChecked())
+        settings.setValue("clear_input", self.clear_input_check.isChecked())
+        settings.setValue("beep", self.beep_check.isChecked())
+        settings.setValue("exit_after", self.exit_after_check.isChecked())
         settings.endGroup()
 
     def _update_discard_checkbox_state(self):
@@ -4038,6 +4100,23 @@ class MainWindow(QMainWindow):
         )
         self.parent_check.setChecked(
             str(settings.value("preserve_parent", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
+        # 恢复「转换完毕之后的后处理动作」4 个开关（INI 把 bool 存为字符串，需显式解析）。
+        self.open_explorer_check.setChecked(
+            str(settings.value("open_explorer", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
+        self.clear_input_check.setChecked(
+            str(settings.value("clear_input", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
+        self.beep_check.setChecked(
+            str(settings.value("beep", False)).strip().lower()
+            in ("true", "1", "yes", "on")
+        )
+        self.exit_after_check.setChecked(
+            str(settings.value("exit_after", False)).strip().lower()
             in ("true", "1", "yes", "on")
         )
         # 根据恢复后的输出格式刷新「丢弃输出」复选框的可用状态（PNG/JPEG 时置灰）。
@@ -6442,6 +6521,14 @@ class MainWindow(QMainWindow):
                 log("注意：%d 个原文件因删除失败而保留。" % (len(ok_sources) - n_del))
             log("")
 
+        # 「转换完毕之后」的后处理动作（4 个独立开关，由 _save_jxl_output 持久化）：
+        # 仅在正常完成（未点「停止」）时执行——与「删除原文件」同一判定，避免
+        # 中止时意外清空输入列表或自动退出。执行顺序刻意安排为
+        # 打开资源管理器 -> 清除输入文件 -> 提示音 -> 退出，保证「退出」永远最后，
+        # 且「打开资源管理器」需要的输出目录在「清除输入文件」清空前就已算出。
+        if not stopped:
+            self._run_post_convert_actions()
+
         # 进度条收尾：停在已处理数（正常完成=总数，中止=部分），清除预计剩余。
         self.progress_bar.setValue(worker._stat_processed)
         self.eta_label.setText("预计剩余：--")
@@ -6452,6 +6539,80 @@ class MainWindow(QMainWindow):
         if worker is not None:
             worker.deleteLater()
             self._convert_worker = None
+
+    def _run_post_convert_actions(self):
+        """转换正常完成后执行的「转换完毕之后」后处理动作。
+
+        4 个开关各自独立、由 _save_jxl_output 持久化。顺序固定为
+        打开资源管理器 -> 清除输入文件 -> 提示音 -> 退出：
+        - 打开资源管理器依赖输入文件路径推导输出目录，必须先于「清除输入文件」，
+          否则输入列表被清空后将无法定位输出文件夹；
+        - 退出放最后，确保前三个动作（尤其是 explorer / beep）都已触发。
+        任意一步失败都不应阻断其余步骤，故各步独立 try 容错。
+        """
+        # 1) 打开资源管理器：定位输出目录（可能多个，取最近公共祖先），统一打开。
+        if self.open_explorer_check.isChecked():
+            try:
+                self._open_output_in_explorer()
+            except Exception as exc:  # 打开文件夹失败不应中断其余动作
+                self.log_edit.appendPlainText(
+                    "打开资源管理器失败：%s" % exc
+                )
+
+        # 2) 清除「输入」文件（仅清空列表，不删除磁盘原始文件）。
+        if self.clear_input_check.isChecked():
+            try:
+                self._on_clear_inputs()
+            except Exception as exc:
+                self.log_edit.appendPlainText(
+                    "清除输入列表失败：%s" % exc
+                )
+
+        # 3) 过程结束时发出提示音。
+        if self.beep_check.isChecked():
+            try:
+                QApplication.beep()
+            except Exception as exc:
+                self.log_edit.appendPlainText(
+                    "播放提示音失败：%s" % exc
+                )
+
+        # 4) 转换完毕之后退出：必须最后执行。
+        if self.exit_after_check.isChecked():
+            try:
+                QApplication.quit()
+            except Exception as exc:
+                self.log_edit.appendPlainText(
+                    "自动退出失败：%s" % exc
+                )
+
+    def _open_output_in_explorer(self):
+        """根据当前输入文件推导输出目录，并在资源管理器中打开。
+
+        输出目录由各源文件经 _build_output_path 推算后取 dirname 得到；
+        多个（如开启「保留文件夹结构」散布到不同子目录）时取它们的
+        最近公共祖先（commonpath），让窗口落在用户最可能关心的根目录。
+        某个目录不存在（尚未实际写出）时跳过该目录，但只要有一个有效即打开。
+        """
+        dirs = set()
+        for src in self.input_files:
+            out = self._build_output_path(src)
+            d = os.path.dirname(out)
+            if d:
+                dirs.add(d)
+        dirs = [d for d in dirs if os.path.isdir(d)]
+        if not dirs:
+            return
+        if len(dirs) == 1:
+            target = dirs[0]
+        else:
+            try:
+                target = os.path.commonpath(dirs)
+            except ValueError:
+                # 跨盘符等情况无法取公共祖先时，退回首个目录。
+                target = sorted(dirs)[0]
+        if target and os.path.isdir(target):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(target))
 
     def _on_progress_update(self, processed, total):
         """Update the progress bar, current count, and ETA from worker progress."""
