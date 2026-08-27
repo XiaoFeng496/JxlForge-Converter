@@ -41,7 +41,7 @@ _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
 from libjxl_gui import converter as conv_mod
-from libjxl_gui.main_window import MainWindow, GRID_SIZES
+from libjxl_gui.main_window import MainWindow, GRID_SIZES, FIT_EXTRA_H
 
 
 def fresh_window():
@@ -351,7 +351,7 @@ class _FakeVP:
 
 
 win.input_list.viewport = lambda: _FakeVP()
-vp_h = 3 * GRID_SIZES["缩略图"].height() + 17
+vp_h = 3 * GRID_SIZES["缩略图"].height() + 17 + FIT_EXTRA_H
 x0, y0 = win.x(), win.y()
 # fresh_window() 的 show()+processEvents() 会在 offscreen 下先触发一次真实 fit，
 # 把窗口 minimumHeight() 设为基于虚拟几何的大值（~959）。此处显式复位为 0，
@@ -361,7 +361,7 @@ x0, y0 = win.x(), win.y()
 win.setMinimumHeight(0)
 win._fit_window_to_grid(center=False)
 check("fit uses cached frame when viewport hidden (no huge height)",
-      win.minimumHeight() < 800 and win.minimumHeight() == vp_h + 100)
+      win.height() == vp_h + 100)
 # center=False must keep the window's *frame* position (only resize), modulo
 # the legitimate on-screen clamping that prevents the OS from re-floating an
 # off-screen window. The earlier "drift up" regression was a feedback loop

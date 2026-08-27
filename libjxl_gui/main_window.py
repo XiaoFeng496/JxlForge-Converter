@@ -606,6 +606,29 @@ FIT_EXTRA_W = 6                          # extra viewport width (px) added when
                                          # fitting the 6x3 grid, so the 6th column
                                          # is fully visible despite DPI/scrollbar
                                          # rounding (prevents "looks like 5 columns")
+FIT_EXTRA_H = 21                         # extra viewport height (px) added when
+                                         # fitting the 6x3 grid, so the output page
+                                         # (the tallest tab) shows in full without
+                                         # clipping; even 1px less and it clips.
+ROOT_MARGIN_LTR = 9                      # root layout left / top / right contents
+                                         # margin (px); identical across themes.
+ROOT_MARGIN_BOTTOM_NATIVE = 2            # root layout bottom contents margin (px)
+                                         # under the native / 原生（无闪烁） themes.
+ROOT_MARGIN_BOTTOM_FUSION = 3            # root layout bottom contents margin (px)
+                                         # under Fusion; 1px larger than native to
+                                         # compensate for Fusion's tighter frame.
+
+
+def _root_bottom_margin():
+    """Root layout bottom contents margin (px).
+
+    Fusion draws its frame ~1px tighter than the native themes, so under Fusion
+    the bottom margin is 1px larger to keep the same visual gap above the bottom
+    button bar. The native themes (原生 / 原生（无闪烁）) use the smaller value.
+    """
+    return ROOT_MARGIN_BOTTOM_FUSION if _APP_THEME == "fusion" else ROOT_MARGIN_BOTTOM_NATIVE
+
+
 THUMB_BATCH = 8                           # thumbnails decoded per timer tick when
                                          # (re)building the icon view, so the first
                                          # switch to a thumbnail mode stays responsive
@@ -2249,7 +2272,7 @@ class MainWindow(QMainWindow):
         sbw = max(lst.verticalScrollBar().sizeHint().width(), 17)
         sbh = max(lst.horizontalScrollBar().sizeHint().height(), 17)
         vp_w = COLS * grid.width() + sbw + FIT_EXTRA_W
-        vp_h = ROWS * grid.height() + sbh
+        vp_h = ROWS * grid.height() + sbh + FIT_EXTRA_H
         w = max(self.minimumWidth(), vp_w + frame_w)    # target CLIENT width
         h = max(self.minimumHeight(), vp_h + frame_h)   # target CLIENT height
 
@@ -2288,11 +2311,6 @@ class MainWindow(QMainWindow):
         # setGeometry(), whose mixed coordinate spaces caused the drift.
         self.resize(w, h)
         self.move(x, y)
-        # Pin the window's minimum size to the 6x3 fit so the actions tab (which
-        # is intrinsically wider) can never clamp the startup window wider than
-        # 6x3. This is the floor; the user can still enlarge the window at any
-        # time.
-        self.setMinimumSize(w, h)
 
     # ------------------------------------------------------------------
     # UI construction (all visible strings are Chinese)
@@ -2301,6 +2319,11 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
+        # 根布局左/上/右边距统一为 ROOT_MARGIN_LTR(9px)；底边距按主题区分：
+        # 原生（含原生无闪烁）用 2px，Fusion 用 3px（Fusion 边框更紧，多 1px 校正）。
+        root.setContentsMargins(
+            ROOT_MARGIN_LTR, ROOT_MARGIN_LTR, ROOT_MARGIN_LTR,
+            _root_bottom_margin())
 
         self.tabs = QTabWidget()
         self.input_tab = self._build_input_tab()
@@ -2316,14 +2339,14 @@ class MainWindow(QMainWindow):
         # Persistent bottom bar: 转换 (left) + 停止 + 关闭 (right).
         bottom = QHBoxLayout()
         self.convert_button = QPushButton("转换")
-        self.convert_button.setMinimumHeight(42)
+        self.convert_button.setMinimumHeight(34)
         self.convert_button.clicked.connect(self._on_convert)
         self.stop_button = QPushButton("停止")
-        self.stop_button.setMinimumHeight(42)
+        self.stop_button.setMinimumHeight(34)
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self._on_convert_stop)
         self.close_button = QPushButton("关闭")
-        self.close_button.setMinimumHeight(42)
+        self.close_button.setMinimumHeight(34)
         self.close_button.clicked.connect(self.close)
         bottom.addWidget(self.convert_button)
         bottom.addWidget(self.stop_button)
@@ -5949,6 +5972,14 @@ class MainWindow(QMainWindow):
             if combo is not None:
                 self._set_combo_min_width(combo)
         self._sync_inactive_palette()
+        # Native vs Fusion frames differ by 1px at the bottom; keep the root
+        # layout's bottom margin in sync with the active theme so the gap above
+        # the bottom button bar stays visually correct after a switch.
+        central = self.centralWidget()
+        if central is not None and central.layout() is not None:
+            central.layout().setContentsMargins(
+                ROOT_MARGIN_LTR, ROOT_MARGIN_LTR, ROOT_MARGIN_LTR,
+                _root_bottom_margin())
         self.statusBar().showMessage(
             "主题已切换为：%s" % _THEME_LABELS.get(theme, theme))
 
