@@ -2865,6 +2865,9 @@ class MainWindow(QMainWindow):
 
         # 「保持原创建时间」/「保持原修改时间」：勾选后，成功转换的输出文件
         # 将继承原文件的对应时间戳（而非使用转换当天的当前时间）。默认不勾选。
+        # 两项语义成对，合并到同一行以节省垂直空间（窗口默认高度有限）。
+        _ts_row = QHBoxLayout()
+        _ts_row.setSpacing(24)
         self.preserve_ctime_check = QCheckBox("保持原创建时间")
         self.preserve_ctime_check.setToolTip(
             "勾选后，成功转换的输出文件将保留原文件的创建时间"
@@ -2873,7 +2876,7 @@ class MainWindow(QMainWindow):
         self.preserve_ctime_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
         )
-        options_layout.addWidget(self.preserve_ctime_check)
+        _ts_row.addWidget(self.preserve_ctime_check)
 
         self.preserve_mtime_check = QCheckBox("保持原修改时间")
         self.preserve_mtime_check.setToolTip(
@@ -2883,7 +2886,9 @@ class MainWindow(QMainWindow):
         self.preserve_mtime_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
         )
-        options_layout.addWidget(self.preserve_mtime_check)
+        _ts_row.addWidget(self.preserve_mtime_check)
+        _ts_row.addStretch(1)
+        options_layout.addLayout(_ts_row)
 
         # 「删除原文件」：勾选后，转换成功的原文件在批处理结束后移入回收站，
         # 失败的源文件保持不变。默认不勾选（保守，避免误删）。
