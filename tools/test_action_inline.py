@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QSpinBox, QDoubleSpinBox, QLineEdit, QComboBox,
+    QApplication, QGridLayout, QSpinBox, QDoubleSpinBox, QLineEdit, QComboBox,
 )
 
 app = QApplication.instance() or QApplication(sys.argv)
@@ -76,7 +76,35 @@ w = widget_at(0)
 check("调整大小行有 width spin", "width" in w._param_widgets)
 check("调整大小行有 height spin", "height" in w._param_widgets)
 check("调整大小行有 algorithm combo", "algorithm" in w._param_widgets)
+# 折叠/按钮（2026-08-28 新增）
+check("每个动作项有折叠按钮", hasattr(w, "collapse_btn"))
+# ⚠️ offscreen 下窗口未 show，全局 isVisible() 恒 False；改用 isVisibleTo(parent)
+check("默认展开（params_container 对父可见）",
+      w.params_container.isVisibleTo(w) is True)
+check("按钮在标题行（与 summary/checkbox 同行）",
+      w.collapse_btn.parentWidget() is w)
+check("调整大小行有 algorithm combo", "algorithm" in w._param_widgets)
 check("algorithm 列表含 6 种", len(processor.RESIZE_ALGORITHMS) == 6)
+
+# QGridLayout(2 列) 排版（替代 FlowLayout：PySide6 中 Python 派生 QLayout
+# 的 setGeometry 不会被 C++ 端 dispatch，导致 _do_layout 从不执行）
+grid = w.params_container.layout()
+check("参数容器用 QGridLayout（2 列布局）",
+      isinstance(grid, QGridLayout))
+check("label 列无 stretch（内容宽度）", grid.columnStretch(0) == 0)
+check("widget 列 stretch=1（占满剩余宽度）", grid.columnStretch(1) == 1)
+# 三个参数各占一行
+check("3 个参数占 3 行", grid.rowCount() == 3)
+labels = [grid.itemAtPosition(r, 0).widget().text()
+          for r in range(grid.rowCount())]
+widgets = [grid.itemAtPosition(r, 1).widget()
+           for r in range(grid.rowCount())]
+check("3 行 label 顺序正确：宽/高/算法",
+      labels == ["宽", "高", "算法"])
+check("3 行 widget 类型正确：QSpinBox/QSpinBox/NoFlickerComboBox",
+      type(widgets[0]).__name__ == "QSpinBox"
+      and type(widgets[1]).__name__ == "QSpinBox"
+      and type(widgets[2]).__name__ == "NoFlickerComboBox")
 
 # 改宽 → 写回 dict
 w._param_widgets["width"].setValue(1024)
@@ -292,6 +320,45 @@ win._render_action_preview = _orig_render3
 check("取消勾选后切源 fit=False（沿用当前缩放）",
       bool(src_fit_args) and src_fit_args[-1][1].get("fit") is False)
 win.fit_on_source_change_check.setChecked(True)
+
+
+# --- 8) 折叠按钮：点击可折叠/展开，状态持久化 ------------------------
+win._on_clear_actions()
+win._add_action_item(
+    {"type": "水印", "params": {"text": "X"}}, render_preview=False,
+)
+item = win.action_list.item(0)
+w = widget_at(0)
+check("折叠按钮默认下箭头（展开）",
+      w.collapse_btn.arrowType() == Qt.DownArrow)
+check("默认 params_container 对父可见",
+      w.params_container.isVisibleTo(w))
+# 点击折叠
+w.collapse_btn.toggle()
+check("点击后折叠（对父不可见）",
+      w.params_container.isVisibleTo(w) is False)
+check("折叠后箭头变右箭头",
+      w.collapse_btn.arrowType() == Qt.RightArrow)
+check("折叠状态写回 action._collapsed=True",
+      item.data(Qt.UserRole).get("_collapsed") is True)
+# 再点击展开
+w.collapse_btn.toggle()
+check("再次点击展开",
+      w.params_container.isVisibleTo(w) is True)
+check("箭头变回下箭头",
+      w.collapse_btn.arrowType() == Qt.DownArrow)
+check("展开后 _collapsed=False",
+      item.data(Qt.UserRole).get("_collapsed") is False)
+# 重新创建动作项时，_collapsed=True 的应保持折叠
+win._on_clear_actions()
+win._add_action_item(
+    {"type": "水印", "params": {"text": "Y"}, "_collapsed": True},
+    render_preview=False,
+)
+w2 = widget_at(0)
+check("恢复时按 _collapsed=True 初始折叠",
+      w2.params_container.isVisibleTo(w2) is False
+      and w2.collapse_btn.arrowType() == Qt.RightArrow)
 
 
 print()

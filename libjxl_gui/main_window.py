@@ -102,7 +102,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -1443,31 +1442,41 @@ class PreviewDialog(QDialog):
 
 
 class ActionItemWidget(QWidget):
-    """动作列表项的 widget：勾选框 + 摘要 + inline 参数控件 + 上移/下移/移除。
+    """动作列表项的 widget：折叠按钮 + 勾选框 + 摘要 + inline 参数 + 紧凑按钮。
 
-    每个 action 的参数直接显示在列表项里（不再弹对话框），值变化即时
-    调 ``on_change(item, key, value)`` 通知 MainWindow 更新数据并触发
-    预览——拖动 spinbox 时主线程会用 250ms 防抖，避免每个值都重渲染。
+    布局（2 行）：
+        行 1: [▾ 折叠] [☑ 启用] [摘要 stretch] [上移] [下移] [移除]
+        行 2: QGridLayout(2 列: label, widget) 装 inline 参数（按 type 动态生成）
+              —— 折叠时整行隐藏
+    参数变化调 ``on_change(item, key, value)`` 通知 MainWindow，
+    主线程用 250ms 防抖触发预览刷新。折叠状态存 ``action._collapsed`` 跨会话恢复。
 
-    兼容旧调用（``ActionItemWidget()`` 无参）：生成 2 行 legacy 布局
-    （无 inline 参数），仅供 test_actions_ui 之类的结构检查使用。
+    历史上试过 FlowLayout（按可用宽度自动换行），但 PySide6 中 Python 派生
+    QLayout 的 setGeometry 不会被 C++ 端 dispatch，导致 _do_layout 从不执行。
+    改为 QGridLayout(2 列) 后稳定可靠：label 列固定宽度、widget 列 stretch=1
+    占满剩余；多参数时自动换行（每行一对 label + widget）。
     """
 
     def __init__(self, action=None, on_change=None, parent=None):
         super().__init__(parent)
-        self.item = None  # back-reference, set by the caller
+        self.item = None
         self.action = dict(action) if isinstance(action, dict) else {}
         self.on_change = on_change
-        # 防回调递归：setData 时 spinbox 会发 valueChanged，再回调 on_change
-        # 又会 setData -> 死循环。用 _block_change 临时吞掉。
         self._block_change = False
         self._param_widgets = {}
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 5, 8, 5)
-        root.setSpacing(5)
-        # 第 1 行：勾选框 + 摘要
+        root.setContentsMargins(8, 4, 8, 4)
+        root.setSpacing(3)
+        # 第 1 行：折叠 + 勾选 + 摘要(stretch) + 三个紧凑按钮
         top_row = QHBoxLayout()
-        top_row.setSpacing(6)
+        top_row.setSpacing(4)
+        self.collapse_btn = QToolButton()
+        self.collapse_btn.setArrowType(Qt.DownArrow)
+        self.collapse_btn.setCheckable(True)
+        self.collapse_btn.setChecked(True)  # 默认展开
+        self.collapse_btn.setFixedSize(18, 18)
+        self.collapse_btn.setToolTip("折叠/展开参数")
+        top_row.addWidget(self.collapse_btn, 0, Qt.AlignTop)
         self.enable_check = QCheckBox()
         self.enable_check.setChecked(bool(self.action.get("enabled", True)))
         self.enable_check.setToolTip(
@@ -1478,46 +1487,69 @@ class ActionItemWidget(QWidget):
         if self.action:
             self.summary_label.setText(self._summary_text())
         top_row.addWidget(self.summary_label, stretch=1)
-        root.addLayout(top_row)
-        # 第 2 行：inline 参数控件（按 type 动态生成）
-        # 用 FlowLayout 而非 QHBoxLayout：参数多时（水印 5 个、裁剪 4 个）
-        # 不挤压窗口，容器变窄时自动换行；变宽时合并成一行。FlowLayout 内部
-        # 实现见同文件 _fusion_style() 之下的 class FlowLayout。
-        if self.action:
-            param_row = FlowLayout()
-            self._param_widgets = self._build_param_widgets(param_row)
-            if self._param_widgets:
-                root.addLayout(param_row)
-        # 第 3 行：上移/下移/移除
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(6)
+        # 三个紧凑按钮（与标题同行，不另起一行）
         self.up_button = QPushButton("上移")
         self.down_button = QPushButton("下移")
         self.remove_button = QPushButton("移除")
         for b in (self.up_button, self.down_button, self.remove_button):
-            btn_row.addWidget(b)
-        btn_row.addStretch(1)
-        root.addLayout(btn_row)
+            b.setMaximumHeight(22)
+            b.setMinimumHeight(22)
+            # 移除按钮文字偏长，加 minimum width 限制避免拉宽整行
+            top_row.addWidget(b)
+        root.addLayout(top_row)
+        # 第 2 行：inline 参数（可折叠）
+        # 用 QGridLayout(2 列: label, widget)：
+        # PySide6 中 Python 派生的 QLayout 子类的 setGeometry 不会被 C++ 端
+        # 调到（_do_layout 从不执行）。QGridLayout 是 Qt 原生实现，cascade 稳：
+        # label 列固定宽度、widget 列 stretch=1 占满剩余。
+        self.params_container = QWidget()
+        if self.action:
+            param_layout = QGridLayout(self.params_container)
+            param_layout.setContentsMargins(0, 0, 0, 0)
+            param_layout.setHorizontalSpacing(8)
+            param_layout.setVerticalSpacing(4)
+            param_layout.setColumnStretch(0, 0)  # label 列：内容宽度
+            param_layout.setColumnStretch(1, 1)  # widget 列：占满剩余
+            self._next_param_row = 0
+            self._param_widgets = self._build_param_widgets(param_layout)
+            if self._param_widgets:
+                root.addWidget(self.params_container)
+                self.collapse_btn.toggled.connect(self._on_collapse_toggled)
+                # 同步初始折叠状态（默认展开；用户上次折叠过则仍折叠）
+                if self.action.get("_collapsed", False):
+                    self.collapse_btn.setChecked(False)
+
+    def _on_collapse_toggled(self, checked):
+        """折叠/展开参数行：checked=True=展开，=False=折叠。"""
+        self.collapse_btn.setArrowType(
+            Qt.DownArrow if checked else Qt.RightArrow)
+        self.params_container.setVisible(checked)
+        # 持久化 UI 状态到 action dict（_collapsed=True 表示折叠）
+        if self.item is not None:
+            data = self.item.data(Qt.UserRole)
+            if isinstance(data, dict):
+                data["_collapsed"] = not checked
+                self.item.setData(Qt.UserRole, data)
+        # 行高同步：折叠时 item 短，展开时 item 高
+        if self.item is not None:
+            self.item.setSizeHint(self.sizeHint())
 
     def _summary_text(self):
         """用 MainWindow._action_summary 派生摘要文本（保留作为类型指示）。"""
-        from libjxl_gui import main_window as _mw  # 避免循环
+        from libjxl_gui import main_window as _mw
         try:
             return _mw.MainWindow._action_summary(None, self.action)
         except Exception:
             return self.action.get("type", "")
 
-    def _add_param(self, layout, label, widget):
-        """Add a muted label + param widget to the param row layout."""
-        wrap = QHBoxLayout()
-        wrap.setSpacing(3)
+    def _add_param(self, grid, label, widget):
+        """Add 'label: widget' as a row in a QGridLayout (label=左, widget=右)。"""
         lbl = QLabel(label)
-        lbl.setStyleSheet("color: #888;")
-        wrap.addWidget(lbl)
-        wrap.addWidget(widget)
-        container = QWidget()
-        container.setLayout(wrap)
-        layout.addWidget(container)
+        lbl.setStyleSheet("color: gray;")
+        row = self._next_param_row
+        self._next_param_row += 1
+        grid.addWidget(lbl, row, 0, Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(widget, row, 1)
 
     def _emit(self, key, value):
         if self._block_change:
@@ -1818,87 +1850,6 @@ def _fusion_style():
     return QStyleFactory.create("Fusion")
 
 
-class FlowLayout(QLayout):
-    """按可用宽度自动换行的 QLayout（类似 CSS flex-wrap）。
-
-    Qt 没有内建流式布局，这是从 Qt 官方例子里移植的标准实现。
-    用于动作项参数行：参数多时（水印 5 个、裁剪 4 个）不挤压窗口，
-    容器变窄时自动换到下一行，宽时排在一行。
-    """
-
-    def __init__(self, parent=None, hSpacing=8, vSpacing=6):
-        super().__init__(parent)
-        self._hspace = hSpacing
-        self._vspace = vSpacing
-        self._items = []
-
-    def __del__(self):
-        # QLayoutItem 由 Qt 父对象机制管理，不必手动删除。
-        pass
-
-    def addItem(self, item):
-        self._items.append(item)
-
-    def count(self):
-        return len(self._items)
-
-    def itemAt(self, index):
-        if 0 <= index < len(self._items):
-            return self._items[index]
-        return None
-
-    def takeAt(self, index):
-        if 0 <= index < len(self._items):
-            return self._items.pop(index)
-        return None
-
-    def expandingDirections(self):
-        return Qt.Orientations(0)
-
-    def hasHeightForWidth(self):
-        return True
-
-    def heightForWidth(self, width):
-        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
-
-    def setGeometry(self, rect):
-        super().setGeometry(rect)
-        self._do_layout(rect, test_only=False)
-
-    def sizeHint(self):
-        return self.minimumSize()
-
-    def minimumSize(self):
-        size = QSize()
-        for item in self._items:
-            size = size.expandedTo(item.minimumSize())
-        m = self.contentsMargins()
-        size += QSize(m.left() + m.right(), m.top() + m.bottom())
-        return size
-
-    def _do_layout(self, rect, test_only):
-        """按可用宽度逐个放置 item；一行放不下时换行。
-
-        返回内容总高（含换行的所有行）。
-        """
-        margins = self.contentsMargins()
-        x = rect.x() + margins.left()
-        y = rect.y() + margins.top()
-        line_height = 0
-        right_bound = rect.right() - margins.right()
-        for item in self._items:
-            hint = item.sizeHint()
-            next_x = x + hint.width() + self._hspace
-            if next_x - self._hspace > right_bound and line_height > 0:
-                x = rect.x() + margins.left()
-                y = y + line_height + self._vspace
-                next_x = x + hint.width() + self._hspace
-                line_height = 0
-            if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-            x = next_x
-            line_height = max(line_height, hint.height())
-        return y + line_height - rect.y()
 
 
 # Application-wide theme. One of:
@@ -2908,8 +2859,7 @@ class MainWindow(QMainWindow):
         # 默认启用（保留「切换预览源后自动适应窗口」的既有行为）。
         self.fit_on_source_change_check = QCheckBox("切换预览源后自动适应窗口")
         self.fit_on_source_change_check.setChecked(True)
-        self.fit_on_source_change_check.setStyleSheet(
-            "color: #888; font-size: 11px;")
+        # 不设样式：保留与默认 QCheckBox 一致的外观（颜色/字号同系统控件）
         self.fit_on_source_change_check.setToolTip(
             "取消勾选后，切换预览源时沿用当前缩放位置，不被重置到适应窗口。"
         )
