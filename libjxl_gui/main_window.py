@@ -165,6 +165,12 @@ _DECODE_TEMP_CACHE_LOCK = threading.Lock()
 # 仅保留一个极端巨图的 OOM 保护上限：单边超过此值的超巨图（如拼接图 / 8K+）才
 # 等比缩到此值以内，避免一次性解码吃光内存。正常图片（≤此值）一律原生解码。
 _PREVIEW_OOM_CAP = 8192
+# 「预览加载中…」提示的延迟显示阈值（毫秒）。
+# 切换图片/改动作时，若当前已有预览图，先保持旧图不动 —— 不隐藏视图、不切
+# 文字，避免「图消失 → 加载中文字 → 图回来」的三步跳变造成闪烁（与图片大小
+# 无关，小图解码只要几毫秒却仍会完整跳变一次，故大图小图都闪）。
+# 只有解码耗时超过此阈值（真·大图）才切到加载态，此时跳变一次是合理反馈。
+_PREVIEW_LOADING_HINT_DELAY = 400
 _DECODE_TEMP_DIR = None
 
 # 缩略图像素缓存（path, px) -> QImage 与悬停信息缓存 path -> str 都可能在
@@ -2599,6 +2605,12 @@ class MainWindow(QMainWindow):
         self._action_preview_queue = queue.Queue()
         self._action_preview_drain = None
         self._action_preview_busy = False
+        # 延迟显示「预览加载中…」的定时器（见 _PREVIEW_LOADING_HINT_DELAY）。
+        self._preview_loading_timer = None
+        # 布局刚发生变化（预览视图由隐藏转可见）时为 True：此时 viewport 尺寸
+        # 待重算，fit 必须推迟一拍；布局未变时 viewport 稳定，可同步 fit 以
+        # 避免「新图 + 上一张的 transform」中间帧被绘制出来（切图闪烁次因）。
+        self._preview_fit_deferred = False
 
         self.zoom_in_button.clicked.connect(
             lambda: self.preview_view.zoom(1.2))
@@ -5697,6 +5709,7 @@ class MainWindow(QMainWindow):
     def _render_action_preview(self):
         self._refresh_preview_sources()
         path = self._current_preview_source()
+        self._cancel_preview_loading_hint()
         if path is None:
             self.preview_view.setVisible(False)
             # 必须重置文本：否则若此前进入过「加载中」状态（文本已被改写成
@@ -5727,13 +5740,47 @@ class MainWindow(QMainWindow):
             self, epoch, path, max_side, actions)
         self._action_preview_busy = True
         self._ensure_action_preview_drain()
-        # 切换瞬间先给出「加载中」提示，避免旧图 / 空白闪现；真正结果由
-        # _drain_action_preview 异步回填。
+        # 切图 / 改动作瞬间：若当前已有预览图，【保持旧图不动】——不隐藏视图、
+        # 不切「加载中」文字。旧逻辑无条件走「隐藏视图 + 显示加载中」，形成
+        # 「图消失 → 文字 → 图回来」的三步跳变；该跳变与解码耗时无关，小图
+        # 解码只要几毫秒却仍完整跳变一次，所以「不管大图小图都闪」。
+        # 只有解码超过 _PREVIEW_LOADING_HINT_DELAY 仍未完成（真·大图）才切到
+        # 加载态，此时跳变一次是合理反馈。
+        if (self.preview_view.isVisible()
+                and self._preview_processed_pixmap is not None):
+            self._schedule_preview_loading_hint()
+        else:
+            # 当前无图可留（首次进入 / 上次失败 / 清空后重新添加）：必须给出
+            # 即时反馈，否则预览区会长时间空白。
+            self._preview_fit_deferred = True
+            self.preview_view.setVisible(False)
+            self.preview_msg.setText("预览加载中…")
+            self.preview_msg.setVisible(True)
+            self.preview_msg_container.setVisible(True)
+        self._thumb_pool.start(worker)
+
+    def _schedule_preview_loading_hint(self):
+        """延迟显示「预览加载中…」，快速完成的解码根本不会显示它。"""
+        if self._preview_loading_timer is None:
+            self._preview_loading_timer = QTimer(self)
+            self._preview_loading_timer.setSingleShot(True)
+            self._preview_loading_timer.timeout.connect(
+                self._show_preview_loading)
+        self._preview_loading_timer.start(_PREVIEW_LOADING_HINT_DELAY)
+
+    def _cancel_preview_loading_hint(self):
+        """解码已回填 / 请求作废时取消挂起的加载提示。"""
+        if self._preview_loading_timer is not None:
+            self._preview_loading_timer.stop()
+
+    def _show_preview_loading(self):
+        if not self._action_preview_busy:
+            return  # 已在阈值内回填，无需提示（也就不会闪）
+        self._preview_fit_deferred = True
         self.preview_view.setVisible(False)
         self.preview_msg.setText("预览加载中…")
         self.preview_msg.setVisible(True)
         self.preview_msg_container.setVisible(True)
-        self._thumb_pool.start(worker)
 
     def _ensure_action_preview_drain(self):
         if self._action_preview_drain is None:
@@ -5760,6 +5807,7 @@ class MainWindow(QMainWindow):
             if epoch != self._action_preview_epoch:
                 continue
             self._action_preview_busy = False
+            self._cancel_preview_loading_hint()
             if err is not None:
                 # 只显文件名而非完整路径，避免长路径撑大窗口（同 test 断言）。
                 path = self._current_preview_source()
@@ -5778,12 +5826,17 @@ class MainWindow(QMainWindow):
             # 子线程产出的 QImage 在此转 QPixmap（仅一次拷贝，极快）。
             self._preview_original_pixmap = QPixmap.fromImage(original_qi)
             self._preview_processed_pixmap = QPixmap.fromImage(processed_qi)
-            # 先让视图可见、隐藏提示容器（两者均占 stretch=1），再回填并 fit：
-            # 否则 fit 时 preview_msg_container 仍可见会抢走一半高度，导致图片偏小；
-            # fit 内部再经 singleShot(0) 推迟到布局落定后执行，拿到真实 viewport。
-            self.preview_view.setVisible(True)
-            self.preview_msg.setVisible(False)
-            self.preview_msg_container.setVisible(False)
+            # 视图此前被隐藏（首次进入 / 已切到加载态 / 上次失败）时才需要切
+            # 显隐：此时布局会重算，fit 必须推迟一拍拿最终 viewport。
+            # 若视图本来就在显示旧图（本修复的「保持旧图」路径），则完全不碰
+            # 显隐 —— 布局零变化，下一步可同步 fit，做到「旧图→新图」一次重绘。
+            if not self.preview_view.isVisible():
+                self._preview_fit_deferred = True
+                # 先让视图可见、隐藏提示容器（两者均占 stretch=1），再回填并
+                # fit：否则 fit 时 preview_msg_container 仍可见会抢走一半高度。
+                self.preview_view.setVisible(True)
+                self.preview_msg.setVisible(False)
+                self.preview_msg_container.setVisible(False)
             self._apply_preview_pixmap()
         # 队列空且无在途请求时停止节拍器，避免常驻空转。
         if not handled and not self._action_preview_busy:
@@ -5794,9 +5847,14 @@ class MainWindow(QMainWindow):
 
         fit=True 时切换图片后自动 fit 到屏幕（消除沿用上一张缩放比例的问题）；
         peek（按住显示原图 / 松开恢复）传 fit=False，避免重置用户的手动缩放。
-        fit 通过 singleShot(0) 推迟到下一事件循环执行——setVisible / 兄弟控件
-        显隐触发的布局重算（resize）是异步的，同步 fit 会拿到尚未落定的 viewport
-        尺寸，导致图片被缩得很小。
+
+        fit 的时机分两种：
+        - 布局刚变化（视图由隐藏转可见，见 _preview_fit_deferred）：resize 是
+          异步的，必须推迟到下一事件循环，同步 fit 会拿到未落定的 viewport。
+        - 布局未变（视图一直在显示旧图）：viewport 尺寸稳定，【同步 fit】。
+          这与 set_pixmap 处于同一次事件回调内，Qt 在事件末尾只绘制一次，
+          不会出现「新图 + 上一张的 transform」的中间帧 —— 这是切图闪烁的
+          第二个来源（无条件 singleShot(0) 会先按旧缩放画一帧，再 fit 重画）。
         """
         pix = (
             self._preview_original_pixmap
@@ -5806,7 +5864,11 @@ class MainWindow(QMainWindow):
         if pix is not None:
             self.preview_view.set_pixmap(pix)
             if fit and self.preview_view.isVisible():
-                QTimer.singleShot(0, self.preview_view.fit)
+                if self._preview_fit_deferred:
+                    QTimer.singleShot(0, self.preview_view.fit)
+                else:
+                    self.preview_view.fit()
+        self._preview_fit_deferred = False
 
     def _preview_show_original(self):
         """Press-and-hold peek: show the un-processed source image."""

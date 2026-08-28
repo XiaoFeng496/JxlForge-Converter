@@ -312,6 +312,94 @@ _scroll.isVisible = _orig_isvis
 _scroll.viewport = _orig_viewport
 _scroll.resetTransform = _orig_reset
 
+# --- Bug 8: 切换图片时预览区不再闪烁（大图小图都闪） ------------------
+# 根因 A：旧逻辑每次 _render_action_preview 都无条件
+#   setVisible(False) + 显示「预览加载中…」→ 解码完成后再 setVisible(True)，
+# 形成「图消失 → 文字 → 图回来」三步跳变。该跳变与解码耗时无关，小图解码
+# 只要几毫秒却仍会完整跳变一次，所以「不管大图小图都闪」。
+# 修复 A：已有预览图时【保持旧图不动】——不隐藏视图、不切文字；只有解码超过
+# _PREVIEW_LOADING_HINT_DELAY 仍未完成（真·大图）才切加载态。
+# 根因 B：_apply_preview_pixmap 无条件 singleShot(0, fit)，会先按「上一张的
+# transform」绘制一帧新图，下一拍 fit 再重画一次 → 又一次闪动。
+# 修复 B：布局未变（viewport 稳定）时同步 fit，与 set_pixmap 同处一次事件
+# 回调内，Qt 只在事件末尾绘制一次，无中间帧。
+
+_view = win.preview_view
+_orig_view_isvis = _view.isVisible
+_orig_view_fit = _view.fit
+_orig_view_setvis = _view.setVisible
+_vis_calls = []
+_fit_n = {"n": 0}
+
+
+def _spy_setvis(v):
+    _vis_calls.append(v)
+
+
+def _spy_fit_count():
+    _fit_n["n"] += 1
+
+
+_view.setVisible = _spy_setvis
+_view.fit = _spy_fit_count
+win._thumb_pool = _NoOpPool()  # 不真正派发子线程，busy 保持 True
+win.input_files = [os.path.join(tmpdir, "sample.jxl")]
+win._refresh_preview_sources()
+
+# 场景 A：已有预览图 + 视图可见 → 必须保持旧图，绝不隐藏、绝不切「加载中」
+_view.isVisible = lambda: True
+win.preview_msg.setText("旧提示")  # 哨兵文本，用于检测是否被改写
+win._preview_processed_pixmap = _QPixmap(100, 100)
+_vis_calls.clear()
+win._render_action_preview()
+check("switching image keeps preview visible (no blank flash)",
+      False not in _vis_calls)
+check("switching image does not rewrite hint text (no text flash)",
+      win.preview_msg.text() == "旧提示")
+check("keeping old image => layout unchanged => fit stays synchronous",
+      win._preview_fit_deferred is False)
+
+# 场景 B：布局未变时回填，fit 必须同步发生（不产生「旧 transform」中间帧）
+_fit_n["n"] = 0
+win._preview_fit_deferred = False
+win._apply_preview_pixmap(fit=True)
+check("backfill fits synchronously (no intermediate frame)",
+      _fit_n["n"] == 1)
+
+# 场景 C：布局刚变化（隐藏→可见）时 fit 仍推迟一拍，避免拿到未落定 viewport
+_fit_n["n"] = 0
+win._preview_fit_deferred = True
+win._apply_preview_pixmap(fit=True)
+check("deferred fit is not called synchronously", _fit_n["n"] == 0)
+QApplication.processEvents()
+check("deferred fit runs on next event loop tick", _fit_n["n"] == 1)
+
+# 场景 D：无图可留时立即给出「加载中」反馈（不能长时间空白）
+_view.isVisible = lambda: False
+win._preview_processed_pixmap = None
+win._render_action_preview()
+check("no current image => immediate 'loading' feedback",
+      win.preview_msg.text() == "预览加载中…")
+check("no current image => fit deferred until layout settles",
+      win._preview_fit_deferred is True)
+
+# 场景 E：解码超过阈值仍未完成 → 才切到加载态（此时跳变一次是合理反馈）
+_view.isVisible = lambda: True
+win.preview_msg.setText("旧提示2")
+win._preview_processed_pixmap = _QPixmap(100, 100)
+win._render_action_preview()
+check("slow decode: keeps old image before threshold",
+      win.preview_msg.text() == "旧提示2")
+pump(mw._PREVIEW_LOADING_HINT_DELAY + 400)
+check("slow decode: switches to 'loading' after threshold",
+      win.preview_msg.text() == "预览加载中…")
+win._cancel_preview_loading_hint()
+
+win._thumb_pool = saved_pool
+_view.isVisible = _orig_view_isvis
+_view.setVisible = _orig_view_setvis
+_view.fit = _orig_view_fit
+
 print()
 print("PASSED=%d  FAILURES=%d" % (passed, len(failures)))
 for f in failures:
