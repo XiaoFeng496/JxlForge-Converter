@@ -1902,6 +1902,9 @@ _ADVANCED_SCHEMA = [
 class MainWindow(QMainWindow):
     """Main application window (XnConvert-style four tabs)."""
 
+    # 首次启动、尚未校准时，等窗口完全展示后再自动跑一次校准的延迟（毫秒）。
+    CALIBRATION_DELAY_MS = 2000
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("JXL 转换器")
@@ -2127,7 +2130,7 @@ class MainWindow(QMainWindow):
             if calibrate.has_calibration():
                 self._refresh_calib_value_label()
             else:
-                QTimer.singleShot(2000, self._auto_calibrate)
+                QTimer.singleShot(self.CALIBRATION_DELAY_MS, self._auto_calibrate)
         # Restore the output / output-location / conversion-priority settings
         # OFF the startup critical path. These only touch output/settings-tab
         # widgets, which are not visible on the first-painted input tab, so
