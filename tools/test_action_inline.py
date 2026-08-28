@@ -92,7 +92,7 @@ grid = w.params_container.layout()
 check("参数容器用 QGridLayout（2 列布局）",
       isinstance(grid, QGridLayout))
 check("label 列无 stretch（内容宽度）", grid.columnStretch(0) == 0)
-check("widget 列 stretch=1（占满剩余宽度）", grid.columnStretch(1) == 1)
+check("widget 列 stretch=0（按内容显示，不拉满）", grid.columnStretch(1) == 0)
 # 三个参数各占一行
 check("3 个参数占 3 行", grid.rowCount() == 3)
 labels = [grid.itemAtPosition(r, 0).widget().text()
@@ -329,24 +329,21 @@ win._add_action_item(
 )
 item = win.action_list.item(0)
 w = widget_at(0)
-check("折叠按钮默认下箭头（展开）",
-      w.collapse_btn.arrowType() == Qt.DownArrow)
+check("折叠按钮默认 ▼（展开）", w.collapse_btn.text() == "▼")
 check("默认 params_container 对父可见",
       w.params_container.isVisibleTo(w))
 # 点击折叠
 w.collapse_btn.toggle()
 check("点击后折叠（对父不可见）",
       w.params_container.isVisibleTo(w) is False)
-check("折叠后箭头变右箭头",
-      w.collapse_btn.arrowType() == Qt.RightArrow)
+check("折叠后按钮文字变 ▶", w.collapse_btn.text() == "▶")
 check("折叠状态写回 action._collapsed=True",
       item.data(Qt.UserRole).get("_collapsed") is True)
 # 再点击展开
 w.collapse_btn.toggle()
 check("再次点击展开",
       w.params_container.isVisibleTo(w) is True)
-check("箭头变回下箭头",
-      w.collapse_btn.arrowType() == Qt.DownArrow)
+check("按钮文字变回 ▼", w.collapse_btn.text() == "▼")
 check("展开后 _collapsed=False",
       item.data(Qt.UserRole).get("_collapsed") is False)
 # 重新创建动作项时，_collapsed=True 的应保持折叠
@@ -356,9 +353,9 @@ win._add_action_item(
     render_preview=False,
 )
 w2 = widget_at(0)
-check("恢复时按 _collapsed=True 初始折叠",
+check("恢复时按 _collapsed=True 初始折叠（文字 ▶）",
       w2.params_container.isVisibleTo(w2) is False
-      and w2.collapse_btn.arrowType() == Qt.RightArrow)
+      and w2.collapse_btn.text() == "▶")
 
 
 print()

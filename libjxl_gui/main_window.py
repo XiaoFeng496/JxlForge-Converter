@@ -1470,11 +1470,19 @@ class ActionItemWidget(QWidget):
         # 第 1 行：折叠 + 勾选 + 摘要(stretch) + 三个紧凑按钮
         top_row = QHBoxLayout()
         top_row.setSpacing(4)
+        # 折叠按钮：用文字 ▼/▶ 而非 Qt.ArrowType。后者在某些 style 下会被
+        # 渲染成 checkbox 风格（用户截图反馈：第二个 ✓ 实际是 collapse_btn
+        # 但画成了勾选框样子）。setStyleSheet 强制透明背景、无边框，去掉
+        # QToolButton 默认按钮立体感，与 QCheckBox 视觉风格统一；并防止
+        # NoFlickerComboBox 渲染策略跨控件污染。
         self.collapse_btn = QToolButton()
-        self.collapse_btn.setArrowType(Qt.DownArrow)
+        self.collapse_btn.setText("▼")
         self.collapse_btn.setCheckable(True)
         self.collapse_btn.setChecked(True)  # 默认展开
         self.collapse_btn.setFixedSize(18, 18)
+        self.collapse_btn.setStyleSheet(
+            "QToolButton{background:transparent;border:none;}"
+        )
         self.collapse_btn.setToolTip("折叠/展开参数")
         top_row.addWidget(self.collapse_btn, 0, Qt.AlignTop)
         self.enable_check = QCheckBox()
@@ -1488,20 +1496,27 @@ class ActionItemWidget(QWidget):
             self.summary_label.setText(self._summary_text())
         top_row.addWidget(self.summary_label, stretch=1)
         # 三个紧凑按钮（与标题同行，不另起一行）
+        # ⚠️ 不加 fixed/maximum width 的话，summary_label stretch=1 + 按钮自身
+        # minimumSizeHint 偏大（Fusion/native 风格 padding+border）会让 6×3
+        # 默认布局下三个按钮把整行挤满，summary 被压成 1-2 字符就换行。
+        # 设 fixed width 强制按内容 + 最小宽度，不被 stretch 影响。
         self.up_button = QPushButton("上移")
         self.down_button = QPushButton("下移")
         self.remove_button = QPushButton("移除")
         for b in (self.up_button, self.down_button, self.remove_button):
-            b.setMaximumHeight(22)
-            b.setMinimumHeight(22)
-            # 移除按钮文字偏长，加 minimum width 限制避免拉宽整行
+            b.setFixedHeight(22)
+            b.setMinimumWidth(40)
+            b.setMaximumWidth(56)
             top_row.addWidget(b)
         root.addLayout(top_row)
         # 第 2 行：inline 参数（可折叠）
         # 用 QGridLayout(2 列: label, widget)：
         # PySide6 中 Python 派生的 QLayout 子类的 setGeometry 不会被 C++ 端
-        # 调到（_do_layout 从不执行）。QGridLayout 是 Qt 原生实现，cascade 稳：
-        # label 列固定宽度、widget 列 stretch=1 占满剩余。
+        # 调到（_do_layout 从不执行）。QGridLayout 是 Qt 原生实现，cascade 稳。
+        # ⚠️ widget 列不要 stretch=1 —— 6×3 默认布局里 panel 只有 ~400px，
+        # stretch=1 会把 QSpinBox/NoFlickerComboBox 拉成全宽（实测 640px），
+        # 「算法」下拉「LANCZOS (高质量, 默认)」撑爆整行。改为 0：widget 按
+        # 内容显示，右侧留白；窗口拉宽时各 widget 略宽但仍按内容。
         self.params_container = QWidget()
         if self.action:
             param_layout = QGridLayout(self.params_container)
@@ -1509,7 +1524,7 @@ class ActionItemWidget(QWidget):
             param_layout.setHorizontalSpacing(8)
             param_layout.setVerticalSpacing(4)
             param_layout.setColumnStretch(0, 0)  # label 列：内容宽度
-            param_layout.setColumnStretch(1, 1)  # widget 列：占满剩余
+            param_layout.setColumnStretch(1, 0)  # widget 列：按内容
             self._next_param_row = 0
             self._param_widgets = self._build_param_widgets(param_layout)
             if self._param_widgets:
@@ -1521,8 +1536,7 @@ class ActionItemWidget(QWidget):
 
     def _on_collapse_toggled(self, checked):
         """折叠/展开参数行：checked=True=展开，=False=折叠。"""
-        self.collapse_btn.setArrowType(
-            Qt.DownArrow if checked else Qt.RightArrow)
+        self.collapse_btn.setText("▼" if checked else "▶")
         self.params_container.setVisible(checked)
         # 持久化 UI 状态到 action dict（_collapsed=True 表示折叠）
         if self.item is not None:
@@ -4256,32 +4270,18 @@ class MainWindow(QMainWindow):
     def _show_warning_centered(self, title, text, parent=None):
         """弹一个居中到主窗口的警告框。
 
-        ``QMessageBox.warning(self, ...)`` 在多数环境会居中到父窗口，但部分
-        场景（多屏 / 高 DPI / 父窗口未 show / 几何异常）下会落到屏幕右上角
-        或偏移位置。改为手动 ``move`` 到主窗口客户区中心点，所有警告都走
-        同一路径以保持一致。
-
-        实现要点：用 ``self.mapToGlobal(self.rect().center())`` 取**客户区**
-        中心点的全局坐标，再用 ``box.frameGeometry()`` 算自身外框宽高
-        （含 frame 与标题栏）反推左上角。``frameGeometry`` 直接做减法
-        在高 DPI/不同主题下偶尔差几像素（frame 高度算法不同），改用
-        ``mapToGlobal`` 走标准坐标路径更稳。
+        ``QMessageBox.warning(self, ...)`` 在多屏 / 高 DPI / 父窗口未 show 等
+        场景下会落到屏幕右上角而非居中。手动构造 ``QMessageBox(self)`` 再
+        ``exec()``，Qt 会按「父窗口客户区中心」自动居中（与「输出文件已存在」
+        框 ``_ask_on_exist`` 的写法一致）。**不要再 ``box.show()``** —— Qt
+        内置居中只发生在 ``exec()`` 的隐式 show 上；显式 ``show()`` 会让 Qt
+        在 (0,0) 显示后再被 move 拖到中心，造成一帧位置闪烁 + 偏下。
         """
         box = QMessageBox(parent if parent is not None else self)
         box.setIcon(QMessageBox.Warning)
         box.setWindowTitle(title)
         box.setText(text)
         box.setStandardButtons(QMessageBox.Ok)
-        box.adjustSize()
-        # 必须先 show() 一次，frameGeometry() 才是含 frame 的最终值
-        # （exec() 之前是 hidden 状态，frame 高度可能未计算）。
-        box.show()
-        center = self.mapToGlobal(self.rect().center())
-        box_geom = box.frameGeometry()
-        box.move(
-            center.x() - box_geom.width() // 2,
-            center.y() - box_geom.height() // 2,
-        )
         box.exec()
 
     def _maybe_warn_adv_params(self):
