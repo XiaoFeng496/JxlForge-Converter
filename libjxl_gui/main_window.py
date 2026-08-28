@@ -1470,23 +1470,24 @@ class ActionItemWidget(QWidget):
         # 第 1 行：折叠 + 勾选 + 摘要(stretch) + 三个紧凑按钮
         top_row = QHBoxLayout()
         top_row.setSpacing(4)
-        # 折叠按钮：用 setArrowType 模仿 QComboBox 的下拉按钮样式（正方形、
-        # 灰色、▼ 向下箭头）。native style 下渲染标准；Fusion style 下 setCheckable
-        # + setArrowType 会被画成 checkbox —— 用户当前主题按 native 算（参考图 1
-        # 借用其下拉按钮外观）。setCheckable(True) + Qt 内部 toggled 信号状态切换。
-        # 不同状态切箭头方向：展开=DownArrow，折叠=RightArrow。
+        # 折叠按钮：模仿 QComboBox 下拉按钮样式（正方形 + ▼ 向下箭头）。
+        # ⚠️ 不要 setCheckable(True)：checkable 按钮点击后会保持「已按下」状态
+        # （原生变蓝、Fusion 颜色变深），用户要求只转箭头方向、不呈现按下态。
+        # 改为非 checkable + 自己用 clicked 维护 self._collapsed 状态。
         self.collapse_btn = QToolButton()
         self.collapse_btn.setArrowType(Qt.DownArrow)
-        self.collapse_btn.setCheckable(True)
-        self.collapse_btn.setChecked(True)  # 默认展开
         self.collapse_btn.setFixedSize(20, 20)
         self.collapse_btn.setToolTip("折叠/展开参数")
-        top_row.addWidget(self.collapse_btn, 0, Qt.AlignTop)
+        self._collapsed = False  # 折叠按钮为非 checkable，状态自己维护
+        # ⚠️ 用 AlignVCenter 而非 AlignTop：AlignTop 会把 20px 的小控件贴到
+        # 行顶，而旁边的文字/勾选框基线偏下 → 视觉上「上漂」（原生下折叠
+        # 按钮上漂、Fusion 下勾选框上漂，都是同一根因）。垂直居中统一对齐。
+        top_row.addWidget(self.collapse_btn, 0, Qt.AlignVCenter)
         self.enable_check = QCheckBox()
         self.enable_check.setChecked(bool(self.action.get("enabled", True)))
         self.enable_check.setToolTip(
             "取消勾选可临时停用该动作（参数保留，不会被应用）")
-        top_row.addWidget(self.enable_check, 0, Qt.AlignTop)
+        top_row.addWidget(self.enable_check, 0, Qt.AlignVCenter)
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
         if self.action:
@@ -1522,25 +1523,35 @@ class ActionItemWidget(QWidget):
             self._param_widgets = self._build_param_widgets(param_layout)
             if self._param_widgets:
                 root.addWidget(self.params_container)
-                self.collapse_btn.toggled.connect(self._on_collapse_toggled)
+                self.collapse_btn.clicked.connect(self._on_collapse_clicked)
                 # 同步初始折叠状态（默认展开；用户上次折叠过则仍折叠）
                 if self.action.get("_collapsed", False):
-                    self.collapse_btn.setChecked(False)
+                    self._set_collapsed(True)
 
-    def _on_collapse_toggled(self, checked):
-        """折叠/展开参数行：checked=True=展开，=False=折叠。"""
+    def _set_collapsed(self, collapsed):
+        """切换折叠状态：只转箭头方向，按钮不保持「已按下」外观。"""
+        self._collapsed = bool(collapsed)
         self.collapse_btn.setArrowType(
-            Qt.DownArrow if checked else Qt.RightArrow)
-        self.params_container.setVisible(checked)
+            Qt.RightArrow if self._collapsed else Qt.DownArrow)
+        self.params_container.setVisible(not self._collapsed)
+        if self.item is not None:
+            self.item.setSizeHint(self.sizeHint())
+
+    def _on_collapse_clicked(self):
+        """折叠按钮点击：翻转折叠状态（非 checkable，按钮点击后自动弹起）。"""
+        collapsed = not getattr(self, "_collapsed", False)
+        self._set_collapsed(collapsed)
         # 持久化 UI 状态到 action dict（_collapsed=True 表示折叠）
         if self.item is not None:
             data = self.item.data(Qt.UserRole)
             if isinstance(data, dict):
-                data["_collapsed"] = not checked
+                data["_collapsed"] = collapsed
                 self.item.setData(Qt.UserRole, data)
-        # 行高同步：折叠时 item 短，展开时 item 高
-        if self.item is not None:
-            self.item.setSizeHint(self.sizeHint())
+
+    def _on_collapse_toggled(self, checked):
+        """兼容旧接口（toggled 语义，按钮曾为 checkable）：
+        checked=True=展开，=False=折叠。新流程走 _on_collapse_clicked。"""
+        self._set_collapsed(not checked)
 
     def _summary_text(self):
         """用 MainWindow._action_summary 派生摘要文本（保留作为类型指示）。"""

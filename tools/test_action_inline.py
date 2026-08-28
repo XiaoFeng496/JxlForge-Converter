@@ -330,17 +330,21 @@ win._add_action_item(
 item = win.action_list.item(0)
 w = widget_at(0)
 check("折叠按钮默认 DownArrow（展开）", w.collapse_btn.arrowType() == Qt.DownArrow)
+# ⚠️ 折叠按钮不再是 checkable（用户要求：点击后不保持「已按下」外观，
+# 原生会变蓝、Fusion 会颜色变深），只转箭头方向。
+check("折叠按钮非 checkable（点击后不保持按下态）",
+      w.collapse_btn.isCheckable() is False)
 check("默认 params_container 对父可见",
       w.params_container.isVisibleTo(w))
 # 点击折叠
-w.collapse_btn.toggle()
+w.collapse_btn.click()
 check("点击后折叠（对父不可见）",
       w.params_container.isVisibleTo(w) is False)
 check("折叠后按钮箭头变 RightArrow", w.collapse_btn.arrowType() == Qt.RightArrow)
 check("折叠状态写回 action._collapsed=True",
       item.data(Qt.UserRole).get("_collapsed") is True)
 # 再点击展开
-w.collapse_btn.toggle()
+w.collapse_btn.click()
 check("再次点击展开",
       w.params_container.isVisibleTo(w) is True)
 check("按钮箭头变回 DownArrow", w.collapse_btn.arrowType() == Qt.DownArrow)
