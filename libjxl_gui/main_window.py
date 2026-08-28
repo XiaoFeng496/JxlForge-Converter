@@ -73,6 +73,7 @@ from PySide6.QtGui import (
     QColor,
     QPalette,
     QFontMetrics,
+    QGuiApplication,
     QIcon,
     QImage,
     QImageReader,
@@ -1609,6 +1610,42 @@ def dropdowns_use_fusion():
     with Fusion. True for native_noflicker (default) and fusion; False for the
     pure-native 'native' theme."""
     return _APP_THEME in ("native_noflicker", "fusion")
+
+
+# Application-wide color scheme (light/dark). One of:
+#   "follow_system" - follows the OS / style hints color scheme (default).
+#   "light"         - force a light palette.
+#   "dark"          - force a dark palette.
+# The change is applied via QStyleHints.setColorScheme(), the Qt 6.6+ API that
+# notifies the active style to repaint with light/dark colours. The existing
+# QEvent.PaletteChange handler already refreshes the custom-folder popup and
+# re-syncs the Inactive palette group, so a switch propagates everywhere.
+_APP_COLOR_SCHEME = "follow_system"
+_COLOR_SCHEME_ORDER = ("follow_system", "light", "dark")
+_COLOR_SCHEME_LABELS = {
+    "follow_system": "跟随系统",
+    "light": "亮色",
+    "dark": "暗色",
+}
+_QT_COLOR_SCHEMES = {
+    "follow_system": Qt.ColorScheme.Unknown,
+    "light": Qt.ColorScheme.Light,
+    "dark": Qt.ColorScheme.Dark,
+}
+
+
+def app_color_scheme():
+    """Return the active color scheme key."""
+    return _APP_COLOR_SCHEME
+
+
+def set_app_color_scheme(scheme):
+    """Set the active color scheme key (ignored if not a known value) and
+    push it to ``QStyleHints`` so the style repaints immediately."""
+    global _APP_COLOR_SCHEME
+    if scheme in _COLOR_SCHEME_ORDER:
+        _APP_COLOR_SCHEME = scheme
+        QGuiApplication.styleHints().setColorScheme(_QT_COLOR_SCHEMES[scheme])
 
 
 class NoFlickerComboBox(QComboBox):
@@ -3459,9 +3496,29 @@ class MainWindow(QMainWindow):
         win_inner.addWidget(hint)
         grid.addWidget(win_group, 0, 0)
 
-        # ---- 主题 ----
-        theme_group, theme_inner = _section("主题")
-        theme_tip = (
+        # ---- 常规 ----
+        theme_group, theme_inner = _section("常规")
+        # 主题（颜色方案）— 亮 / 暗 / 跟随系统
+        color_tip = (
+            "跟随系统：自动跟随 Windows 当前是浅色还是深色模式（默认）。\n"
+            "亮色：始终使用浅色外观。\n"
+            "暗色：始终使用深色外观。"
+        )
+        self.color_scheme_combo = NoFlickerComboBox()
+        for key in _COLOR_SCHEME_ORDER:
+            self.color_scheme_combo.addItem(_COLOR_SCHEME_LABELS[key], key)
+        self._set_combo_min_width(self.color_scheme_combo)
+        self._color_scheme_loading = True
+        self.color_scheme_combo.setCurrentIndex(
+            self.color_scheme_combo.findData(app_color_scheme())
+        )
+        self._color_scheme_loading = False
+        self.color_scheme_combo.currentIndexChanged.connect(
+            self._on_color_scheme_changed
+        )
+        _label_row(theme_inner, "主题", self.color_scheme_combo, color_tip)
+        # 控件样式（原"界面主题"）
+        style_tip = (
             "原生（无闪烁）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单"
             "单独使用 Fusion 样式以消除 Windows 弹出动画闪烁（默认）。\n"
             "原生：完全使用系统原生外观，下拉菜单可能出现轻微闪烁。\n"
@@ -3475,7 +3532,7 @@ class MainWindow(QMainWindow):
         self.theme_combo.setCurrentIndex(self.theme_combo.findData(app_theme()))
         self._theme_loading = False
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        _label_row(theme_inner, "界面主题", self.theme_combo, theme_tip)
+        _label_row(theme_inner, "控件样式", self.theme_combo, style_tip)
         grid.addWidget(theme_group, 0, 1)
 
         # ---- 转换进程 ----
@@ -6065,6 +6122,28 @@ class MainWindow(QMainWindow):
             theme = "native_noflicker"
         set_app_theme(theme)
         self._apply_app_style(theme)
+        # Apply the persisted color scheme (light/dark/follow-system) on top
+        # of the chosen control style. Must run after the style is in place so
+        # the active QStyle receives the ColorScheme change immediately.
+        self._init_color_scheme()
+
+    # ---- application color scheme (persisted) ------------------------
+    def _init_color_scheme(self):
+        """Read the persisted color scheme and apply it BEFORE the UI is built.
+
+        Default is "follow_system", which keeps the existing behaviour: the
+        palette tracks the OS / Qt style hints automatically.
+        """
+        settings = QSettings()
+        settings.beginGroup("appearance")
+        scheme = settings.value("color_scheme", "follow_system")
+        settings.endGroup()
+        if scheme not in _COLOR_SCHEME_ORDER:
+            scheme = "follow_system"
+        # Push the scheme into QStyleHints so the active QStyle paints with
+        # light/dark colours from the very first frame; nothing else to do at
+        # this stage — the UI is not built yet, so no widget refresh is needed.
+        set_app_color_scheme(scheme)
 
     # ---- actions-tab persistence (save action list on exit) ------------
     def _save_actions_setting(self):
@@ -6211,6 +6290,46 @@ class MainWindow(QMainWindow):
         settings = QSettings()
         settings.beginGroup("appearance")
         settings.setValue("theme", self.theme_combo.currentData())
+        settings.endGroup()
+        settings.sync()
+
+    def _apply_color_scheme(self, scheme):
+        """Apply a color scheme in full: update the global key, push the new
+        scheme to QStyleHints, and force every top-level widget to repaint so
+        the change is visible immediately, with no restart.
+
+        The setColorScheme() call fires QEvent.PaletteChange on each top-level
+        widget, which is already routed through ``changeEvent`` to refresh
+        the custom-folder popup palette and re-sync the Inactive palette
+        group (so selected radio/checkbox indicators stay blue when the
+        window loses focus under dark mode).
+        """
+        if scheme not in _COLOR_SCHEME_ORDER:
+            return
+        set_app_color_scheme(scheme)
+        # Force every top-level widget to repaint; some styles cache the
+        # palette and only re-read it on a PaletteChange event, but a manual
+        # update() guarantees the new colours show even on offscreen tests
+        # and on Windows native style where the PaletteChange may be delayed.
+        for w in QApplication.topLevelWidgets():
+            w.update()
+        self._sync_inactive_palette()
+        self.statusBar().showMessage(
+            "主题已切换为：%s" % _COLOR_SCHEME_LABELS.get(scheme, scheme))
+
+    def _on_color_scheme_changed(self, _index):
+        """Persist and apply the newly chosen color scheme."""
+        self._apply_color_scheme(self.color_scheme_combo.currentData())
+        self._save_color_scheme()
+
+    def _save_color_scheme(self):
+        """Persist the chosen color scheme. Guarded so restoring on launch /
+        building the settings tab does not clobber the stored value."""
+        if getattr(self, "_color_scheme_loading", False):
+            return
+        settings = QSettings()
+        settings.beginGroup("appearance")
+        settings.setValue("color_scheme", self.color_scheme_combo.currentData())
         settings.endGroup()
         settings.sync()
 
