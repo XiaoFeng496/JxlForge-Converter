@@ -197,9 +197,9 @@ render_count = {"n": 0}
 _orig_render = win._render_action_preview
 
 
-def _spy_render():
+def _spy_render(*args, **kwargs):
     render_count["n"] += 1
-    _orig_render()
+    _orig_render(*args, **kwargs)
 
 
 win._render_action_preview = _spy_render
@@ -219,6 +219,26 @@ for _ in range(30):
         break
 check("防抖窗口结束（~250ms）后触发预览",
       render_count["n"] >= 1 and t.elapsed() < 2000)
+
+# 验证：参数变化时 fit=False（不强制适应窗口），保留用户缩放位置
+# —— 用 spy 包 _apply_preview_pixmap，fit 参数会被传进去；
+# 但更直接的是看 win._render_action_preview 调用时传了 fit=False。
+fit_args = []
+_orig_render2 = win._render_action_preview
+def _spy_render2(*args, **kwargs):
+    fit_args.append(kwargs.get("fit", True))
+    _orig_render2(*args, **kwargs)
+win._render_action_preview = _spy_render2
+# 触发一次参数变化
+w._param_widgets["angle"].setValue(120)
+# 等防抖
+import time as _t
+for _ in range(20):
+    QApplication.processEvents(); _t.sleep(0.05)
+    if fit_args:
+        break
+check("参数变化时 _render_action_preview 传 fit=False（保留缩放）",
+      bool(fit_args) and fit_args[0] is False)
 
 win._render_action_preview = _orig_render
 

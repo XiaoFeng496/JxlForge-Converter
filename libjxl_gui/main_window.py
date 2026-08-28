@@ -102,6 +102,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -1479,9 +1480,11 @@ class ActionItemWidget(QWidget):
         top_row.addWidget(self.summary_label, stretch=1)
         root.addLayout(top_row)
         # 第 2 行：inline 参数控件（按 type 动态生成）
+        # 用 FlowLayout 而非 QHBoxLayout：参数多时（水印 5 个、裁剪 4 个）
+        # 不挤压窗口，容器变窄时自动换行；变宽时合并成一行。FlowLayout 内部
+        # 实现见同文件 _fusion_style() 之下的 class FlowLayout。
         if self.action:
-            param_row = QHBoxLayout()
-            param_row.setSpacing(8)
+            param_row = FlowLayout()
             self._param_widgets = self._build_param_widgets(param_row)
             if self._param_widgets:
                 root.addLayout(param_row)
@@ -1661,7 +1664,6 @@ class ActionItemWidget(QWidget):
             h.valueChanged.connect(lambda v, k="highlight": self._emit(k, v))
             self._add_param(layout, "高光", h)
             widgets["highlight"] = h
-        layout.addStretch(1)
         return widgets
 
     def sync_from_action(self):
@@ -1814,6 +1816,89 @@ def _fusion_style():
     the same QStyle instance never collides on ownership」同款做法。
     """
     return QStyleFactory.create("Fusion")
+
+
+class FlowLayout(QLayout):
+    """按可用宽度自动换行的 QLayout（类似 CSS flex-wrap）。
+
+    Qt 没有内建流式布局，这是从 Qt 官方例子里移植的标准实现。
+    用于动作项参数行：参数多时（水印 5 个、裁剪 4 个）不挤压窗口，
+    容器变窄时自动换到下一行，宽时排在一行。
+    """
+
+    def __init__(self, parent=None, hSpacing=8, vSpacing=6):
+        super().__init__(parent)
+        self._hspace = hSpacing
+        self._vspace = vSpacing
+        self._items = []
+
+    def __del__(self):
+        # QLayoutItem 由 Qt 父对象机制管理，不必手动删除。
+        pass
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        size += QSize(m.left() + m.right(), m.top() + m.bottom())
+        return size
+
+    def _do_layout(self, rect, test_only):
+        """按可用宽度逐个放置 item；一行放不下时换行。
+
+        返回内容总高（含换行的所有行）。
+        """
+        margins = self.contentsMargins()
+        x = rect.x() + margins.left()
+        y = rect.y() + margins.top()
+        line_height = 0
+        right_bound = rect.right() - margins.right()
+        for item in self._items:
+            hint = item.sizeHint()
+            next_x = x + hint.width() + self._hspace
+            if next_x - self._hspace > right_bound and line_height > 0:
+                x = rect.x() + margins.left()
+                y = y + line_height + self._vspace
+                next_x = x + hint.width() + self._hspace
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x = next_x
+            line_height = max(line_height, hint.height())
+        return y + line_height - rect.y()
 
 
 # Application-wide theme. One of:
@@ -4204,8 +4289,14 @@ class MainWindow(QMainWindow):
 
         ``QMessageBox.warning(self, ...)`` 在多数环境会居中到父窗口，但部分
         场景（多屏 / 高 DPI / 父窗口未 show / 几何异常）下会落到屏幕右上角
-        或偏移位置。改为手动构造 + 显式 move 到 ``self.frameGeometry()`` 的
-        中心，所有警告都走同一路径以保持一致。
+        或偏移位置。改为手动 ``move`` 到主窗口客户区中心点，所有警告都走
+        同一路径以保持一致。
+
+        实现要点：用 ``self.mapToGlobal(self.rect().center())`` 取**客户区**
+        中心点的全局坐标，再用 ``box.frameGeometry()`` 算自身外框宽高
+        （含 frame 与标题栏）反推左上角。``frameGeometry`` 直接做减法
+        在高 DPI/不同主题下偶尔差几像素（frame 高度算法不同），改用
+        ``mapToGlobal`` 走标准坐标路径更稳。
         """
         box = QMessageBox(parent if parent is not None else self)
         box.setIcon(QMessageBox.Warning)
@@ -4213,14 +4304,14 @@ class MainWindow(QMainWindow):
         box.setText(text)
         box.setStandardButtons(QMessageBox.Ok)
         box.adjustSize()
-        # 必须用 frameGeometry 拿到带标题栏/边框的完整外框，再对齐到
-        # self 的 frameGeometry 中心 —— 用 geometry() 在 Windows 下会把
-        # 标题栏高度算错，警告框位置会偏上。
-        self_geom = self.frameGeometry()
+        # 必须先 show() 一次，frameGeometry() 才是含 frame 的最终值
+        # （exec() 之前是 hidden 状态，frame 高度可能未计算）。
+        box.show()
+        center = self.mapToGlobal(self.rect().center())
         box_geom = box.frameGeometry()
         box.move(
-            self_geom.x() + (self_geom.width() - box_geom.width()) // 2,
-            self_geom.y() + (self_geom.height() - box_geom.height()) // 2,
+            center.x() - box_geom.width() // 2,
+            center.y() - box_geom.height() // 2,
         )
         box.exec()
 
@@ -5851,7 +5942,10 @@ class MainWindow(QMainWindow):
         return self._insert_action_item(None, action, render_preview)
 
     def _on_action_toggled(self, item, checked):
-        """启用勾选框变化：写回动作数据、刷新标签计数与预览。"""
+        """启用勾选框变化：写回动作数据、刷新标签计数与预览。
+
+        fit=False：同图刷新（启用/停用不换图），保留用户当前缩放位置。
+        """
         row = self.action_list.row(item)
         if row < 0:
             return
@@ -5861,7 +5955,7 @@ class MainWindow(QMainWindow):
         data["enabled"] = bool(checked)
         item.setData(Qt.UserRole, data)
         self._update_tab_titles()
-        self._render_action_preview()
+        self._render_action_preview(fit=False)
 
     def _on_action_param_changed(self, item, key, value):
         """inline 参数控件变化：写回动作数据、防抖触发预览、刷新摘要。
@@ -5888,8 +5982,10 @@ class MainWindow(QMainWindow):
         if self._param_change_timer is None:
             self._param_change_timer = QTimer(self)
             self._param_change_timer.setSingleShot(True)
+            # fit=False：参数变化是同图刷新，保留用户当前缩放位置。
+            # 否则拖动滑块时图片一直弹回适应窗口，干扰看细节。
             self._param_change_timer.timeout.connect(
-                self._render_action_preview)
+                lambda: self._render_action_preview(fit=False))
         self._param_change_timer.start(250)
 
     def _on_add_action(self):
@@ -5963,13 +6059,16 @@ class MainWindow(QMainWindow):
         return enabled, len(all_actions)
 
     def _on_remove_action_for(self, item):
-        """Remove a specific action item (used by each item's 移除 button)."""
+        """Remove a specific action item (used by each item's 移除 button).
+
+        fit=False：删除动作是同图刷新（动作链变化但图源不变），保留缩放。
+        """
         row = self.action_list.row(item)
         if row < 0:
             return
         self._discard_action_item(row)
         self._update_tab_titles()
-        self._render_action_preview()
+        self._render_action_preview(fit=False)
 
     def _discard_action_item(self, row):
         """把第 row 项从列表摘除，并显式销毁其 itemWidget。
@@ -6017,7 +6116,8 @@ class MainWindow(QMainWindow):
         new_item = self._insert_action_item(new_row, data, render_preview=False)
         # 选中跟随数据走，用户连点同一按钮可以持续移动。
         self.action_list.setCurrentItem(new_item)
-        self._render_action_preview()
+        # fit=False：移动是同图刷新（动作链顺序变但内容变），保留缩放。
+        self._render_action_preview(fit=False)
 
     def _on_clear_actions(self):
         self.action_list.clear()
@@ -6119,7 +6219,16 @@ class MainWindow(QMainWindow):
         data = img.tobytes("raw", "RGBA")
         return QImage(data, img.width, img.height, QImage.Format_RGBA8888)
 
-    def _render_action_preview(self):
+    def _render_action_preview(self, fit=True):
+        """刷新动作预览（异步）。
+
+        ``fit`` 控制回填时是否重置缩放到适应窗口：
+        - True：图源切换/首次加载——需要 fit 让用户先看到完整图
+        - False：参数/勾选/移动/删除触发的同图刷新——保留用户当前缩放位置，
+          否则拖动参数滑块时图片一直被弹回适应窗口，干扰看细节
+        通过 ``self._next_preview_fit`` 传给回填路径 ``_drain_action_preview``。
+        """
+        self._next_preview_fit = bool(fit)
         self._refresh_preview_sources()
         path = self._current_preview_source()
         self._cancel_preview_loading_hint()
@@ -6250,7 +6359,9 @@ class MainWindow(QMainWindow):
                 self.preview_view.setVisible(True)
                 self.preview_msg.setVisible(False)
                 self.preview_msg_container.setVisible(False)
-            self._apply_preview_pixmap()
+            # fit 标志来自 _render_action_preview(fit=...)：图源切换/首次加载
+            # 才 fit；参数/勾选/移动触发的同图刷新保留用户缩放位置。
+            self._apply_preview_pixmap(fit=self._next_preview_fit)
         # 队列空且无在途请求时停止节拍器，避免常驻空转。
         if not handled and not self._action_preview_busy:
             self._stop_action_preview_drain()
