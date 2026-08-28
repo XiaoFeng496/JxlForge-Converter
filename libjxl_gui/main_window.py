@@ -3494,7 +3494,7 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888; font-size: 11px;")
         win_inner.addWidget(hint)
-        grid.addWidget(win_group, 0, 0)
+        grid.addWidget(win_group, 0, 1)
 
         # ---- 常规 ----
         theme_group, theme_inner = _section("常规")
@@ -3533,7 +3533,7 @@ class MainWindow(QMainWindow):
         self._theme_loading = False
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         _label_row(theme_inner, "控件样式", self.theme_combo, style_tip)
-        grid.addWidget(theme_group, 0, 1)
+        grid.addWidget(theme_group, 0, 0)
 
         # ---- 转换进程 ----
         proc_group, proc_inner = _section("转换进程")
