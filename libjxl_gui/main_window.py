@@ -1442,28 +1442,50 @@ class PreviewDialog(QDialog):
 
 
 class ActionItemWidget(QWidget):
-    """Two-row widget embedded in each action-list item: an enable checkbox plus
-    the action summary on the top line, and a compact 上移 / 下移 / 移除 button
-    row beneath it."""
+    """动作列表项的 widget：勾选框 + 摘要 + inline 参数控件 + 上移/下移/移除。
 
-    def __init__(self, parent=None):
+    每个 action 的参数直接显示在列表项里（不再弹对话框），值变化即时
+    调 ``on_change(item, key, value)`` 通知 MainWindow 更新数据并触发
+    预览——拖动 spinbox 时主线程会用 250ms 防抖，避免每个值都重渲染。
+
+    兼容旧调用（``ActionItemWidget()`` 无参）：生成 2 行 legacy 布局
+    （无 inline 参数），仅供 test_actions_ui 之类的结构检查使用。
+    """
+
+    def __init__(self, action=None, on_change=None, parent=None):
         super().__init__(parent)
         self.item = None  # back-reference, set by the caller
+        self.action = dict(action) if isinstance(action, dict) else {}
+        self.on_change = on_change
+        # 防回调递归：setData 时 spinbox 会发 valueChanged，再回调 on_change
+        # 又会 setData -> 死循环。用 _block_change 临时吞掉。
+        self._block_change = False
+        self._param_widgets = {}
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 5, 8, 5)
         root.setSpacing(5)
-        # 第一行：启用勾选框 + 动作摘要。取消勾选 = 临时停用（保留参数、不删除）。
+        # 第 1 行：勾选框 + 摘要
         top_row = QHBoxLayout()
         top_row.setSpacing(6)
         self.enable_check = QCheckBox()
-        self.enable_check.setChecked(True)
+        self.enable_check.setChecked(bool(self.action.get("enabled", True)))
         self.enable_check.setToolTip(
             "取消勾选可临时停用该动作（参数保留，不会被应用）")
         top_row.addWidget(self.enable_check, 0, Qt.AlignTop)
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
+        if self.action:
+            self.summary_label.setText(self._summary_text())
         top_row.addWidget(self.summary_label, stretch=1)
         root.addLayout(top_row)
+        # 第 2 行：inline 参数控件（按 type 动态生成）
+        if self.action:
+            param_row = QHBoxLayout()
+            param_row.setSpacing(8)
+            self._param_widgets = self._build_param_widgets(param_row)
+            if self._param_widgets:
+                root.addLayout(param_row)
+        # 第 3 行：上移/下移/移除
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
         self.up_button = QPushButton("上移")
@@ -1473,6 +1495,201 @@ class ActionItemWidget(QWidget):
             btn_row.addWidget(b)
         btn_row.addStretch(1)
         root.addLayout(btn_row)
+
+    def _summary_text(self):
+        """用 MainWindow._action_summary 派生摘要文本（保留作为类型指示）。"""
+        from libjxl_gui import main_window as _mw  # 避免循环
+        try:
+            return _mw.MainWindow._action_summary(None, self.action)
+        except Exception:
+            return self.action.get("type", "")
+
+    def _add_param(self, layout, label, widget):
+        """Add a muted label + param widget to the param row layout."""
+        wrap = QHBoxLayout()
+        wrap.setSpacing(3)
+        lbl = QLabel(label)
+        lbl.setStyleSheet("color: #888;")
+        wrap.addWidget(lbl)
+        wrap.addWidget(widget)
+        container = QWidget()
+        container.setLayout(wrap)
+        layout.addWidget(container)
+
+    def _emit(self, key, value):
+        if self._block_change:
+            return
+        if self.on_change is not None and self.item is not None:
+            self.on_change(self.item, key, value)
+
+    def _build_param_widgets(self, layout):
+        """按 action type 在 layout 上挂 inline 参数控件，返回 {key: widget}。"""
+        p = self.action.get("params", {}) or {}
+        atype = self.action.get("type", "")
+        widgets = {}
+        if atype == "调整大小":
+            w = QSpinBox()
+            w.setRange(0, 100000)
+            w.setValue(int(p.get("width", 0) or 0))
+            w.setSpecialValueText("自动(按比例)")
+            w.valueChanged.connect(lambda v, k="width": self._emit(k, v))
+            self._add_param(layout, "宽", w)
+            widgets["width"] = w
+            h = QSpinBox()
+            h.setRange(0, 100000)
+            h.setValue(int(p.get("height", 0) or 0))
+            h.setSpecialValueText("自动(按比例)")
+            h.valueChanged.connect(lambda v, k="height": self._emit(k, v))
+            self._add_param(layout, "高", h)
+            widgets["height"] = h
+            algo = NoFlickerComboBox()
+            for key, lab in processor.RESIZE_ALGORITHMS:
+                algo.addItem(lab, userData=key)
+            cur = p.get("algorithm", "LANCZOS")
+            idx = next((i for i, (k, _) in enumerate(processor.RESIZE_ALGORITHMS)
+                        if k == cur), 0)
+            algo.setCurrentIndex(idx)
+            algo.currentIndexChanged.connect(
+                lambda i, c=algo: self._emit("algorithm", c.itemData(i)))
+            self._add_param(layout, "算法", algo)
+            widgets["algorithm"] = algo
+        elif atype == "旋转":
+            a = QSpinBox()
+            a.setRange(-360, 360)
+            a.setValue(int(p.get("angle", 90) or 90))
+            a.setSuffix(" °")
+            a.valueChanged.connect(lambda v, k="angle": self._emit(k, v))
+            self._add_param(layout, "角度", a)
+            widgets["angle"] = a
+        elif atype == "水印":
+            t = QLineEdit(p.get("text", "Sample") or "Sample")
+            t.editingFinished.connect(lambda k="text", w=t: self._emit(k, w.text()))
+            self._add_param(layout, "文字", t)
+            widgets["text"] = t
+            fs = QSpinBox()
+            fs.setRange(8, 400)
+            fs.setValue(int(p.get("font_size", 32) or 32))
+            fs.valueChanged.connect(lambda v, k="font_size": self._emit(k, v))
+            self._add_param(layout, "字号", fs)
+            widgets["font_size"] = fs
+            op = QSpinBox()
+            op.setRange(0, 255)
+            op.setValue(int(p.get("opacity", 128) or 128))
+            op.valueChanged.connect(lambda v, k="opacity": self._emit(k, v))
+            self._add_param(layout, "透明度", op)
+            widgets["opacity"] = op
+            pos = NoFlickerComboBox()
+            pos.addItems(processor.WATERMARK_POSITIONS)
+            pos.setCurrentText(p.get("position", "右下"))
+            pos.currentTextChanged.connect(
+                lambda v, k="position": self._emit(k, v))
+            self._add_param(layout, "位置", pos)
+            widgets["position"] = pos
+            col = NoFlickerComboBox()
+            col.addItems(["white", "black"])
+            col.setCurrentText(p.get("color", "white"))
+            col.currentTextChanged.connect(
+                lambda v, k="color": self._emit(k, v))
+            self._add_param(layout, "颜色", col)
+            widgets["color"] = col
+        elif atype == "亮度/对比度":
+            b = QDoubleSpinBox()
+            b.setRange(0.0, 3.0)
+            b.setSingleStep(0.1)
+            b.setValue(float(p.get("brightness", 1.0) or 1.0))
+            b.valueChanged.connect(lambda v, k="brightness": self._emit(k, v))
+            self._add_param(layout, "亮度", b)
+            widgets["brightness"] = b
+            c = QDoubleSpinBox()
+            c.setRange(0.0, 3.0)
+            c.setSingleStep(0.1)
+            c.setValue(float(p.get("contrast", 1.0) or 1.0))
+            c.valueChanged.connect(lambda v, k="contrast": self._emit(k, v))
+            self._add_param(layout, "对比度", c)
+            widgets["contrast"] = c
+        elif atype == "锐化":
+            f = QDoubleSpinBox()
+            f.setRange(0.0, 5.0)
+            f.setSingleStep(0.1)
+            f.setValue(float(p.get("factor", 1.5) or 1.5))
+            f.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
+            self._add_param(layout, "强度", f)
+            widgets["factor"] = f
+        elif atype == "裁剪":
+            for label, key in (
+                ("左", "left"), ("上", "top"),
+                ("宽", "width"), ("高", "height"),
+            ):
+                sp = QSpinBox()
+                sp.setRange(0, 100000)
+                sp.setValue(int(p.get(key, 0) or 0))
+                sp.valueChanged.connect(lambda v, k=key: self._emit(k, v))
+                self._add_param(layout, label, sp)
+                widgets[key] = sp
+        elif atype == "规格化":
+            co = QSpinBox()
+            co.setRange(0, 50)
+            co.setValue(int(p.get("cutoff", 0) or 0))
+            co.setToolTip("截掉直方图两端各 N‰ 的极值像素后再拉满（0=纯规格化）")
+            co.valueChanged.connect(lambda v, k="cutoff": self._emit(k, v))
+            self._add_param(layout, "截断", co)
+            widgets["cutoff"] = co
+        elif atype == "曝光":
+            ev = QDoubleSpinBox()
+            ev.setRange(-3.0, 3.0)
+            ev.setSingleStep(0.1)
+            ev.setValue(float(p.get("ev", 0.0) or 0.0))
+            ev.setSuffix(" EV")
+            ev.setToolTip("+1 EV = 亮度翻倍，-1 EV = 减半；0=不变")
+            ev.valueChanged.connect(lambda v, k="ev": self._emit(k, v))
+            self._add_param(layout, "曝光", ev)
+            widgets["ev"] = ev
+        elif atype == "阴影/高光":
+            s = QDoubleSpinBox()
+            s.setRange(0.0, 2.0)
+            s.setSingleStep(0.05)
+            s.setValue(float(p.get("shadow", 1.0) or 1.0))
+            s.setToolTip(">1 提亮阴影，<1 压暗阴影；1.0=不变")
+            s.valueChanged.connect(lambda v, k="shadow": self._emit(k, v))
+            self._add_param(layout, "阴影", s)
+            widgets["shadow"] = s
+            h = QDoubleSpinBox()
+            h.setRange(0.0, 2.0)
+            h.setSingleStep(0.05)
+            h.setValue(float(p.get("highlight", 1.0) or 1.0))
+            h.setToolTip(">1 提亮高光，<1 压暗高光；1.0=不变")
+            h.valueChanged.connect(lambda v, k="highlight": self._emit(k, v))
+            self._add_param(layout, "高光", h)
+            widgets["highlight"] = h
+        layout.addStretch(1)
+        return widgets
+
+    def sync_from_action(self):
+        """外部更新 action 数据后，同步各 inline 控件显示（避免循环回调）。"""
+        p = self.action.get("params", {}) or {}
+        self._block_change = True
+        try:
+            for key, widget in self._param_widgets.items():
+                if key not in p:
+                    continue
+                v = p[key]
+                if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                    widget.setValue(v)
+                elif isinstance(widget, QLineEdit):
+                    widget.setText(str(v))
+                elif isinstance(widget, NoFlickerComboBox):
+                    if widget.itemData(widget.currentIndex()) is not None:
+                        # resize algo combo: 用 userData 匹配
+                        for i in range(widget.count()):
+                            if widget.itemData(i) == v:
+                                widget.setCurrentIndex(i)
+                                break
+                    else:
+                        widget.setCurrentText(str(v))
+            self.enable_check.setChecked(bool(self.action.get("enabled", True)))
+            self.summary_label.setText(self._summary_text())
+        finally:
+            self._block_change = False
 
 
 class ActionListWidget(QListWidget):
@@ -1583,14 +1800,20 @@ class ThumbnailDelegate(QStyledItemDelegate):
 # render with Qt's own (non-native, non-DWM-animated) engine. On Windows 10/11
 # the native combobox popup gets a DWM slide/fade entrance animation that
 # flickers; Fusion-drawn popups are painted immediately and do not animate.
-_FUSION_STYLE = None
+_FUSION_STYLE = None  # 留作占位历史变量；_fusion_style() 现在每次创建新风格。
 
 
 def _fusion_style():
-    global _FUSION_STYLE
-    if _FUSION_STYLE is None:
-        _FUSION_STYLE = QStyleFactory.create("Fusion")
-    return _FUSION_STYLE
+    """返回一个 Fusion 风格的**新**实例。
+
+    注意：曾经用作模块级单例 (``_FUSION_STYLE``)，但 ``QApplication.setStyle``
+    会在被调用时接管新风格的 C++ 所有权并可能作废旧风格——而 NoFlickerComboBox
+    仍持有旧风格的 Python 引用，导致后续 ``setStyle(dead_ref)`` 报
+    ``Internal C++ object already deleted``。改为每次创建新风格（成本极低）：
+    与 ``_apply_app_style`` 里「A fresh style is created each call so re-applying
+    the same QStyle instance never collides on ownership」同款做法。
+    """
+    return QStyleFactory.create("Fusion")
 
 
 # Application-wide theme. One of:
@@ -2522,9 +2745,7 @@ class MainWindow(QMainWindow):
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel("动作类型："))
         self.action_combo = NoFlickerComboBox()
-        self.action_combo.addItems(
-            ["调整大小", "旋转", "水印", "亮度/对比度", "锐化", "裁剪"]
-        )
+        self.action_combo.addItems(list(processor.ACTION_TYPES))
         self.add_action_button = QPushButton("添加动作")
         self.clear_action_button = QPushButton("清空")
         toolbar.addWidget(self.action_combo)
@@ -2628,6 +2849,9 @@ class MainWindow(QMainWindow):
         # 待重算，fit 必须推迟一拍；布局未变时 viewport 稳定，可同步 fit 以
         # 避免「新图 + 上一张的 transform」中间帧被绘制出来（切图闪烁次因）。
         self._preview_fit_deferred = False
+        # inline 参数控件变化时的防抖：拖动 spinbox 时每个值都重渲染会卡，
+        # 250ms 内的连续变化合并为一次预览刷新。
+        self._param_change_timer = None
 
         self.zoom_in_button.clicked.connect(
             lambda: self.preview_view.zoom(1.2))
@@ -3974,6 +4198,31 @@ class MainWindow(QMainWindow):
         """「JPEG 输出不可重建 JXL 直接跳过」开关变化：仅持久化（拦截逻辑在
         _on_convert 建 job 时按本开关即时生效，无需额外联动）。"""
         self._save_conversion_settings()
+
+    def _show_warning_centered(self, title, text, parent=None):
+        """弹一个居中到主窗口的警告框。
+
+        ``QMessageBox.warning(self, ...)`` 在多数环境会居中到父窗口，但部分
+        场景（多屏 / 高 DPI / 父窗口未 show / 几何异常）下会落到屏幕右上角
+        或偏移位置。改为手动构造 + 显式 move 到 ``self.frameGeometry()`` 的
+        中心，所有警告都走同一路径以保持一致。
+        """
+        box = QMessageBox(parent if parent is not None else self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setStandardButtons(QMessageBox.Ok)
+        box.adjustSize()
+        # 必须用 frameGeometry 拿到带标题栏/边框的完整外框，再对齐到
+        # self 的 frameGeometry 中心 —— 用 geometry() 在 Windows 下会把
+        # 标题栏高度算错，警告框位置会偏上。
+        self_geom = self.frameGeometry()
+        box_geom = box.frameGeometry()
+        box.move(
+            self_geom.x() + (self_geom.width() - box_geom.width()) // 2,
+            self_geom.y() + (self_geom.height() - box_geom.height()) // 2,
+        )
+        box.exec()
 
     def _maybe_warn_adv_params(self):
         """首次勾选「启用高级参数」时弹警告，确认用户了解各子项作用；提供「不再提醒」
@@ -5566,9 +5815,10 @@ class MainWindow(QMainWindow):
         """
         item = QListWidgetItem()
         item.setData(Qt.UserRole, action)
-        widget = ActionItemWidget()
-        widget.summary_label.setText(self._action_summary(action))
-        widget.enable_check.setChecked(bool(action.get("enabled", True)))
+        widget = ActionItemWidget(
+            action, on_change=self._on_action_param_changed)
+        # summary 由 ActionItemWidget 内部根据 action 派生；保留属性以便
+        # 其他代码（move/refresh 路径）继续可读写。
         item.setSizeHint(widget.sizeHint())
         if row is None or row < 0 or row >= self.action_list.count():
             self.action_list.addItem(item)
@@ -5613,15 +5863,46 @@ class MainWindow(QMainWindow):
         self._update_tab_titles()
         self._render_action_preview()
 
-    def _on_add_action(self):
-        name = self.action_combo.currentText()
-        dialog = ActionParamDialog(name, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+    def _on_action_param_changed(self, item, key, value):
+        """inline 参数控件变化：写回动作数据、防抖触发预览、刷新摘要。
+
+        防抖 250ms：连续拖动 spinbox 时不每个值都重渲染，而是在用户停顿
+        后再调一次 ``_render_action_preview``。
+        """
+        row = self.action_list.row(item)
+        if row < 0:
             return
-        params = dialog.get_params()
-        action = {"type": name, "params": params, "enabled": True}
+        data = item.data(Qt.UserRole)
+        if not isinstance(data, dict):
+            return
+        data.setdefault("params", {})[key] = value
+        item.setData(Qt.UserRole, data)
+        # 同步摘要文本（保留类型指示；只在 label 上更新，不动 inline 控件，
+        # 避免 valueChanged 回调形成死循环）。
+        widget = self.action_list.itemWidget(item)
+        if widget is not None:
+            try:
+                widget.summary_label.setText(self._action_summary(data))
+            except Exception:
+                pass
+        if self._param_change_timer is None:
+            self._param_change_timer = QTimer(self)
+            self._param_change_timer.setSingleShot(True)
+            self._param_change_timer.timeout.connect(
+                self._render_action_preview)
+        self._param_change_timer.start(250)
+
+    def _on_add_action(self):
+        """按当前下拉选中的类型，以默认参数直接追加一个动作项（不再弹参数对话框）。
+
+        参数改为 inline 暴露在列表项上：用户可即时调整任意参数，无需切换
+        弹窗（旧 ActionParamDialog 已不再被 UI 调用，仅留作历史代码）。
+        """
+        name = self.action_combo.currentText()
+        defaults = dict(processor.DEFAULT_PARAMS.get(name, {}))
+        action = {"type": name, "params": defaults, "enabled": True}
         self._add_action_item(action)
-        self.statusBar().showMessage("已添加动作：%s" % self._action_summary(action))
+        self.statusBar().showMessage("已添加动作：%s" % name)
 
     def _action_summary(self, action):
         """Short human-readable summary of an action (shown in the list)."""
@@ -5629,13 +5910,10 @@ class MainWindow(QMainWindow):
         p = action.get("params", {}) or {}
         if atype == "调整大小":
             w, h = int(p.get("width", 0) or 0), int(p.get("height", 0) or 0)
-            if w and h:
-                return "%s (%dx%d)" % (atype, w, h)
-            if w:
-                return "%s (宽%d)" % (atype, w)
-            if h:
-                return "%s (高%d)" % (atype, h)
-            return atype
+            algo = p.get("algorithm") or "LANCZOS"
+            size = ("%dx%d" % (w, h)) if (w and h) else (
+                ("宽%d" % w) if w else (("高%d" % h) if h else "自动"))
+            return "%s (%s, %s)" % (atype, size, algo)
         if atype == "旋转":
             return "%s (%d°)" % (atype, int(p.get("angle", 0) or 0))
         if atype == "水印":
@@ -5649,6 +5927,15 @@ class MainWindow(QMainWindow):
             return "%s (%d,%d %dx%d)" % (
                 atype, int(p.get("left", 0)), int(p.get("top", 0)),
                 int(p.get("width", 0)), int(p.get("height", 0)))
+        if atype == "规格化":
+            co = int(p.get("cutoff", 0) or 0)
+            return ("%s" % atype) if co == 0 else ("%s (cutoff=%d‰)" % (atype, co))
+        if atype == "曝光":
+            return "%s (%+.1f EV)" % (atype, float(p.get("ev", 0.0) or 0.0))
+        if atype == "阴影/高光":
+            return "%s (影%.2f/亮%.2f)" % (
+                atype, float(p.get("shadow", 1.0) or 1.0),
+                float(p.get("highlight", 1.0) or 1.0))
         return atype
 
     def _collect_actions(self):
@@ -6623,7 +6910,7 @@ class MainWindow(QMainWindow):
                 "错误：%s 未就绪，请确认 libjxl 已安装并加入 PATH。"
                 % " 与 ".join(missing)
             )
-            QMessageBox.warning(self, "libjxl 未就绪", msg)
+            self._show_warning_centered("libjxl 未就绪", msg)
             return
 
         actions = self._collect_actions()
@@ -6674,10 +6961,10 @@ class MainWindow(QMainWindow):
                 self.log_edit.appendPlainText("错误：自定义命令已勾选但内容为空。")
                 return
             if "<输入>" not in raw or "<输出>" not in raw:
-                QMessageBox.warning(
-                    self, "自定义命令格式",
+                self._show_warning_centered(
+                    "自定义命令格式",
                     "自定义命令必须同时包含 <输入> 和 <输出> 占位符"
-                    "（会被替换为每个文件的真实路径）。"
+                    "（会被替换为每个文件的真实路径）。",
                 )
                 return
             custom_cmd = raw
@@ -7959,19 +8246,20 @@ class ActionParamDialog(QDialog):
             w = int(self._controls["width"][1]())
             h = int(self._controls["height"][1]())
             if w == 0 and h == 0:
-                QMessageBox.warning(self, "参数无效",
-                                    "调整大小需至少设置宽度或高度之一。")
+                self.parent()._show_warning_centered(
+                    "参数无效", "调整大小需至少设置宽度或高度之一。")
                 return
         elif self.action_type == "裁剪":
             w = int(self._controls["width"][1]())
             h = int(self._controls["height"][1]())
             if w == 0 and h == 0:
-                QMessageBox.warning(self, "参数无效",
-                                    "裁剪需至少设置宽度或高度之一。")
+                self.parent()._show_warning_centered(
+                    "参数无效", "裁剪需至少设置宽度或高度之一。")
                 return
         elif self.action_type == "水印":
             if not (self._controls["text"][1]() or "").strip():
-                QMessageBox.warning(self, "参数无效", "水印文字不能为空。")
+                self.parent()._show_warning_centered(
+                    "参数无效", "水印文字不能为空。")
                 return
         super().accept()
 

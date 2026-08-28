@@ -26,7 +26,8 @@ def base():
 
 
 check("Pillow available", processor.AVAILABLE is True)
-check("six action types", len(processor.ACTION_TYPES) == 6)
+check("nine action types (6 original + 3 new: 规格化/曝光/阴影高光)",
+      len(processor.ACTION_TYPES) == 9)
 check("watermark positions = 9", len(processor.WATERMARK_POSITIONS) == 9)
 
 # resize: width only -> keep ratio

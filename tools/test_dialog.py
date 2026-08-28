@@ -33,9 +33,9 @@ check("MainWindow._render_action_preview",
 # _action_summary logic (does not touch any Qt state, so a dummy self works).
 s = mw.MainWindow._action_summary
 check("summary resize WxH",
-      s(None, {"type": "调整大小", "params": {"width": 800, "height": 600}}) == "调整大小 (800x600)")
+      s(None, {"type": "调整大小", "params": {"width": 800, "height": 600}}) == "调整大小 (800x600, LANCZOS)")
 check("summary resize width only",
-      s(None, {"type": "调整大小", "params": {"width": 100, "height": 0}}) == "调整大小 (宽100)")
+      s(None, {"type": "调整大小", "params": {"width": 100, "height": 0}}) == "调整大小 (宽100, LANCZOS)")
 check("summary rotate",
       s(None, {"type": "旋转", "params": {"angle": 90}}) == "旋转 (90°)")
 check("summary watermark",
@@ -46,6 +46,14 @@ check("summary sharpen",
       s(None, {"type": "锐化", "params": {"factor": 1.5}}) == "锐化 (1.5)")
 check("summary crop",
       s(None, {"type": "裁剪", "params": {"left": 0, "top": 0, "width": 50, "height": 50}}) == "裁剪 (0,0 50x50)")
+check("summary normalize (cutoff=0)",
+      s(None, {"type": "规格化", "params": {"cutoff": 0}}) == "规格化")
+check("summary normalize (cutoff=5)",
+      s(None, {"type": "规格化", "params": {"cutoff": 5}}) == "规格化 (cutoff=5‰)")
+check("summary exposure +1",
+      s(None, {"type": "曝光", "params": {"ev": 1.0}}) == "曝光 (+1.0 EV)")
+check("summary shadow/highlight",
+      s(None, {"type": "阴影/高光", "params": {"shadow": 1.5, "highlight": 0.7}}) == "阴影/高光 (影1.50/亮0.70)")
 
 # Best-effort: actually construct the dialog for every action type. This needs
 # a QApplication; on headless setups where that fails we skip rather than fail.
