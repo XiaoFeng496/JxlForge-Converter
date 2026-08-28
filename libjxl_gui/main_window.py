@@ -1470,19 +1470,16 @@ class ActionItemWidget(QWidget):
         # 第 1 行：折叠 + 勾选 + 摘要(stretch) + 三个紧凑按钮
         top_row = QHBoxLayout()
         top_row.setSpacing(4)
-        # 折叠按钮：用文字 ▼/▶ 而非 Qt.ArrowType。后者在某些 style 下会被
-        # 渲染成 checkbox 风格（用户截图反馈：第二个 ✓ 实际是 collapse_btn
-        # 但画成了勾选框样子）。setStyleSheet 强制透明背景、无边框，去掉
-        # QToolButton 默认按钮立体感，与 QCheckBox 视觉风格统一；并防止
-        # NoFlickerComboBox 渲染策略跨控件污染。
+        # 折叠按钮：用 setArrowType 模仿 QComboBox 的下拉按钮样式（正方形、
+        # 灰色、▼ 向下箭头）。native style 下渲染标准；Fusion style 下 setCheckable
+        # + setArrowType 会被画成 checkbox —— 用户当前主题按 native 算（参考图 1
+        # 借用其下拉按钮外观）。setCheckable(True) + Qt 内部 toggled 信号状态切换。
+        # 不同状态切箭头方向：展开=DownArrow，折叠=RightArrow。
         self.collapse_btn = QToolButton()
-        self.collapse_btn.setText("▼")
+        self.collapse_btn.setArrowType(Qt.DownArrow)
         self.collapse_btn.setCheckable(True)
         self.collapse_btn.setChecked(True)  # 默认展开
-        self.collapse_btn.setFixedSize(18, 18)
-        self.collapse_btn.setStyleSheet(
-            "QToolButton{background:transparent;border:none;}"
-        )
+        self.collapse_btn.setFixedSize(20, 20)
         self.collapse_btn.setToolTip("折叠/展开参数")
         top_row.addWidget(self.collapse_btn, 0, Qt.AlignTop)
         self.enable_check = QCheckBox()
@@ -1496,17 +1493,13 @@ class ActionItemWidget(QWidget):
             self.summary_label.setText(self._summary_text())
         top_row.addWidget(self.summary_label, stretch=1)
         # 三个紧凑按钮（与标题同行，不另起一行）
-        # ⚠️ 不加 fixed/maximum width 的话，summary_label stretch=1 + 按钮自身
-        # minimumSizeHint 偏大（Fusion/native 风格 padding+border）会让 6×3
-        # 默认布局下三个按钮把整行挤满，summary 被压成 1-2 字符就换行。
-        # 设 fixed width 强制按内容 + 最小宽度，不被 stretch 影响。
+        # 用户要求：高度用默认（QPushButton 标准高度），宽度刚好显示文字。
+        # 设 setMaximumWidth 让内容决定宽度（不再设 fixed/minimum 强制拉宽）。
         self.up_button = QPushButton("上移")
         self.down_button = QPushButton("下移")
         self.remove_button = QPushButton("移除")
         for b in (self.up_button, self.down_button, self.remove_button):
-            b.setFixedHeight(22)
-            b.setMinimumWidth(40)
-            b.setMaximumWidth(56)
+            b.setMaximumWidth(50)
             top_row.addWidget(b)
         root.addLayout(top_row)
         # 第 2 行：inline 参数（可折叠）
@@ -1536,7 +1529,8 @@ class ActionItemWidget(QWidget):
 
     def _on_collapse_toggled(self, checked):
         """折叠/展开参数行：checked=True=展开，=False=折叠。"""
-        self.collapse_btn.setText("▼" if checked else "▶")
+        self.collapse_btn.setArrowType(
+            Qt.DownArrow if checked else Qt.RightArrow)
         self.params_container.setVisible(checked)
         # 持久化 UI 状态到 action dict（_collapsed=True 表示折叠）
         if self.item is not None:
@@ -1562,7 +1556,10 @@ class ActionItemWidget(QWidget):
         lbl.setStyleSheet("color: gray;")
         row = self._next_param_row
         self._next_param_row += 1
-        grid.addWidget(lbl, row, 0, Qt.AlignRight | Qt.AlignVCenter)
+        # ⚠️ 不用 AlignRight —— 它把 label 推到 cell 右端，widget 紧跟其右，
+        # 整体看起来 label+widget 都偏右。改用默认左对齐，label 紧贴左边缘、
+        # widget 紧跟其后，参数行整体靠左（与标题行左缩进对齐）。
+        grid.addWidget(lbl, row, 0)
         grid.addWidget(widget, row, 1)
 
     def _emit(self, key, value):
