@@ -33,6 +33,7 @@ is in Chinese.
 import os
 import math
 import time
+import json
 import atexit
 import shutil
 import shlex
@@ -1988,6 +1989,7 @@ class MainWindow(QMainWindow):
             self._load_conversion_settings()
             self._load_jxl_output()
             self._load_output_settings()
+            self._load_actions_setting()
             self._settings_loaded = True
         self._bench_enabled = os.environ.get("LIBJXL_BENCH") == "1"
         self._bench_done = False
@@ -2143,6 +2145,7 @@ class MainWindow(QMainWindow):
         self._load_conversion_settings()
         self._load_jxl_output()
         self._load_output_settings()
+        self._load_actions_setting()
 
     def _warm_now(self):
         """Warm the popup right now, exactly once.
@@ -3550,12 +3553,20 @@ class MainWindow(QMainWindow):
         # 4 个区已入网格，先加入外层垂直布局（保持其在「选项」「高级参数」之上）。
         layout.addLayout(grid)
 
-        # ---- 选项（暂空置，预留给后续新增的零散开关；位于高级参数上方） ----
+        # ---- 选项（零散开关区；位于高级参数上方） ----
         options_group, options_inner = _section("选项")
-        # TODO: 后续新选项作为独立分组框加在此处（或并入本区），保持设置页紧凑。
-        placeholder = QLabel("（暂无选项）")
-        placeholder.setStyleSheet("color: #888; font-size: 11px;")
-        options_inner.addWidget(placeholder)
+
+        # 「退出时保存动作列表」：勾选后退出应用会序列化当前动作标签页的动作列表
+        # 到 QSettings，下次启动自动恢复；关闭则退出时不保存（已存数据会被清除）。
+        self.save_actions_on_exit_check = QCheckBox("退出时保存动作列表")
+        self.save_actions_on_exit_check.setToolTip(
+            "开启后，退出程序时会记住「动作」标签页里当前的动作列表，下次启动自动恢复；\n"
+            "关闭则该列表不持久化（每次启动恢复到空）。"
+        )
+        self.save_actions_on_exit_check.setChecked(False)
+        self.save_actions_on_exit_check.toggled.connect(self._save_actions_setting)
+        options_inner.addWidget(self.save_actions_on_exit_check)
+
         layout.addWidget(options_group)
         self.options_group = options_group
 
@@ -4191,6 +4202,9 @@ class MainWindow(QMainWindow):
         self._save_view_mode()
         # Persist the chosen UI theme.
         self._save_theme()
+        # Persist the action list (if "退出时保存动作列表" is enabled; otherwise
+        # clears any previously stored list so it is not resurrected next launch).
+        self._save_actions_setting()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -5431,13 +5445,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Actions tab slots
     # ------------------------------------------------------------------
-    def _on_add_action(self):
-        name = self.action_combo.currentText()
-        dialog = ActionParamDialog(name, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        params = dialog.get_params()
-        action = {"type": name, "params": params}
+    def _add_action_item(self, action, render_preview=True):
+        """根据动作字典在列表末尾追加一个动作项（UI 装配 + 上移/下移/移除连接）。
+
+        供「手动添加动作」(``_on_add_action``) 与「启动恢复已保存动作列表」
+        (``_load_actions_setting``) 共用。``render_preview`` 控制是否立即刷新
+        动作预览——批量恢复时为 False，待全部加完后再统一刷新一次，避免 N 次重复渲染。
+        """
         item = QListWidgetItem()
         item.setData(Qt.UserRole, action)
         widget = ActionItemWidget()
@@ -5452,8 +5466,18 @@ class MainWindow(QMainWindow):
             lambda: self._on_move_action_for(item, 1))
         widget.remove_button.clicked.connect(
             lambda: self._on_remove_action_for(item))
+        if render_preview:
+            self._render_action_preview()
+
+    def _on_add_action(self):
+        name = self.action_combo.currentText()
+        dialog = ActionParamDialog(name, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        params = dialog.get_params()
+        action = {"type": name, "params": params}
+        self._add_action_item(action)
         self.statusBar().showMessage("已添加动作：%s" % self._action_summary(action))
-        self._render_action_preview()
 
     def _action_summary(self, action):
         """Short human-readable summary of an action (shown in the list)."""
@@ -6041,6 +6065,66 @@ class MainWindow(QMainWindow):
             theme = "native_noflicker"
         set_app_theme(theme)
         self._apply_app_style(theme)
+
+    # ---- actions-tab persistence (save action list on exit) ------------
+    def _save_actions_setting(self):
+        """Persist the action-list save-on-exit toggle, and (when enabled) the
+        current action list itself, to QSettings.
+
+        Guarded by ``_actions_loading`` so restoring on launch does not immediately
+        re-serialize (and is not needed to, since load writes directly). When the
+        toggle is OFF we remove any previously stored list, so a later launch never
+        resurrects stale actions — matching the "关闭 = 不保存" semantics.
+        Called both on toggle and from closeEvent.
+        """
+        if getattr(self, "_actions_loading", False):
+            return
+        actions = self._collect_actions()
+        settings = QSettings()
+        settings.beginGroup("actions")
+        save_on_exit = bool(
+            getattr(self, "save_actions_on_exit_check", None)
+            and self.save_actions_on_exit_check.isChecked()
+        )
+        settings.setValue("save_on_exit", save_on_exit)
+        if save_on_exit:
+            try:
+                settings.setValue(
+                    "list", json.dumps(actions, ensure_ascii=False)
+                )
+            except (TypeError, ValueError):
+                settings.remove("list")
+        else:
+            settings.remove("list")
+        settings.endGroup()
+
+    def _load_actions_setting(self):
+        """Restore the action-list save-on-exit toggle and, when it was enabled,
+        rebuild the action list from QSettings. Safe to call only after the
+        actions tab (and thus ``self.action_list``) has been built.
+        """
+        self._actions_loading = True
+        settings = QSettings()
+        settings.beginGroup("actions")
+        save_on_exit = settings.value("save_on_exit", False, type=bool)
+        if getattr(self, "save_actions_on_exit_check", None) is not None:
+            self.save_actions_on_exit_check.setChecked(bool(save_on_exit))
+        if save_on_exit:
+            raw = settings.value("list", "", type=str)
+            actions = []
+            if raw:
+                try:
+                    actions = json.loads(raw)
+                except (TypeError, ValueError):
+                    actions = []
+            if isinstance(actions, list):
+                for a in actions:
+                    if isinstance(a, dict) and "type" in a:
+                        self._add_action_item(a, render_preview=False)
+                # 批量恢复后统一刷新一次预览，避免逐项重复渲染。
+                self._render_action_preview()
+        settings.endGroup()
+        self._actions_loading = False
 
     def _apply_app_style(self, theme):
         """Set the application-wide style: Fusion for the 'fusion' theme, the
