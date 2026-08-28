@@ -2510,6 +2510,8 @@ class MainWindow(QMainWindow):
         self._load_jxl_output()
         self._load_output_settings()
         self._load_actions_setting()
+        # 「切换预览源后自动适应窗口」勾选状态（默认启用）。
+        self._load_fit_on_source_change()
         # 恢复完动作列表后再统一刷一次标题计数：无动作 / 无输入时也要显示
         # 「输入 [0个]」「动作 [0/0]」，而不是光秃秃的「输入」「动作」。
         self._update_tab_titles()
@@ -2901,9 +2903,20 @@ class MainWindow(QMainWindow):
         msg_container_layout.addStretch(1)
         right_layout.addWidget(self.preview_msg_container, stretch=1)
 
-        hint = QLabel("预览为示意效果，可能与最终输出不完全一致。")
-        hint.setStyleSheet("color: #888; font-size: 11px;")
-        right_layout.addWidget(hint)
+        # 「切换预览源后自动适应窗口」复选框：控制切换预览源时是否 fit 到窗口。
+        # 取消勾选后，切源沿用当前缩放位置（便于对比多张图的同一局部）。
+        # 默认启用（保留「切换预览源后自动适应窗口」的既有行为）。
+        self.fit_on_source_change_check = QCheckBox("切换预览源后自动适应窗口")
+        self.fit_on_source_change_check.setChecked(True)
+        self.fit_on_source_change_check.setStyleSheet(
+            "color: #888; font-size: 11px;")
+        self.fit_on_source_change_check.setToolTip(
+            "取消勾选后，切换预览源时沿用当前缩放位置，不被重置到适应窗口。"
+        )
+        # 勾选状态即时持久化（toggled 首参是 checked，无需 _checked 守卫）。
+        self.fit_on_source_change_check.toggled.connect(
+            lambda _checked: self._save_fit_on_source_change())
+        right_layout.addWidget(self.fit_on_source_change_check)
 
         splitter.addWidget(right)
         # Default ratio: the preview area takes 4/7 of the width (left 3 /
@@ -2952,8 +2965,14 @@ class MainWindow(QMainWindow):
 
         self.add_action_button.clicked.connect(self._on_add_action)
         self.clear_action_button.clicked.connect(self._on_clear_actions)
+        # ⚠️ currentIndexChanged 会带 index(int) 实参；_render_action_preview
+        # 的 fit 参数会把它接住 —— 切到 index=0（向上切到第一项）时
+        # fit=0 → bool(0)=False → 不 fit；切到 index>0 才 fit。这正是
+        # 「向上切不自动适应窗口、向下切会」的根因。用 lambda 吞掉 index。
+        # fit 值改由「切换预览源后自动适应窗口」复选框决定（默认启用）。
         self.preview_source_combo.currentIndexChanged.connect(
-            self._render_action_preview
+            lambda _index=0: self._render_action_preview(
+                fit=self._fit_on_source_change())
         )
         # Refresh the preview whenever the user jumps back to this tab (so it
         # also picks up input files added while on another tab).
@@ -5876,6 +5895,31 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Actions tab slots
     # ------------------------------------------------------------------
+    def _fit_on_source_change(self):
+        """「切换预览源后自动适应窗口」复选框的当前值（控件未就绪时按 True）。"""
+        cb = getattr(self, "fit_on_source_change_check", None)
+        if cb is None:
+            return True
+        return bool(cb.isChecked())
+
+    def _load_fit_on_source_change(self):
+        """恢复「切换预览源后自动适应窗口」勾选状态（默认启用）。"""
+        settings = QSettings()
+        settings.beginGroup("actions")
+        checked = settings.value("fit_on_source_change", True, type=bool)
+        settings.endGroup()
+        cb = getattr(self, "fit_on_source_change_check", None)
+        if cb is not None:
+            cb.setChecked(bool(checked))
+
+    def _save_fit_on_source_change(self):
+        """持久化「切换预览源后自动适应窗口」勾选状态。"""
+        settings = QSettings()
+        settings.beginGroup("actions")
+        settings.setValue(
+            "fit_on_source_change", self._fit_on_source_change())
+        settings.endGroup()
+
     def _update_tab_titles(self):
         """刷新「输入」/「动作」标签标题上的数量统计。
 

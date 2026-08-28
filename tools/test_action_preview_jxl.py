@@ -182,20 +182,26 @@ check("container hidden when preview_msg hidden",
 win.preview_msg.setVisible(True)
 win.preview_msg_container.setVisible(True)
 
-# 关键布局不变量：hint 必须在 right_layout 中排在 preview_msg_container
-# 之后——这样"示意效果"那行永远贴底，不被预览消息挤到中间。
+# 关键布局不变量：「切换预览源后自动适应窗口」复选框必须排在
+# preview_msg_container 之后——这样它永远贴底，不被预览消息挤到中间。
+# （原本是「预览为示意效果…」的 QLabel 提示，已按需求换成该复选框。）
 # offscreen 下 widget 几何坐标未计算，改用 layout 顺序断言（更稳定）。
 right = win.tabs.widget(1)  # 动作标签是第 1 个 tab（输入=0）
-from PySide6.QtWidgets import QLabel as _QL
-hint_labels = [w for w in right.findChildren(_QL)
-               if "示意效果" in w.text()]
-check("hint label still exists", len(hint_labels) == 1)
-hint = hint_labels[0]
+from PySide6.QtWidgets import QCheckBox as _QCB
+fit_cbs = [w for w in right.findChildren(_QCB)
+           if "自动适应窗口" in w.text()]
+check("自动适应窗口 checkbox exists", len(fit_cbs) == 1)
+hint = fit_cbs[0]
+check("自动适应窗口 checkbox default checked", hint.isChecked() is True)
 parent_layout = hint.parent().layout()
 container_idx = parent_layout.indexOf(win.preview_msg_container)
 hint_idx = parent_layout.indexOf(hint)
-check("hint sits below preview_msg_container in layout (anchored to bottom)",
+check("checkbox sits below preview_msg_container in layout (anchored to bottom)",
       container_idx >= 0 and hint_idx > container_idx)
+# 旧提示文本必须已经移除
+from PySide6.QtWidgets import QLabel as _QL
+check("旧的「示意效果」提示已移除",
+      not any("示意效果" in w.text() for w in right.findChildren(_QL)))
 
 # --- Bug 4: 清空输入后预览区不应残留「预览加载中…」 ----------------
 # 根因：path is None 分支只显示 preview_msg 却未重置文本；若此前进入过

@@ -242,6 +242,57 @@ check("参数变化时 _render_action_preview 传 fit=False（保留缩放）",
 
 win._render_action_preview = _orig_render
 
+# --- 7) 切换预览源：向上/向下都必须按复选框决定 fit -------------------
+# Bug：currentIndexChanged 会带 index(int)，_render_action_preview 的 fit
+# 默认参数被它顶掉 —— 切到 index=0（向上）时 fit=0→False 不 fit，
+# 切到 index>0（向下）才 fit。表现为「向上切不自动适应窗口、向下切会」。
+import tempfile as _tf
+_tmpdir = _tf.mkdtemp()
+win.input_files = [
+    os.path.join(_tmpdir, "a.png"),
+    os.path.join(_tmpdir, "b.png"),
+    os.path.join(_tmpdir, "c.png"),
+]
+win._refresh_preview_sources()
+check("预览源下拉有 3 项", win.preview_source_combo.count() == 3)
+
+# 捕获切源时 _render_action_preview 收到的 fit 实参
+src_fit_args = []
+_orig_render3 = win._render_action_preview
+
+
+def _spy_render3(*args, **kwargs):
+    src_fit_args.append((args, kwargs))
+
+
+win._render_action_preview = _spy_render3
+# 向下切（0 → 2）
+win.preview_source_combo.setCurrentIndex(2)
+# 向上切（2 → 0）—— 旧 bug 在这里不 fit
+win.preview_source_combo.setCurrentIndex(0)
+# 再切一次
+win.preview_source_combo.setCurrentIndex(1)
+win._render_action_preview = _orig_render3
+
+# 复选框默认启用 → 所有切源都应 fit=True（含向上切到 index=0）
+check("切源触发了预览刷新", len(src_fit_args) >= 3)
+check("向下切预览源 fit=True",
+      any(kw.get("fit") is True for _a, kw in src_fit_args))
+check("向上切预览源（切到 index=0）也 fit=True —— 旧 bug 此处为 False",
+      len(src_fit_args) >= 2 and src_fit_args[1][1].get("fit") is True)
+
+# 取消勾选 → 切源应 fit=False
+win.fit_on_source_change_check.setChecked(False)
+check("取消勾选后 _fit_on_source_change() 为 False",
+      win._fit_on_source_change() is False)
+src_fit_args.clear()
+win._render_action_preview = _spy_render3
+win.preview_source_combo.setCurrentIndex(2)
+win._render_action_preview = _orig_render3
+check("取消勾选后切源 fit=False（沿用当前缩放）",
+      bool(src_fit_args) and src_fit_args[-1][1].get("fit") is False)
+win.fit_on_source_change_check.setChecked(True)
+
 
 print()
 print("PASSED=%d  FAILURES=%d" % (passed, len(failures)))
