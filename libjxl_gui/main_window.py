@@ -1442,8 +1442,9 @@ class PreviewDialog(QDialog):
 
 
 class ActionItemWidget(QWidget):
-    """Two-row widget embedded in each action-list item: the action summary on
-    the top line and a compact 上移 / 下移 / 移除 button row beneath it."""
+    """Two-row widget embedded in each action-list item: an enable checkbox plus
+    the action summary on the top line, and a compact 上移 / 下移 / 移除 button
+    row beneath it."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1451,9 +1452,18 @@ class ActionItemWidget(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 5, 8, 5)
         root.setSpacing(5)
+        # 第一行：启用勾选框 + 动作摘要。取消勾选 = 临时停用（保留参数、不删除）。
+        top_row = QHBoxLayout()
+        top_row.setSpacing(6)
+        self.enable_check = QCheckBox()
+        self.enable_check.setChecked(True)
+        self.enable_check.setToolTip(
+            "取消勾选可临时停用该动作（参数保留，不会被应用）")
+        top_row.addWidget(self.enable_check, 0, Qt.AlignTop)
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
-        root.addWidget(self.summary_label)
+        top_row.addWidget(self.summary_label, stretch=1)
+        root.addLayout(top_row)
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
         self.up_button = QPushButton("上移")
@@ -2192,6 +2202,9 @@ class MainWindow(QMainWindow):
         self._load_jxl_output()
         self._load_output_settings()
         self._load_actions_setting()
+        # 恢复完动作列表后再统一刷一次标题计数：无动作 / 无输入时也要显示
+        # 「输入 [0个]」「动作 [0/0]」，而不是光秃秃的「输入」「动作」。
+        self._update_tab_titles()
 
     def _warm_now(self):
         """Warm the popup right now, exactly once.
@@ -2378,8 +2391,9 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.input_tab = self._build_input_tab()
-        self.tabs.addTab(self.input_tab, "输入")
-        self.tabs.addTab(self._build_actions_tab(), "动作")
+        # 记录索引，供 _update_tab_titles 按索引刷新标题上的数量统计。
+        self._input_tab_index = self.tabs.addTab(self.input_tab, "输入")
+        self._actions_tab_index = self.tabs.addTab(self._build_actions_tab(), "动作")
         self.tabs.addTab(self._build_output_tab(), "输出")
         self.status_tab = self._build_status_tab()
         self.tabs.addTab(self.status_tab, "状态")
@@ -4986,6 +5000,9 @@ class MainWindow(QMainWindow):
         # 输入集合变化会影响命令预览里的 --lossless_jpeg=0（有损 + JPG 时），
         # 这里统一刷新一次，使预览与实际命令保持同步。
         self._update_cmd_preview()
+        # 输入数量是「输入 [N个]」标签标题的数据源：所有增删入口最终都会
+        # 走到这里，故在此统一刷新（顺序调整走 _sync_files_from_*，另行刷新）。
+        self._update_tab_titles()
 
     @staticmethod
     def _reorder_paths(paths, rows, target):
@@ -5431,6 +5448,7 @@ class MainWindow(QMainWindow):
                 order.append(path)
         self.input_files = order
         self._refresh_table()
+        self._update_tab_titles()
         self.statusBar().showMessage("已调整顺序，共 %d 个文件" % len(self.input_files))
 
     def _sync_files_from_table(self):
@@ -5443,6 +5461,7 @@ class MainWindow(QMainWindow):
                 order.append(path)
         self.input_files = order
         self._refresh_list()
+        self._update_tab_titles()
         self.statusBar().showMessage("已调整顺序，共 %d 个文件" % len(self.input_files))
 
     def _on_remove_selected(self):
@@ -5517,29 +5536,82 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Actions tab slots
     # ------------------------------------------------------------------
-    def _add_action_item(self, action, render_preview=True):
-        """根据动作字典在列表末尾追加一个动作项（UI 装配 + 上移/下移/移除连接）。
+    def _update_tab_titles(self):
+        """刷新「输入」/「动作」标签标题上的数量统计。
 
-        供「手动添加动作」(``_on_add_action``) 与「启动恢复已保存动作列表」
-        (``_load_actions_setting``) 共用。``render_preview`` 控制是否立即刷新
-        动作预览——批量恢复时为 False，待全部加完后再统一刷新一次，避免 N 次重复渲染。
+        输入 → 「输入 [N个]」；动作 → 「动作 [启用数/总数]」。
+        增删输入文件、增删动作、勾选启用状态变化时都要调用。
+        """
+        tabs = getattr(self, "tabs", None)
+        if tabs is None:
+            return
+        input_idx = getattr(self, "_input_tab_index", 0)
+        action_idx = getattr(self, "_actions_tab_index", 1)
+        count = len(getattr(self, "input_files", None) or [])
+        if 0 <= input_idx < tabs.count():
+            tabs.setTabText(input_idx, "输入 [%d个]" % count)
+        if 0 <= action_idx < tabs.count():
+            enabled, total = self._action_counts()
+            tabs.setTabText(action_idx, "动作 [%d/%d]" % (enabled, total))
+
+    def _insert_action_item(self, row, action, render_preview=True):
+        """在 ``row`` 处插入一个**全新**的动作项（item 与 widget 都新建）。
+
+        所有动作项的创建都必须走这里，保证信号连接与启用状态一致。
+        ⚠️ 绝不能复用从列表摘下来的 item / widget（见 ``_on_move_action_for``
+        的注释）—— 那是点击上移/下移闪退的根因。
+
+        ``row`` 为 None 或越界时追加到末尾。``render_preview`` 控制是否立即
+        刷新动作预览——批量恢复时为 False，待全部加完后再统一刷新一次。
         """
         item = QListWidgetItem()
         item.setData(Qt.UserRole, action)
         widget = ActionItemWidget()
         widget.summary_label.setText(self._action_summary(action))
+        widget.enable_check.setChecked(bool(action.get("enabled", True)))
         item.setSizeHint(widget.sizeHint())
-        self.action_list.addItem(item)
+        if row is None or row < 0 or row >= self.action_list.count():
+            self.action_list.addItem(item)
+        else:
+            self.action_list.insertItem(row, item)
         self.action_list.setItemWidget(item, widget)
         widget.item = item
+        # ⚠️ QPushButton.clicked 会带一个 checked 布尔实参，若写成
+        # ``lambda it=item: ...``，该实参会顶掉默认参数 it（变成 bool）→
+        # ``action_list.row(False)`` 报 TypeError。故必须用首参吃掉它。
+        widget.enable_check.toggled.connect(
+            lambda checked, it=item: self._on_action_toggled(it, checked))
         widget.up_button.clicked.connect(
-            lambda: self._on_move_action_for(item, -1))
+            lambda _checked=False, it=item: self._on_move_action_for(it, -1))
         widget.down_button.clicked.connect(
-            lambda: self._on_move_action_for(item, 1))
+            lambda _checked=False, it=item: self._on_move_action_for(it, 1))
         widget.remove_button.clicked.connect(
-            lambda: self._on_remove_action_for(item))
+            lambda _checked=False, it=item: self._on_remove_action_for(it))
+        self._update_tab_titles()
         if render_preview:
             self._render_action_preview()
+        return item
+
+    def _add_action_item(self, action, render_preview=True):
+        """根据动作字典在列表末尾追加一个动作项。
+
+        供「手动添加动作」(``_on_add_action``) 与「启动恢复已保存动作列表」
+        (``_load_actions_setting``) 共用。
+        """
+        return self._insert_action_item(None, action, render_preview)
+
+    def _on_action_toggled(self, item, checked):
+        """启用勾选框变化：写回动作数据、刷新标签计数与预览。"""
+        row = self.action_list.row(item)
+        if row < 0:
+            return
+        data = item.data(Qt.UserRole)
+        if not isinstance(data, dict):
+            return
+        data["enabled"] = bool(checked)
+        item.setData(Qt.UserRole, data)
+        self._update_tab_titles()
+        self._render_action_preview()
 
     def _on_add_action(self):
         name = self.action_combo.currentText()
@@ -5547,7 +5619,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         params = dialog.get_params()
-        action = {"type": name, "params": params}
+        action = {"type": name, "params": params, "enabled": True}
         self._add_action_item(action)
         self.statusBar().showMessage("已添加动作：%s" % self._action_summary(action))
 
@@ -5580,7 +5652,15 @@ class MainWindow(QMainWindow):
         return atype
 
     def _collect_actions(self):
-        """Return the ordered list of action dicts from the action list."""
+        """Return the ordered list of **enabled** action dicts (处理用)。
+
+        未勾选（停用）的动作不参与处理，但仍保留在列表与持久化数据中。
+        顺序 = 列表从上到下的顺序，``processor.apply_actions`` 依此链式执行。
+        """
+        return [a for a in self._all_action_data() if a.get("enabled", True)]
+
+    def _all_action_data(self):
+        """Return every action dict in list order, 含已停用的（持久化用）。"""
         actions = []
         for i in range(self.action_list.count()):
             item = self.action_list.item(i)
@@ -5589,30 +5669,72 @@ class MainWindow(QMainWindow):
                 actions.append(data)
         return actions
 
+    def _action_counts(self):
+        """(启用数, 总数) —— 供标签标题的「动作 [n/m]」使用。"""
+        all_actions = self._all_action_data()
+        enabled = sum(1 for a in all_actions if a.get("enabled", True))
+        return enabled, len(all_actions)
+
     def _on_remove_action_for(self, item):
         """Remove a specific action item (used by each item's 移除 button)."""
         row = self.action_list.row(item)
         if row < 0:
             return
-        self.action_list.takeItem(row)
+        self._discard_action_item(row)
+        self._update_tab_titles()
         self._render_action_preview()
 
+    def _discard_action_item(self, row):
+        """把第 row 项从列表摘除，并显式销毁其 itemWidget。
+
+        摘除时必须让 widget 一并退场：``takeItem`` 只把 item 交还给调用方，
+        widget 仍挂在 viewport 下，若放任不管会残留在界面上或成为野控件。
+        """
+        item = self.action_list.takeItem(row)
+        if item is None:
+            return None
+        widget = self.action_list.itemWidget(item)
+        if widget is not None:
+            # 先断开关联再延迟销毁：deleteLater 保证即使此刻正处在该 widget
+            # 内部按钮的 clicked 回调中，也能安全返回后再销毁，不会 use-after-free。
+            self.action_list.removeItemWidget(item)
+            widget.setParent(None)
+            widget.deleteLater()
+        return item
+
     def _on_move_action_for(self, item, delta):
-        """Move a specific action item up/down (used by each item's buttons)."""
+        """Move a specific action item up/down (used by each item's buttons).
+
+        ⚠️ 闪退根因（务必保持现在的写法）：旧实现是
+            ``widget = itemWidget(item)`` → ``takeItem(row)`` →
+            ``insertItem(new_row, item)`` → ``setItemWidget(item, widget)``
+        即**把摘下来的 widget 原样塞回去**。``takeItem`` 会把该项的
+        indexWidget 从 ``QAbstractItemView`` 的 persistent widget 表中摘除，
+        Qt 会在随后的刷新中释放它；等到再把同一个 widget ``setItemWidget``
+        回去，这个控件已进入销毁流程，而视图在绘制 / 事件分发时仍会访问它
+        → 真实桌面上点击上移/下移直接闪退（offscreen 不绘制，所以测不出来）。
+
+        修复：移动 = 「摘除旧项并让其 widget 一并退场」+「在目标行插入全新
+        item 与全新 widget」。旧 widget 一经摘除就永不复用。
+        """
         row = self.action_list.row(item)
         if row < 0:
             return
         new_row = row + delta
-        if 0 <= new_row < self.action_list.count():
-            widget = self.action_list.itemWidget(item)
-            self.action_list.takeItem(row)
-            self.action_list.insertItem(new_row, item)
-            if widget is not None:
-                self.action_list.setItemWidget(item, widget)
-            self._render_action_preview()
+        if not (0 <= new_row < self.action_list.count()):
+            return
+        data = item.data(Qt.UserRole)
+        if not isinstance(data, dict):
+            return
+        self._discard_action_item(row)
+        new_item = self._insert_action_item(new_row, data, render_preview=False)
+        # 选中跟随数据走，用户连点同一按钮可以持续移动。
+        self.action_list.setCurrentItem(new_item)
+        self._render_action_preview()
 
     def _on_clear_actions(self):
         self.action_list.clear()
+        self._update_tab_titles()
         self._render_action_preview()
 
     def _on_remove_selected_actions(self):
@@ -5624,7 +5746,8 @@ class MainWindow(QMainWindow):
         if not rows:
             return
         for r in rows:
-            self.action_list.takeItem(r)
+            self._discard_action_item(r)
+        self._update_tab_titles()
         self._render_action_preview()
 
     # ------------------------------------------------------------------
@@ -6223,7 +6346,9 @@ class MainWindow(QMainWindow):
         """
         if getattr(self, "_actions_loading", False):
             return
-        actions = self._collect_actions()
+        # 必须用「全量」列表：_collect_actions() 只返回已启用的动作，若用它
+        # 持久化，被取消勾选（停用）的动作会在下次启动时凭空消失。
+        actions = self._all_action_data()
         settings = QSettings()
         settings.beginGroup("actions")
         save_on_exit = bool(
