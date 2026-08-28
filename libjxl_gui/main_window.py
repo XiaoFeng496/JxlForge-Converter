@@ -3395,8 +3395,24 @@ class MainWindow(QMainWindow):
 
     def _build_settings_tab(self):
         widget = QWidget()
-        layout = QVBoxLayout(widget)
+        # 整页包进 QScrollArea（与输出页一致）：选项增多导致超高时只出现滚动条，
+        # 主窗口尺寸不被撑大；透明链透出 QTabWidget 面板色、自动跟随系统深浅主题。
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setAutoFillBackground(False)
+        scroll.viewport().setAutoFillBackground(False)
+        inner = QWidget()
+        inner.setAutoFillBackground(False)
+        layout = QVBoxLayout(inner)
         layout.setSpacing(10)
+        # 2 列网格排布各分组框（两两并排），消除单列时每个框右侧的大片留白；
+        # 「高级参数」保持原样、全宽置于最下方，其上方新增「选项」区。
+        grid = QGridLayout()
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setSpacing(10)
 
         # 各分区统一用分组框（QGroupBox）框起，紧凑内边距，避免框显得过大。
         def _section(title):
@@ -3438,7 +3454,7 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888; font-size: 11px;")
         win_inner.addWidget(hint)
-        layout.addWidget(win_group)
+        grid.addWidget(win_group, 0, 0)
 
         # ---- 主题 ----
         theme_group, theme_inner = _section("主题")
@@ -3457,7 +3473,7 @@ class MainWindow(QMainWindow):
         self._theme_loading = False
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         _label_row(theme_inner, "界面主题", self.theme_combo, theme_tip)
-        layout.addWidget(theme_group)
+        grid.addWidget(theme_group, 0, 1)
 
         # ---- 转换进程 ----
         proc_group, proc_inner = _section("转换进程")
@@ -3497,7 +3513,7 @@ class MainWindow(QMainWindow):
         self.cpu_cores_combo.setCurrentIndex(self.cpu_cores_combo.findData("auto"))
         self.cpu_cores_combo.currentIndexChanged.connect(self._on_cpu_cores_changed)
         _label_row(proc_inner, "CPU 核心使用数", self.cpu_cores_combo, cores_tip)
-        layout.addWidget(proc_group)
+        grid.addWidget(proc_group, 1, 0)
 
         # ---- 大图并发校准（一键傻瓜式，独立于「高级参数」） ----
         # 双队列调度器按「大图」判定把超大图独占满核、其余小图并行。判定阈值需按
@@ -3530,7 +3546,18 @@ class MainWindow(QMainWindow):
         calib_layout.addWidget(self.calib_value_label)
         self._refresh_calib_value_label()
 
-        layout.addWidget(calib_group)
+        grid.addWidget(calib_group, 1, 1)
+        # 4 个区已入网格，先加入外层垂直布局（保持其在「选项」「高级参数」之上）。
+        layout.addLayout(grid)
+
+        # ---- 选项（暂空置，预留给后续新增的零散开关；位于高级参数上方） ----
+        options_group, options_inner = _section("选项")
+        # TODO: 后续新选项作为独立分组框加在此处（或并入本区），保持设置页紧凑。
+        placeholder = QLabel("（暂无选项）")
+        placeholder.setStyleSheet("color: #888; font-size: 11px;")
+        options_inner.addWidget(placeholder)
+        layout.addWidget(options_group)
+        self.options_group = options_group
 
         # ---- 高级参数区域（母开关 + 逐项子开关，子项默认禁用） ----
         # 「启用高级参数」仅作为母开关：勾选时解锁下方子项按钮，取消时全部置灰。
@@ -3607,6 +3634,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(adv_params_group)
 
         layout.addStretch(1)
+        scroll.setWidget(inner)
+        inner.setAutoFillBackground(False)
+        outer = QVBoxLayout(widget)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
         return widget
 
     def _on_cpu_priority_changed(self, _index):
