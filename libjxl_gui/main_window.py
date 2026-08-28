@@ -4017,7 +4017,7 @@ class MainWindow(QMainWindow):
         # 保留原始扩展名：输出命名选项（非 cjxl 参数），独立于此「高级参数」母开关，
         # 始终可用、不随母开关置灰（它不是 cjxl 专家参数，只是输出文件命名行为）。
         # 默认关闭；开启后输出文件沿用输入扩展名。持久化复用 _save_jxl_output。
-        self.preserve_ext_check = QCheckBox("保留原始扩展名")
+        self.preserve_ext_check = QCheckBox("保留原始扩展名（输出沿用输入扩展名，不再强制 .jxl）")
         self.preserve_ext_check.setToolTip(
             "开启后输出文件使用与输入相同的扩展名；关闭时用输出格式推导扩展名"
             "（如 .jxl / .png / .jpg）。若与「原文件夹 + 源文件带扩展名」组合导致"
@@ -4305,8 +4305,7 @@ class MainWindow(QMainWindow):
         if group is not None and group.layout() is not None:
             for i in range(group.layout().count()):
                 w = group.layout().itemAt(i).widget()
-                if isinstance(w, QCheckBox) and w is not self.adv_threads_toggle \
-                        and w is not self.preserve_ext_check:
+                if isinstance(w, QCheckBox) and w is not self.adv_threads_toggle:
                     subitems.append(w.text())
         bullet = "\n".join("• %s" % t for t in subitems)
         box.setText(

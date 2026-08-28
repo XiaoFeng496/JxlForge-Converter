@@ -513,16 +513,16 @@ loc._apply_adv_threads_state(False)
 check("保留原始扩展名 不受母开关关闭影响（始终可用）",
       loc.preserve_ext_check.isEnabled() is True)
 loc._apply_adv_threads_state(True)
-# 母开关警告弹窗的子项列表不应包含「保留原始扩展名」。
+# 母开关警告弹窗的子项列表应包含「保留原始扩展名」（它虽不受母开关门控、但同属
+# 高级参数区，与其他子项并列提醒）。
 _warn_subs = []
 _grp = loc.adv_params_group
 for _i in range(_grp.layout().count()):
     _ww = _grp.layout().itemAt(_i).widget()
-    if isinstance(_ww, QCheckBox) and _ww is not loc.adv_threads_toggle \
-            and _ww is not loc.preserve_ext_check:
+    if isinstance(_ww, QCheckBox) and _ww is not loc.adv_threads_toggle:
         _warn_subs.append(_ww.text())
-check("保留原始扩展名 不出现在母开关警告子项列表中",
-      "保留原始扩展名" not in _warn_subs)
+check("保留原始扩展名 出现在母开关警告子项列表中",
+      any("保留原始扩展名" in t for t in _warn_subs))
 
 # Restore the real encode so other test modules are unaffected.
 conv_mod.encode = _real_encode
