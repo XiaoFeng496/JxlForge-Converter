@@ -12,11 +12,21 @@
 """
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtCore import QCoreApplication, QSettings
+
+# 隔离 QSettings：calibrate 模块用显式 QSettings(IniFormat, UserScope, "libjxl", "libjxl-gui")
+# 构造（见 calibrate._settings），不走全局 setOrganizationName，因此常规把 org/app 改成
+# "xxx_test" 的隔离手段对它无效；必须用 setPath 重定向 IniFormat+UserScope 才能把文件落到
+# 临时目录，否则会读写真实 %APPDATA%\libjxl\libjxl-gui.ini，清空/覆盖已校准的大图阈值
+# （本测试调用的 clear_all_calibration / write_floor_px 正是走这条路径）。
+QSettings.setDefaultFormat(QSettings.IniFormat)
+_tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_gui_test_")
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
 QCoreApplication.setOrganizationName("libjxl_gui_test")
 QCoreApplication.setApplicationName("libjxl_gui_test")
