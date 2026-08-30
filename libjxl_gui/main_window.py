@@ -1971,7 +1971,14 @@ class NoFlickerComboBox(QComboBox):
     def _apply_fusion_style(self):
         """Style this combobox's popup to avoid the Windows DWM flicker, but
         only when the active theme wants dropdowns Fusion-styled. In the pure
-        native theme the combobox follows the application-wide (native) style."""
+        native theme the combobox follows the application-wide (native) style.
+        Also keep the popup view's palette in sync with the application-wide
+        Active palette — under the pure-native theme Qt treats the popup as a
+        separate top-level window and feeds it the Inactive palette group,
+        which makes the native Windows style paint the current-row selection
+        indicator (the thin vertical bar) black instead of the active blue
+        highlight. Syncing the view to the Active palette restores the blue.
+        """
         fusion = _fusion_style()
         if fusion is not None and dropdowns_use_fusion():
             self.setStyle(fusion)
@@ -1979,6 +1986,13 @@ class NoFlickerComboBox(QComboBox):
             # Inherit the application-wide style so the widget reflects the
             # current theme (native, or global Fusion) instead of staying Fusion.
             self.setStyle(QApplication.style())
+            if not dropdowns_use_fusion():
+                # Pure native theme: re-derive the popup view's palette from
+                # the application-wide Active group. Fusion popup already
+                # paints correctly on its own so we skip it.
+                view = self.view()
+                if view is not None:
+                    view.setPalette(QApplication.palette())
 
     def showPopup(self):
         super().showPopup()
