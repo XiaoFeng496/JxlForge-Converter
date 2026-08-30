@@ -3900,6 +3900,18 @@ class MainWindow(QMainWindow):
         )
         _label_row(theme_grid, "语言", self.language_combo, lang_tip,
                    row=1, col=0)
+
+        # 本区下拉的最小宽度是按"构建时的样式"量出来的。切到「原生」后，Windows
+        # 原生样式的箭头按钮与边框内边距都比 Fusion 宽，同一个最小宽度留给文字的
+        # 空间就变少：窗口宽时看不出来，收到最窄时布局按这个偏小的旧下限压缩，
+        # 文字被裁切。全局 _apply_theme 只重算它自己那份名单（控件样式 / CPU
+        # 优先级 / CPU 核心 / effort），「主题」与「语言」不在其中，故在本区补一次。
+        # 挂在 theme_combo 上、晚于 _on_theme_changed 连接，触发时样式已切换完毕。
+        def _remeasure_regular_combos(_index):
+            for combo in (self.color_scheme_combo, self.language_combo):
+                self._set_combo_min_width(combo)
+
+        self.theme_combo.currentIndexChanged.connect(_remeasure_regular_combos)
         grid.addWidget(theme_group, 0, 0)
 
         # ---- 转换进程 ----
