@@ -43,53 +43,43 @@ def test_region_renamed_to_常规():
     print("PASS region_renamed_to_常规")
 
 
+def _row_label_of(combo):
+    r"""Return the QLabel sitting on the same row, left of ``combo``.
+
+    「常规」分组内部是 QVBoxLayout → QGridLayout → 每行 QHBoxLayout 的多层
+    嵌套（双列排布），所以必须递归下钻，不能只查一层。
+    """
+    def _search(layout):
+        if layout is None:
+            return None
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item is None:
+                continue
+            if item.widget() is combo:
+                # 同一行里，靠 combo 左侧最近的 QLabel
+                for k in range(i - 1, -1, -1):
+                    cand = layout.itemAt(k).widget()
+                    if isinstance(cand, QLabel):
+                        return cand
+                return None
+            found = _search(item.layout())
+            if found is not None:
+                return found
+        return None
+
+    return _search(combo.parentWidget().layout())
+
+
 def test_label_renamed_to_控件样式():
     app, _ = _bootstrap()
     from libjxl_gui.main_window import MainWindow
     w = MainWindow()
-    # _section() 返回的 inner 是一个 QGroupBox，其 layout 是 QVBoxLayout，
-    # 每个 _label_row 创建一个 QHBoxLayout。找到含 theme_combo 的那一行，
-    # 取其左侧第一个 QLabel。
-    inner = w.theme_combo.parentWidget()
-    inner_layout = inner.layout()
-    label = None
-    for i in range(inner_layout.count()):
-        sub_layout = inner_layout.itemAt(i).layout() if inner_layout.itemAt(i) else None
-        if sub_layout is None:
-            continue
-        for j in range(sub_layout.count()):
-            it = sub_layout.itemAt(j)
-            if it is not None and it.widget() is w.theme_combo:
-                # 同一行靠 theme_combo 左侧最近的 QLabel
-                for k in range(j - 1, -1, -1):
-                    cand = sub_layout.itemAt(k).widget()
-                    if isinstance(cand, QLabel):
-                        label = cand
-                        break
-                break
-        if label is not None:
-            break
+    label = _row_label_of(w.theme_combo)
     assert label is not None and label.text() == "控件样式", \
         f"theme_combo 左侧标签必须是「控件样式」，实际={label.text() if label else None}"
     # color_scheme_combo 左侧标签必须是「主题」
-    inner2 = w.color_scheme_combo.parentWidget()
-    inner2_layout = inner2.layout()
-    label2 = None
-    for i in range(inner2_layout.count()):
-        sub_layout = inner2_layout.itemAt(i).layout() if inner2_layout.itemAt(i) else None
-        if sub_layout is None:
-            continue
-        for j in range(sub_layout.count()):
-            it = sub_layout.itemAt(j)
-            if it is not None and it.widget() is w.color_scheme_combo:
-                for k in range(j - 1, -1, -1):
-                    cand = sub_layout.itemAt(k).widget()
-                    if isinstance(cand, QLabel):
-                        label2 = cand
-                        break
-                break
-        if label2 is not None:
-            break
+    label2 = _row_label_of(w.color_scheme_combo)
     assert label2 is not None and label2.text() == "主题", \
         f"color_scheme_combo 左侧标签必须是「主题」，实际={label2.text() if label2 else None}"
     w.close()

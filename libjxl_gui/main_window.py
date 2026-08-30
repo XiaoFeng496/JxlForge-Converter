@@ -1930,6 +1930,14 @@ _QT_COLOR_SCHEMES = {
     "dark": Qt.ColorScheme.Dark,
 }
 
+# 界面语言（当前仅作为设置页占位项，切换逻辑待后续实现）
+_LANGUAGE_DEFAULT = "zh_CN"
+_LANGUAGE_ORDER = ("zh_CN", "en_US")
+_LANGUAGE_LABELS = {
+    "zh_CN": "简体中文",
+    "en_US": "English",
+}
+
 
 def app_color_scheme():
     """Return the active color scheme key."""
@@ -3792,17 +3800,22 @@ class MainWindow(QMainWindow):
             return g, inner
 
         # 左侧标签不强制最小宽度，下拉框紧贴标签文字（不强行对齐成一列）。
-        def _label_row(inner, label_text, combo, tip=""):
-            row = QHBoxLayout()
-            row.setSpacing(8)
+        # container 可以是 QBoxLayout（纵向追加一行），也可以是 QGridLayout
+        # （按 row/col 落位，用于某个分组内部再做双列排布）。
+        def _label_row(container, label_text, combo, tip="", row=0, col=0):
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(8)
             lab = QLabel(label_text)
             if tip:
                 lab.setToolTip(tip)
                 combo.setToolTip(tip)
-            row.addWidget(lab)
-            row.addWidget(combo)
-            row.addStretch(1)
-            inner.addLayout(row)
+            row_layout.addWidget(lab)
+            row_layout.addWidget(combo)
+            row_layout.addStretch(1)
+            if isinstance(container, QGridLayout):
+                container.addLayout(row_layout, row, col)
+            else:
+                container.addLayout(row_layout)
 
         # ---- 窗口布局 ----
         win_group, win_inner = _section("窗口布局")
@@ -3826,7 +3839,14 @@ class MainWindow(QMainWindow):
         grid.addWidget(win_group, 0, 1)
 
         # ---- 常规 ----
+        # 分组内部再分两列：左列放 主题 / 控件样式，右列与「主题」同排放 语言，
+        # 避免右半边留白。
         theme_group, theme_inner = _section("常规")
+        theme_grid = QGridLayout()
+        theme_grid.setColumnStretch(0, 1)
+        theme_grid.setColumnStretch(1, 1)
+        theme_grid.setSpacing(8)
+        theme_inner.addLayout(theme_grid)
         # 主题（颜色方案）— 亮 / 暗 / 跟随系统
         color_tip = (
             "跟随系统：自动跟随 Windows 当前是浅色还是深色模式（默认）。\n"
@@ -3845,7 +3865,8 @@ class MainWindow(QMainWindow):
         self.color_scheme_combo.currentIndexChanged.connect(
             self._on_color_scheme_changed
         )
-        _label_row(theme_inner, "主题", self.color_scheme_combo, color_tip)
+        _label_row(theme_grid, "主题", self.color_scheme_combo, color_tip,
+                   row=0, col=0)
         # 控件样式（原"界面主题"）
         style_tip = (
             "原生（无闪烁）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单"
@@ -3861,7 +3882,24 @@ class MainWindow(QMainWindow):
         self.theme_combo.setCurrentIndex(self.theme_combo.findData(app_theme()))
         self._theme_loading = False
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        _label_row(theme_inner, "控件样式", self.theme_combo, style_tip)
+        _label_row(theme_grid, "控件样式", self.theme_combo, style_tip,
+                   row=0, col=1)
+        # 语言（占位项：只提供选项，界面语言切换功能尚未实现）
+        # 放在左列第二行（原「控件样式」位置），右列与「主题」同排的是控件样式。
+        lang_tip = (
+            "选择界面显示语言（默认简体中文）。\n"
+            "注意：语言切换功能尚未实现，此下拉框目前仅作占位，"
+            "选择后不会立即生效。"
+        )
+        self.language_combo = NoFlickerComboBox()
+        for key in _LANGUAGE_ORDER:
+            self.language_combo.addItem(_LANGUAGE_LABELS[key], key)
+        self._set_combo_min_width(self.language_combo)
+        self.language_combo.setCurrentIndex(
+            self.language_combo.findData(_LANGUAGE_DEFAULT)
+        )
+        _label_row(theme_grid, "语言", self.language_combo, lang_tip,
+                   row=1, col=0)
         grid.addWidget(theme_group, 0, 0)
 
         # ---- 转换进程 ----
