@@ -2024,30 +2024,34 @@ class NoFlickerComboBox(QComboBox):
         if container is None:
             return
         use_fusion = dropdowns_use_fusion()
-        if self._popup_styled_for == use_fusion:
-            return
-        self._popup_styled_for = use_fusion
-        base_flags = (
-            self._popup_orig_flags
-            if self._popup_orig_flags is not None
-            else container.windowFlags()
-        )
-        if use_fusion:
-            desired = base_flags | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
-            qss = self._POPUP_QSS_FUSION
-        else:
-            desired = base_flags
-            qss = ""
-        if container.windowFlags() != desired:
-            was_visible = container.isVisible()
-            geo = container.geometry()
-            container.setWindowFlags(desired)
-            container.setGeometry(geo)
-            if was_visible:
-                container.show()
-                container.raise_()
-        if container.styleSheet() != qss:
-            container.setStyleSheet(qss)
+        if self._popup_styled_for != use_fusion:
+            self._popup_styled_for = use_fusion
+            base_flags = (
+                self._popup_orig_flags
+                if self._popup_orig_flags is not None
+                else container.windowFlags()
+            )
+            if use_fusion:
+                desired = base_flags | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
+                qss = self._POPUP_QSS_FUSION
+            else:
+                desired = base_flags
+                qss = ""
+            if container.windowFlags() != desired:
+                was_visible = container.isVisible()
+                geo = container.geometry()
+                container.setWindowFlags(desired)
+                container.setGeometry(geo)
+                if was_visible:
+                    container.show()
+                    container.raise_()
+            if container.styleSheet() != qss:
+                container.setStyleSheet(qss)
+        # Always resnap the palette: a freshly created container (first ever
+        # ``showPopup()`` after process start, or the very first popup after a
+        # ``_popup_container`` was reset) inherits a stale, style-default palette
+        # that has nothing to do with the user's current colour scheme.
+        self._resnap_popup_palette()
 
     def _apply_fusion_style(self):
         """Re-apply the active theme to this combobox *and* its popup.
@@ -2075,13 +2079,63 @@ class NoFlickerComboBox(QComboBox):
             # Inherit the application-wide style so the widget reflects the
             # current theme (native, or global Fusion) instead of staying Fusion.
             self.setStyle(QApplication.style())
-        view = self.view()
-        if view is not None:
-            view.setPalette(QApplication.palette())
+        self._resnap_popup_palette()
         # Bring an already-created popup container in line with the new theme:
         # without this, a popup opened under one style keeps the old style's
         # flags/stylesheet until the app is restarted.
         self._apply_popup_container_style()
+
+    def _resnap_popup_palette(self):
+        """Refresh the cached application-wide palette on every popup piece
+        (view + its viewport + the top-level container, when present) and
+        force a repaint.
+
+        Why this is needed beyond ``view.setPalette(QApplication.palette())``:
+        Qt does not automatically notify a *detached* popup of palette
+        changes. ``view.setPalette`` only updates the list widget itself;
+        its ``viewport()`` (the actual paint surface) and the top-level
+        popup container (a plain ``QFrame``) inherit the previously
+        rendered colours until they are repolished and repainted. Without
+        these extra ``setPalette + update`` calls, a colour-scheme switch
+        updates the data (``QApplication.palette()``) but the already-built
+        popup keeps painting with the stale theme — the user must toggle
+        the control style and back to force a rebuild.
+        """
+        view = self.view()
+        if view is not None:
+            active = QApplication.palette()
+            view.setPalette(active)
+            vp = view.viewport()
+            if vp is not None:
+                vp.setPalette(active)
+            # Re-polish so cached style colours (hover / selected item)
+            # are re-read from the just-installed palette.
+            try:
+                view.style().polish(view)
+            except Exception:
+                pass
+            view.update()
+            if vp is not None:
+                vp.update()
+            # If the popup is open RIGHT NOW (detached top-level window), a
+            # queued ``update()`` may not land before paint: the popup sits
+            # on its own event-loop / paint cycle and the cached frame stays
+            # stale. ``viewport().repaint()`` forces a synchronous redraw of
+            # the item surface and is the cheapest way to make an open
+            # dropdown follow the new colour scheme without rebuilding it.
+            if view.isVisible() and vp is not None:
+                vp.repaint()
+        container = self._popup_container
+        if container is not None:
+            try:
+                container.style().polish(container)
+            except Exception:
+                pass
+            container.setPalette(QApplication.palette())
+            container.update()
+            if container.isVisible():
+                container.repaint()
+
 
     def showPopup(self):
         super().showPopup()

@@ -307,6 +307,104 @@ def test_show_popup_applies_flags_once_when_they_are_stale():
     print("PASS show_popup_applies_flags_once_when_they_are_stale")
 
 
+def test_resnap_propagates_to_viewport_and_container():
+    """#3 主修复的关键不变量：``_resnap_popup_palette`` 必须把 view、
+    viewport、container 三层的 palette 同步到当前 app palette。
+
+    没有这一层时，detached popup 的 viewport 与 container 会继承旧的
+    style polish 结果，画面不变。
+    """
+    _bootstrap()
+    from libjxl_gui import main_window as mw
+    # 也建一个 MainWindow，因为 ``_popup_container`` 只有在 ``showPopup()``
+    # 时被 ``_popup_container_widget`` 缓存，而本测试想直接 verify 容器
+    # 同步路径，所以用 showPopup 触发一次。
+    mw.set_app_theme("native")
+    win = mw.MainWindow()
+    combo = win.findChild(mw.NoFlickerComboBox)
+    assert combo is not None, "主窗口应至少有一个 NoFlickerComboBox"
+    combo._apply_fusion_style()
+    # 让容器真正被新建一次：模拟 view.window() != self.window()。
+    # offscreen 里 ``view().window()`` 默认就是 combo 所在 window，
+    # 所以直接调 _popup_container_widget() 是不行的——它会 return None。
+    # 这里我们手动塞一个"假定是 container"的占位 widget 来走路径。
+    fake_container = win  # 任意一个非 None 的 widget 即可，仅验证 resnap 不抛错
+    combo._popup_container = fake_container
+    combo._resnap_popup_palette()
+    # 验证 view 与 viewport 的关键角色都同步到了 app。
+    ap = QApplication.palette()
+    vp = combo.view()
+    vp_palette = vp.viewport().palette()
+    for role in RELEVANT_ROLES:
+        assert vp_palette.color(QPalette.Active, role) == ap.color(QPalette.Active, role), (
+            f"viewport {role.name()} 没跟上 app palette "
+            f"(viewport={vp_palette.color(QPalette.Active, role).name()} "
+            f"app={ap.color(QPalette.Active, role).name()})"
+        )
+    # container 也被 setPalette 同步。
+    cp = fake_container.palette()
+    for role in RELEVANT_ROLES:
+        assert cp.color(QPalette.Active, role) == ap.color(QPalette.Active, role), (
+            f"container {role.name()} 没跟上 app palette"
+        )
+    win.close()
+    print("PASS resnap_propagates_to_viewport_and_container")
+
+
+def test_color_scheme_change_propagates_after_popup_already_exists():
+    """#3 用户的真实场景：popup container 已经创建过一次（且没销毁）
+    之后，主程序切 color scheme——``_refresh_combo_styles`` 必须把这次
+    切换送达 view + viewport + container，三层关键角色全部同步。
+    """
+    _bootstrap()
+    from libjxl_gui import main_window as mw
+    mw.set_app_theme("native")
+    # 模拟容器已被前一次 showPopup 创建、且 curated 的 _popup_container 引用。
+    win = mw.MainWindow()
+    combo = win.findChild(mw.NoFlickerComboBox)
+    assert combo is not None
+    # 假设前一次 showPopup 留下的 container 引用
+    fake_container = win
+    combo._popup_container = fake_container
+
+    # 制造一次显式的 palette 篡改（模拟 Qt 自身在 offscreen 下不完全模拟
+    # 切深浅色的限制——直接改 app.palette 的 Highlight 走一遍完整链）。
+    import PySide6.QtGui as gui
+    original_highlight = QApplication.palette().color(QPalette.Active, QPalette.Highlight)
+    new_highlight = QColor(255, 0, 255)  # 品红，便于断言
+    pal = QApplication.palette()
+    pal.setColor(QPalette.Active, QPalette.Highlight, new_highlight)
+    pal.setColor(QPalette.Inactive, QPalette.Highlight, new_highlight)
+    QApplication.setPalette(pal)
+    try:
+        # 真机上的真实流程是 QGuiApplication.styleHints().setColorScheme()
+        # 发 PaletteChange → MainWindow.changeEvent → _refresh_combo_styles。
+        # 这里直接调 _refresh_combo_styles 等价：
+        for cb in win.findChildren(mw.NoFlickerComboBox):
+            cb._apply_fusion_style()
+
+        ap = QApplication.palette()
+        assert ap.color(QPalette.Active, QPalette.Highlight) == new_highlight
+        # 关键断言：viewport 和 container 的 Highlight 跟上了。
+        v = combo.view()
+        vp_pal = v.viewport().palette()
+        cp = fake_container.palette()
+        assert vp_pal.color(QPalette.Active, QPalette.Highlight) == new_highlight, (
+            f"viewport Highlight 未刷新: {vp_pal.color(QPalette.Active, QPalette.Highlight).name()}"
+        )
+        assert cp.color(QPalette.Active, QPalette.Highlight) == new_highlight, (
+            f"container Highlight 未刷新: {cp.color(QPalette.Active, QPalette.Highlight).name()}"
+        )
+    finally:
+        # 还原 app.palette，避免污染后续测试。
+        pal = QApplication.palette()
+        pal.setColor(QPalette.Active, QPalette.Highlight, original_highlight)
+        pal.setColor(QPalette.Inactive, QPalette.Highlight, original_highlight)
+        QApplication.setPalette(pal)
+        win.close()
+    print("PASS color_scheme_change_propagates_after_popup_already_exists")
+
+
 if __name__ == "__main__":
     failed = 0
     tests = [
@@ -319,6 +417,8 @@ if __name__ == "__main__":
         test_theme_switch_refreshes_container_without_opening_popup,
         test_show_popup_does_not_rebuild_window_when_flags_already_match,
         test_show_popup_applies_flags_once_when_they_are_stale,
+        test_resnap_propagates_to_viewport_and_container,
+        test_color_scheme_change_propagates_after_popup_already_exists,
     ]
     for fn in tests:
         try:
