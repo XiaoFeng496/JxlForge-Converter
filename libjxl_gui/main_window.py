@@ -1960,24 +1960,113 @@ class NoFlickerComboBox(QComboBox):
     background is forced on the popup container so no black flash appears, and
     the Fusion style is applied for clean, native-free rendering."""
 
+    #: Stylesheet applied to the popup container while it is rendered by Fusion
+    #: (solid background so the area around the list never flashes black).
+    _POPUP_QSS_FUSION = (
+        "QFrame { background: palette(base); "
+        "border: 1px solid palette(mid); }"
+    )
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        # Popup-container bookkeeping. The container (a frameless-able top-level
+        # window that owns the view) is only created the first time the popup is
+        # shown, so its original window flags must be snapshotted at that moment
+        # to be able to restore them later.
+        self._popup_container = None
+        self._popup_orig_flags = None
+        self._popup_styled_for = None  # last applied dropdowns_use_fusion() value
         self._apply_fusion_style()
         self.view().setStyleSheet(
             "QAbstractItemView { border: 1px solid palette(mid); "
             "background: palette(base); }"
         )
 
+    def _popup_container_widget(self):
+        """Return the popup's own top-level container, or ``None`` if the popup
+        has never been shown (before that the view still lives inside the main
+        window, so ``view.window()`` is the main window, not a popup).
+
+        Caches the container and snapshots its original window flags on the
+        first sighting.
+        """
+        view = self.view()
+        if view is None:
+            return None
+        container = view.window()
+        if container is None or container is self.window():
+            return None
+        if self._popup_container is not container:
+            self._popup_container = container
+            self._popup_orig_flags = container.windowFlags()
+            self._popup_styled_for = None
+        return container
+
+    def _apply_popup_container_style(self):
+        """Apply — or revert — the frameless + solid-background treatment that
+        suppresses the Windows DWM popup animation.
+
+        This is a *state machine*, not a one-shot: it is idempotent and can be
+        re-run at any time (theme switch, palette change). Under the pure-native
+        theme the container is restored to exactly the flags it was created with
+        and its Fusion stylesheet is cleared, so a popup that was previously
+        shown under a Fusion-ish theme is not left stuck frameless/borderless.
+
+        The window flags are only touched when they actually differ: calling
+        ``setWindowFlags`` destroys and recreates the underlying window, which
+        drops the mouse grab the combobox holds while opening. That was the
+        cause of "the first click after switching style does nothing" — after a
+        theme switch the flags are now re-applied up front (see
+        ``_apply_fusion_style``), so the click itself no longer rebuilds the
+        window.
+        """
+        container = self._popup_container_widget()
+        if container is None:
+            return
+        use_fusion = dropdowns_use_fusion()
+        if self._popup_styled_for == use_fusion:
+            return
+        self._popup_styled_for = use_fusion
+        base_flags = (
+            self._popup_orig_flags
+            if self._popup_orig_flags is not None
+            else container.windowFlags()
+        )
+        if use_fusion:
+            desired = base_flags | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
+            qss = self._POPUP_QSS_FUSION
+        else:
+            desired = base_flags
+            qss = ""
+        if container.windowFlags() != desired:
+            was_visible = container.isVisible()
+            geo = container.geometry()
+            container.setWindowFlags(desired)
+            container.setGeometry(geo)
+            if was_visible:
+                container.show()
+                container.raise_()
+        if container.styleSheet() != qss:
+            container.setStyleSheet(qss)
+
     def _apply_fusion_style(self):
-        """Style this combobox's popup to avoid the Windows DWM flicker, but
-        only when the active theme wants dropdowns Fusion-styled. In the pure
-        native theme the combobox follows the application-wide (native) style.
-        Also keep the popup view's palette in sync with the application-wide
-        Active palette — under the pure-native theme Qt treats the popup as a
-        separate top-level window and feeds it the Inactive palette group,
-        which makes the native Windows style paint the current-row selection
-        indicator (the thin vertical bar) black instead of the active blue
-        highlight. Syncing the view to the Active palette restores the blue.
+        """Re-apply the active theme to this combobox *and* its popup.
+
+        Safe to call at any time (construction, theme switch, palette change).
+
+        Two pieces of state are refreshed:
+
+        * The combobox's own style — Fusion for the no-flicker themes, the
+          application-wide style otherwise.
+        * The popup view's palette, pinned to the application-wide **Active**
+          group. Qt treats the popup as a separate top-level window and feeds it
+          the Inactive group, which under the native Windows style paints the
+          current-row selection indicator (the thin vertical bar) black instead
+          of the active blue highlight.
+
+        Because that palette is a *snapshot*, every caller that changes the
+        palette (colour-scheme switch, system light/dark switch) must re-run
+        this method — see ``MainWindow._refresh_combo_styles``.
         """
         fusion = _fusion_style()
         if fusion is not None and dropdowns_use_fusion():
@@ -1986,40 +2075,17 @@ class NoFlickerComboBox(QComboBox):
             # Inherit the application-wide style so the widget reflects the
             # current theme (native, or global Fusion) instead of staying Fusion.
             self.setStyle(QApplication.style())
-            if not dropdowns_use_fusion():
-                # Pure native theme: re-derive the popup view's palette from
-                # the application-wide Active group. Fusion popup already
-                # paints correctly on its own so we skip it.
-                view = self.view()
-                if view is not None:
-                    view.setPalette(QApplication.palette())
+        view = self.view()
+        if view is not None:
+            view.setPalette(QApplication.palette())
+        # Bring an already-created popup container in line with the new theme:
+        # without this, a popup opened under one style keeps the old style's
+        # flags/stylesheet until the app is restarted.
+        self._apply_popup_container_style()
 
     def showPopup(self):
         super().showPopup()
-        # Only the no-flicker themes (原生（无闪烁） / Fusion) render the popup
-        # as a frameless Fusion window; the pure-native theme keeps the system
-        # native popup (which may show the Windows DWM entrance animation).
-        if not dropdowns_use_fusion():
-            return
-        # The popup is the top-level window that owns the view. Mark it
-        # frameless so Windows does not run the DWM entrance animation.
-        container = self.view().window()
-        if container is None:
-            return
-        geo = container.geometry()
-        container.setWindowFlags(
-            container.windowFlags()
-            | Qt.FramelessWindowHint
-            | Qt.NoDropShadowWindowHint
-        )
-        # Solid background on the container (not just the view) so the area
-        # around the list never shows through as black during the show.
-        container.setStyleSheet(
-            "QFrame { background: palette(base); "
-            "border: 1px solid palette(mid); }"
-        )
-        container.setGeometry(geo)
-        container.show()
+        self._apply_popup_container_style()
 
 
 class HistoryRowWidget(QWidget):
@@ -6627,10 +6693,17 @@ class MainWindow(QMainWindow):
         otherwise on the next open), and keep radio buttons from dimming when
         the window is unfocused."""
         if event.type() == QEvent.PaletteChange:
-            self.folder_menu.setPalette(QApplication.palette())
-            if self.folder_menu.isVisible():
-                self._rebuild_folder_menu()
+            # The menu may not exist yet when Qt delivers an early palette
+            # change during construction.
+            menu = getattr(self, "folder_menu", None)
+            if menu is not None:
+                menu.setPalette(QApplication.palette())
+                if menu.isVisible():
+                    self._rebuild_folder_menu()
             self._sync_inactive_palette()
+            # System light/dark switch: re-sync the dropdown popups, whose
+            # palette is a snapshot taken at style-apply time.
+            self._refresh_combo_styles()
         super().changeEvent(event)
 
     # ---- output location / filename persistence (QSettings) ----------
@@ -6887,8 +6960,7 @@ class MainWindow(QMainWindow):
         menu) so the change takes effect immediately, with no restart."""
         set_app_theme(theme)
         self._apply_app_style(theme)
-        for cb in self.findChildren(NoFlickerComboBox):
-            cb._apply_fusion_style()
+        self._refresh_combo_styles()
         self._apply_theme_to_folder_menu()
         # Native vs Fusion styles have different arrow / frame margins, so the
         # explicitly-sized combos need their minimum width recalculated.
@@ -6909,6 +6981,18 @@ class MainWindow(QMainWindow):
                 _root_bottom_margin())
         self.statusBar().showMessage(
             "主题已切换为：%s" % _THEME_LABELS.get(theme, theme))
+
+    def _refresh_combo_styles(self):
+        """Re-apply the active style and palette to every dropdown.
+
+        ``NoFlickerComboBox`` pins its popup view to a *snapshot* of the
+        application palette (that is what keeps the native selection indicator
+        blue instead of black), so that snapshot goes stale on every palette
+        change and has to be refreshed explicitly. Called on theme switches,
+        colour-scheme switches and system light/dark switches.
+        """
+        for cb in self.findChildren(NoFlickerComboBox):
+            cb._apply_fusion_style()
 
     def _set_combo_min_width(self, combo):
         """Set the combo's minimum width to fit its widest item under the
@@ -6966,6 +7050,10 @@ class MainWindow(QMainWindow):
         # and on Windows native style where the PaletteChange may be delayed.
         for w in QApplication.topLevelWidgets():
             w.update()
+        # Dropdown popups hold a palette snapshot, so they must be re-synced
+        # explicitly — otherwise an already-created popup keeps the colours of
+        # the previous scheme until the style is switched away and back.
+        self._refresh_combo_styles()
         self._sync_inactive_palette()
         self.statusBar().showMessage(
             "主题已切换为：%s" % _COLOR_SCHEME_LABELS.get(scheme, scheme))
