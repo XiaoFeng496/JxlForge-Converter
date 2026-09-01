@@ -12,6 +12,10 @@ Covers:
   3. 单文件：--num_threads 用满全部核心（pool_size=1）。
   4. 多文件：K 个并行进程，每文件 --num_threads=1（不超订）。
   5. 启用高级参数后，每文件线程数取用户设定值，并行进程数随之收缩。
+  6. num_threads 特殊档位 -1（机器决定）/ 0（禁用多线程）/ 超出核心数，
+     以及默认值为 -1（与 cjxl 不传该参数的行为一致）。
+  7. 解码侧线程控制：默认关闭时不给 djxl 传 --num_threads；开启后按每文件
+     线程预算注入，并与编码侧同口径。
 
 不启动任何真实的 cjxl/djxl 二进制——只验证设置→ConvertWorker→
 _encode_kwargs 的映射与 _resolve_concurrency 的分发逻辑。
@@ -31,7 +35,13 @@ QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 # 必须在线程创建前确保有 QApplication 实例。
 _app = QApplication.instance() or QApplication(sys.argv)
 
-from libjxl_gui.main_window import MainWindow, ConvertWorker
+from libjxl_gui.main_window import (
+    MainWindow,
+    ConvertWorker,
+    _ADVANCED_SCHEMA,
+    _LOGICAL_CORES,
+)
+from libjxl_gui import converter
 
 failures = []
 
@@ -72,6 +82,13 @@ check("暴露 adv_threads_toggle", toggle is not None)
 if toggle is not None:
     check("adv_threads_toggle 默认未勾选",
           toggle.isChecked() is False)
+
+# 2b. 暴露 decode_threads_check（解码侧线程控制），默认未勾选。
+decode_check = getattr(window, "decode_threads_check", None)
+check("暴露 decode_threads_check", decode_check is not None)
+if decode_check is not None:
+    check("decode_threads_check 默认未勾选",
+          decode_check.isChecked() is False)
 
 
 # 3. adv_threads_toggle 联动启用/隐藏高级参数 num_threads 控件，且说明文字并入
@@ -168,12 +185,67 @@ check("高级-单文件：每文件线程=4", per_a1 == 4)
 check("高级-单文件：并行进程=1", pool_a1 == 1)
 check("高级-单文件：num_threads=4", kw_for(w_adv, 1) == 4)
 
-# 6c. 高级参数打开但 num_threads 非法（非 int 或 <1）=> 退化为每文件 1。
+# 6c. 高级参数打开但 num_threads 非法（非 int / 越界负数）=> 退化为自动调度。
 w_adv_bad = ConvertWorker([], [], 7, None, None, False,
                           cpu_cores=8, adv_threads_enabled=True)
 w_adv_bad.advanced = {"num_threads": "oops"}  # 非 int
 # 高级参数打开但 num_threads 非法 => adv_num 退化为 None => 每文件线程=1。
 check("高级-非法线程数退化为每文件1", w_adv_bad._resolve_concurrency(4)[1] == 1)
+
+# 6d. 新增档位 -1 / 0：libjxl 的特殊语义（见 _NUM_THREADS_TIP）。
+#     -1 = 交工具按机器决定（会吃满核心）-> 只能串行，pool=1；
+#      0 = 禁用多线程 -> 进程不占线程预算，按核心数开满。
+def adv_worker(value, cores=8):
+    w = ConvertWorker([], [], 7, None, None, False,
+                      cpu_cores=cores, adv_threads_enabled=True)
+    w.advanced = {"num_threads": value}
+    return w
+
+
+w_neg1 = adv_worker(-1)
+per_neg1, pool_neg1 = w_neg1._resolve_concurrency(10)[1:]
+check("高级--1档（多文件）：每文件线程=-1", per_neg1 == -1)
+check("高级--1档（多文件）：并行进程=1（防超订）", pool_neg1 == 1)
+check("高级--1档（多文件）：num_threads=-1", kw_for(w_neg1, 10) == -1)
+per_neg1_1 = w_neg1._resolve_concurrency(1)[1]
+check("高级--1档（单文件）：每文件线程=-1", per_neg1_1 == -1)
+
+w_zero = adv_worker(0)
+per_zero, pool_zero = w_zero._resolve_concurrency(10)[1:]
+check("高级-0档（多文件）：每文件线程=0（禁用多线程）", per_zero == 0)
+check("高级-0档（多文件）：并行进程=min(10,8)=8", pool_zero == 8)
+check("高级-0档（多文件）：num_threads=0", kw_for(w_zero, 10) == 0)
+check("高级-0档（单文件）：每文件线程=0", w_zero._resolve_concurrency(1)[1] == 0)
+
+# 6e. 超出核心数：仍接受该值（cjxl 自行降级），但进程数收缩到 1。
+w_over = adv_worker(LOGICAL * 2, cores=LOGICAL)
+per_over, pool_over = w_over._resolve_concurrency(10)[1:]
+check("高级-超出核心数：每文件线程原样保留", per_over == LOGICAL * 2)
+check("高级-超出核心数：并行进程=1", pool_over == 1)
+
+# 6f. 布尔值不能当线程数（bool 是 int 子类，True 会被误当成 1 个线程）。
+w_bool = adv_worker(True)
+check("高级-布尔值被拒绝，退化为自动调度",
+      w_bool._resolve_concurrency(4)[1] == 1)
+
+# 6g. _classify_jobs 的 _small_pool 在 -1 / 0 档位下与 _resolve_concurrency 一致。
+#     空任务列表时全部当作小图，正好可以单独取出 (nt, pool) 判定。
+nt_s_neg1, pool_s_neg1 = adv_worker(-1)._classify_jobs([])[2:]
+check("分类--1档：小图线程=-1", nt_s_neg1 == -1)
+check("分类--1档：小图并行进程=1", pool_s_neg1 == 1)
+nt_s_zero, pool_s_zero = adv_worker(0)._classify_jobs([])[2:]
+check("分类-0档：小图线程=0", nt_s_zero == 0)
+check("分类-0档：小图并行进程=1（无任务时不放大）", pool_s_zero == 1)
+
+# 6h. schema 取值区间：-1..逻辑核心数，默认 -1（与 cjxl 不传该参数时行为一致）。
+nt_spec = next(s for s in _ADVANCED_SCHEMA if s["key"] == "num_threads")
+check("schema num_threads min == -1", nt_spec["min"] == -1)
+check("schema num_threads max == 逻辑核心数", nt_spec["max"] == LOGICAL)
+check("schema num_threads default == -1（与 cjxl 默认一致）",
+      nt_spec["default"] == -1)
+check("schema num_threads default 在区间内",
+      nt_spec["min"] <= nt_spec["default"] <= nt_spec["max"])
+check("_LOGICAL_CORES 与 os.cpu_count 一致", _LOGICAL_CORES == LOGICAL)
 
 
 # 7. 「启用高级参数」联动输出页 effort 可选范围门控。
@@ -204,6 +276,94 @@ if effort is not None:
           items_on2 == [str(i) for i in range(1, 11)])
     check("重新启用后保留上次选择 9", effort.currentText() == "9")
 
+
+# 8. 解码侧线程控制（djxl --num_threads）：默认关闭，开启后按每文件线程预算注入。
+_captured = []
+
+
+def _fake_run(args, priority=None):
+    """捕获实际拼出的命令行，不启动真实 djxl 进程。"""
+    _captured.append(list(args))
+    return True, "", ""
+
+
+_real_run = getattr(converter, "_run", None)
+converter._run = _fake_run
+try:
+    # 8a. converter.decode 默认不传 --num_threads（与改动前行为完全一致）。
+    _captured.clear()
+    converter.decode("in.jxl", "out.png")
+    check("decode 默认不传 --num_threads", "--num_threads" not in _captured[0])
+    _captured.clear()
+    converter.decode("in.jxl", "out.png", num_threads=4)
+    check("decode 传 num_threads=4 拼出 --num_threads 4",
+          _captured[0][-2:] == ["--num_threads", "4"])
+    _captured.clear()
+    converter.decode("in.jxl", "out.png", num_threads=0)
+    check("decode 传 num_threads=0 拼出 --num_threads 0（0 是有效档位）",
+          _captured[0][-2:] == ["--num_threads", "0"])
+    _captured.clear()
+    converter.decode("in.jxl", "out.png", num_threads=-1)
+    check("decode 传 num_threads=-1 拼出 --num_threads -1",
+          _captured[0][-2:] == ["--num_threads", "-1"])
+finally:
+    if _real_run is not None:
+        converter._run = _real_run
+
+# 8b. ConvertWorker._decode_kwargs：默认关闭 -> 不带 num_threads。
+w_doff = ConvertWorker([], [], 7, None, None, False, cpu_cores=8)
+w_doff._per_file_threads = 4
+check("解码线程控制默认关闭：不带 num_threads",
+      "num_threads" not in w_doff._decode_kwargs())
+check("解码 kwargs 始终带 priority",
+      w_doff._decode_kwargs()["priority"] == w_doff.priority)
+
+w_don = ConvertWorker([], [], 7, None, None, False, cpu_cores=8,
+                      decode_threads_enabled=True)
+w_don._per_file_threads = 4
+check("解码线程控制开启：沿用当前每文件线程预算",
+      w_don._decode_kwargs()["num_threads"] == 4)
+w_don._per_file_threads = None
+check("解码线程控制开启但未解析并发：不带 num_threads",
+      "num_threads" not in w_don._decode_kwargs())
+w_don._per_file_threads = True
+check("解码线程控制排除 bool（bool 是 int 子类）",
+      "num_threads" not in w_don._decode_kwargs())
+w_don._per_file_threads = -1
+check("解码线程控制保留 -1 档", w_don._decode_kwargs()["num_threads"] == -1)
+w_don._per_file_threads = 0
+check("解码线程控制保留 0 档", w_don._decode_kwargs()["num_threads"] == 0)
+
+# 8c. 与 _resolve_concurrency 联动：开启后解码线程数 == 编码线程数（同一口径）。
+w_don2 = ConvertWorker([], [], 7, None, None, False,
+                       cpu_cores=8, decode_threads_enabled=True)
+_cores_d, per_d, _pool_d = w_don2._resolve_concurrency(4)
+w_don2._per_file_threads = per_d
+check("开启后解码线程数 == 编码每文件线程数",
+      w_don2._decode_kwargs()["num_threads"]
+      == w_don2._encode_kwargs()["num_threads"])
+
+# 8d. 设置页开关：随母开关置灰 + 勾选态持久化往返。
+if decode_check is not None:
+    window.adv_threads_toggle.setChecked(False)
+    check("母开关关闭时 decode_threads_check 被置灰",
+          decode_check.isEnabled() is False)
+    window.adv_threads_toggle.setChecked(True)
+    check("母开关开启时 decode_threads_check 可用",
+          decode_check.isEnabled() is True)
+
+    decode_check.setChecked(True)
+    window._save_conversion_settings()
+    # 复位时屏蔽信号：toggled handler 会立即把 False 写回 ini，覆盖刚存的 True。
+    decode_check.blockSignals(True)
+    decode_check.setChecked(False)
+    decode_check.blockSignals(False)
+    window._load_conversion_settings()
+    check("decode_threads 勾选态持久化往返",
+          window.decode_threads_check.isChecked() is True)
+    # 复位，避免影响后续可能新增的测试。
+    window.decode_threads_check.setChecked(False)
+    window._save_conversion_settings()
 
 print("")
 if failures:

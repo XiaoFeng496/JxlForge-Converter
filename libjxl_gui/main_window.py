@@ -2358,6 +2358,21 @@ class FolderMenu(QMenu):
 #   modes   -> 该参数在哪些编码模式下可用（用于按模式置灰）
 # 仅收录此前对 cjxl v0.12.0 实跑验证「接受」的参数；orientation 等被拒参数不暴露。
 # ---------------------------------------------------------------------------
+
+# 本机逻辑核心数（含超线程），用作 --num_threads 的上限。按机器读取而非写死，
+# 免得在核心数更少的机器上暴露永远用不到的档位。
+_LOGICAL_CORES = os.cpu_count() or 1
+
+# --num_threads 的三个特殊档位说明（cjxl v0.12 与 djxl 语义一致，见
+# ``cjxl -v -v --help`` / ``djxl -v -v --help``）。
+_NUM_THREADS_TIP = (
+    "每文件分配给 cjxl 的 worker 线程数。默认 -1，与 cjxl 不传该参数时的行为一致。\n"
+    "  -1 = 交给 cjxl 按机器自动决定（等于吃满全部核心，故同时只跑 1 个进程）；\n"
+    "   0 = 禁用多线程（单线程编码，此时会改为多进程并行）；\n"
+    " 1..%d = 指定线程数，并行进程数按「CPU 核心使用数」预算自动收缩，避免超订。"
+    % _LOGICAL_CORES
+)
+
 _ADVANCED_SCHEMA = [
     # 质量精细（仅「有损」模式有意义）
     {"key": "distance", "flag": "-d", "label": "Butteraugli 距离 (-d)",
@@ -2373,8 +2388,12 @@ _ADVANCED_SCHEMA = [
     {"key": "modular", "flag": "--modular", "label": "Modular 模式 (--modular)",
      "kind": "bool_value", "default": False, "value": 1,
      "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg")},
+    # 取值区间 -1..逻辑核心数：-1/0 是 libjxl 的特殊档位（见 _NUM_THREADS_TIP），
+    # 上限按机器读取。default 取 -1（机器自动决定），与 cjxl 不传该参数时的默认
+    # 行为保持一致；不写死正整数，免得在核心数更少/更多的机器上口径不一致。
     {"key": "num_threads", "flag": "--num_threads", "label": "线程数 (--num_threads)",
-     "kind": "int", "default": 4, "min": 1, "max": 32,
+     "kind": "int", "default": -1,
+     "min": -1, "max": _LOGICAL_CORES, "tip": _NUM_THREADS_TIP,
      "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg")},
     {"key": "brotli_effort", "flag": "--brotli_effort", "label": "Brotli 压缩强度 (--brotli_effort)",
      "kind": "int", "default": 9, "min": 0, "max": 11,
@@ -2399,6 +2418,30 @@ _ADVANCED_SCHEMA = [
      "kind": "int", "default": 5, "min": 0, "max": 10,
      "group": "容器输出", "modes": ("lossy", "lossless", "lossless_jpeg")},
 ]
+
+
+def _adv_num_threads(adv_threads_enabled, advanced):
+    """Resolve the user's explicit ``--num_threads`` value, or ``None``.
+
+    返回 ``-1`` / ``0`` / ``N>=1``；未启用高级参数、未设定或值非法时返回
+    ``None``（调用方据此走自动调度）。语义与 libjxl 一致（cjxl v0.12 与 djxl
+    的 ``-v -v --help`` 均确认）：
+
+      * ``-1`` — 交给工具按机器自动决定（会吃满全部逻辑核心）
+      * ``0``  — 禁用多线程（单线程）
+      * ``N``  — 用 N 个 worker 线程
+
+    其余负数（如 -5）无定义，按非法处理。``bool`` 需排除：它是 ``int`` 子类，
+    ``isinstance(True, int)`` 为真，会让 ``True`` 被当成 1 个线程。
+    """
+    if not adv_threads_enabled:
+        return None
+    value = (advanced or {}).get("num_threads")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value in (-1, 0):
+        return value
+    return value if value >= 1 else None
 
 
 class MainWindow(QMainWindow):
@@ -4267,6 +4310,22 @@ class MainWindow(QMainWindow):
         self.jpeg_hard_skip_check.toggled.connect(self._on_jpeg_hard_skip_toggled)
         adv_params_layout.addWidget(self.jpeg_hard_skip_check)
 
+        # 子项：解码侧线程控制。默认关闭——实测限制 djxl 线程数会让解码变慢
+        # （解码的并行度远低于编码），故仅在用户需要精确控制 CPU 负载时才开。
+        self.decode_threads_check = QCheckBox("解码侧也限制线程（djxl --num_threads）")
+        self.decode_threads_check.setToolTip(
+            "默认关闭：djxl 解码时不传 --num_threads，由它自己按机器决定（吃满核心，最快）。\n"
+            "开启后：每个 djxl 进程按当前每文件线程预算限制线程数，使「CPU 核心使用数」"
+            "在解码路径同样生效，可精确控制 CPU 负载。\n"
+            "⚠️ 注意：启用后解码速度可能略有下降。20 核机实测多文件批量解码约慢 7%~13%"
+            "——解码的线程收益本就远小于编码（满核 vs 单线程约 1.2x，编码是 2.3x），"
+            "限制线程换不回等价的进程级并行。\n"
+            "仅建议在需要精确控制 CPU 负载时开启（如转换时需同时跑其他重负载任务）。"
+        )
+        self.decode_threads_check.setChecked(False)
+        self.decode_threads_check.toggled.connect(self._on_decode_threads_toggled)
+        adv_params_layout.addWidget(self.decode_threads_check)
+
         # 保留原始扩展名：输出命名选项（非 cjxl 参数），独立于此「高级参数」母开关，
         # 始终可用、不随母开关置灰（它不是 cjxl 专家参数，只是输出文件命名行为）。
         # 默认关闭；开启后输出文件沿用输入扩展名。持久化复用 _save_jxl_output。
@@ -4528,6 +4587,11 @@ class MainWindow(QMainWindow):
         _on_convert 建 job 时按本开关即时生效，无需额外联动）。"""
         self._save_conversion_settings()
 
+    def _on_decode_threads_toggled(self, _checked):
+        """「解码侧也限制线程」开关变化：仅持久化（实际取值在转换时按当前阶段
+        的每文件线程预算注入，见 ConvertWorker._decode_kwargs）。"""
+        self._save_conversion_settings()
+
     def _show_warning_centered(self, title, text, parent=None):
         """弹一个居中到主窗口的警告框。
 
@@ -4581,9 +4645,9 @@ class MainWindow(QMainWindow):
         决定任何子项是否生效（由各子项自身勾选决定）。同步输出页 num_threads 行
         与 effort 范围到当前子项勾选态，并更新母开关 tooltip。控件未构建时安全跳过。"""
         # 解锁 / 置灰子项按钮（子项自身勾选态不变，由 checked 决定生效与否）。
-        # jpeg_hard_skip_check 同样是母开关子项，一并跟随禁用。
+        # jpeg_hard_skip_check / decode_threads_check 同样是母开关子项，一并跟随禁用。
         for t in (self.adv_num_threads_toggle, self.adv_effort10_toggle,
-                  self.jpeg_hard_skip_check):
+                  self.jpeg_hard_skip_check, self.decode_threads_check):
             t.setEnabled(enabled)
         # 同步输出页：num_threads 行可用性 + effort 可选范围。
         self._sync_num_threads_row()
@@ -6916,6 +6980,10 @@ class MainWindow(QMainWindow):
             and self.jpeg_hard_skip_check.isChecked()
         )
         settings.setValue(
+            "decode_threads", getattr(self, "decode_threads_check", None)
+            and self.decode_threads_check.isChecked()
+        )
+        settings.setValue(
             "adv_warning_suppressed",
             bool(getattr(self, "_adv_warning_suppressed", False)),
         )
@@ -6933,6 +7001,7 @@ class MainWindow(QMainWindow):
         adv_num_threads = settings.value("adv_num_threads", False, type=bool)
         adv_effort10 = settings.value("adv_effort10", False, type=bool)
         jpeg_hard_skip = settings.value("jpeg_hard_skip", False, type=bool)
+        decode_threads = settings.value("decode_threads", False, type=bool)
         adv_warning_suppressed = settings.value(
             "adv_warning_suppressed", False, type=bool
         )
@@ -6951,6 +7020,8 @@ class MainWindow(QMainWindow):
         self.adv_effort10_toggle.setChecked(bool(adv_effort10))
         if getattr(self, "jpeg_hard_skip_check", None) is not None:
             self.jpeg_hard_skip_check.setChecked(bool(jpeg_hard_skip))
+        if getattr(self, "decode_threads_check", None) is not None:
+            self.decode_threads_check.setChecked(bool(decode_threads))
         self.adv_threads_toggle.setChecked(bool(adv_enabled))
         # 高级参数子项按钮可用性由母开关控制；此时输出页已构建，可安全联动。
         self._apply_adv_threads_state(bool(adv_enabled))
@@ -7504,6 +7575,12 @@ class MainWindow(QMainWindow):
             custom_cmd=custom_cmd,
             cpu_cores=self.cpu_cores_combo.currentData(),
             adv_threads_enabled=self.adv_num_threads_toggle.isChecked(),
+            # 解码侧线程控制是「启用高级参数」的子项：母开关关闭时即便此前勾选过也不生效。
+            decode_threads_enabled=bool(
+                self.adv_threads_toggle.isChecked()
+                and getattr(self, "decode_threads_check", None) is not None
+                and self.decode_threads_check.isChecked()
+            ),
             out_fmt=out_fmt,
             delete_original=self.delete_original_check.isChecked(),
             discard_if_larger=self.discard_if_larger_check.isChecked(),
@@ -7997,6 +8074,7 @@ class ConvertWorker(QThread):
                  quality=None, lossless_jpeg=False,
                  priority=converter.DEFAULT_PRIORITY, advanced=None,
                  custom_cmd=None, cpu_cores="auto", adv_threads_enabled=False,
+                 decode_threads_enabled=False,
              out_fmt="jxl", discard_if_larger=False,
              delete_original=False,
              preserve_ctime=False, preserve_mtime=False):
@@ -8018,6 +8096,8 @@ class ConvertWorker(QThread):
         self.cpu_cores = cpu_cores
         # 是否启用高级参数手动设置每文件线程数（--num_threads）。
         self.adv_threads_enabled = adv_threads_enabled
+        # 解码侧线程控制：默认关闭（djxl 自己吃满核心最快，见 _decode_kwargs 说明）。
+        self.decode_threads_enabled = decode_threads_enabled
         # 输出格式键（jxl / png / jpg），供 _encode_tag 在解码/重建路径下
         # 返回正确的重建标签，避免误用 JXL 编码标签（如 [VarDCT, q90]）。
         self._out_fmt = out_fmt
@@ -8056,6 +8136,25 @@ class ConvertWorker(QThread):
             kw["num_threads"] = self._per_file_threads
         return kw
 
+    def _decode_kwargs(self):
+        """djxl 解码用的关键字参数（与 :meth:`_encode_kwargs` 对应）。
+
+        ``--num_threads`` **默认不传**（``decode_threads_enabled=False``），让 djxl
+        自己按机器决定、吃满核心——20 核机上实测：解码的线程收益远小于编码
+        （满核 vs 单线程约 1.2x，编码是 2.3x），多文件并发时限制解码线程反而
+        慢 7%~13%。所以它做成设置页开关而非常驻行为。
+
+        开启后取当前阶段的每文件线程预算 ``_per_file_threads``（与 cjxl 编码同一
+        口径），使「CPU 核心使用数」在解码路径同样生效，代价是上述的速度损失。
+        """
+        kw = {"priority": self.priority}
+        if self.decode_threads_enabled:
+            per_file = getattr(self, "_per_file_threads", None)
+            # 排除 bool（int 子类）+ 未计算（None）的情形，避免拼出非法参数。
+            if isinstance(per_file, int) and not isinstance(per_file, bool):
+                kw["num_threads"] = per_file
+        return kw
+
     def _resolve_concurrency(self, n_jobs):
         """把「CPU 核心使用数」解析为 (cores, per_file_threads, pool_size)。
 
@@ -8063,25 +8162,39 @@ class ConvertWorker(QThread):
           高级开关打开时为用户设定值），总核占用 ≈ 设定核心数，不会超订。
         - 单文件：不开多进程，直接把全部核心交给这一个 cjxl（--num_threads=cores），
           否则单文件只用 1 核太浪费。
+
+        高级参数里显式设定 --num_threads 时（见 :func:`_adv_num_threads`），
+        单文件一律照用；多文件按档位收缩进程数：
+          * ``-1``（工具自己决定，会吃满核心）-> pool_size=1，只能串行；
+          * ``0``（禁用多线程）-> 进程不占线程预算，开满 min(n_jobs, cores)；
+          * ``N>=1`` -> pool_size = min(n_jobs, cores // N)。
         """
         cores = self.cpu_cores
         if not isinstance(cores, int) or cores < 1:
             cores = os.cpu_count() or 1
-        adv_num = None
-        if self.adv_threads_enabled:
-            adv_num = self.advanced.get("num_threads")
-            if not isinstance(adv_num, int) or adv_num < 1:
-                adv_num = None
+        adv_num = _adv_num_threads(self.adv_threads_enabled, self.advanced)
         if n_jobs <= 1:
-            per_file = adv_num if adv_num else cores
+            per_file = adv_num if adv_num is not None else cores
             pool_size = 1
         else:
-            per_file = adv_num if adv_num else 1
-            if per_file and per_file > 0:
-                pool_size = max(1, min(n_jobs, cores // per_file))
+            per_file = adv_num if adv_num is not None else 1
+            if per_file == -1:
+                pool_size = 1
+            elif per_file == 0:
+                pool_size = min(n_jobs, cores)
             else:
-                pool_size = n_jobs
+                pool_size = max(1, min(n_jobs, cores // per_file))
         return cores, per_file, pool_size
+
+    def _big_threads(self, cores):
+        """大图阶段的每文件线程数：默认独占满核，用户显式设定时照用。
+
+        大图是串行逐个跑的，给满核心最快；但高级参数里若显式设了
+        ``--num_threads``（-1 / 0 / N）就该尊重用户意图——否则「禁用多线程」
+        这类设置在含大图的批次里会静默失效。
+        """
+        adv = _adv_num_threads(self.adv_threads_enabled, self.advanced)
+        return cores if adv is None else adv
 
     def _encode_tag(self):
         """Bracketed, human-readable description of how files are encoded.
@@ -8140,7 +8253,7 @@ class ConvertWorker(QThread):
         if src.lower().endswith(".jxl"):
             tmp_src = self._make_temp(".png")
             tmp_files.append(tmp_src)
-            ok, msg = converter.decode(src, tmp_src, priority=self.priority)
+            ok, msg = converter.decode(src, tmp_src, **self._decode_kwargs())
             if not ok:
                 return False, "djxl 解码失败：%s" % msg, ""
             img = Image.open(tmp_src)
@@ -8269,9 +8382,10 @@ class ConvertWorker(QThread):
 
             all_indexed = list(enumerate(self.jobs, start=1))
             small, big, nt_small, pool_small = self._classify_jobs(all_indexed)
+            nt_big = self._big_threads(cores)
             self.log_signal.emit(
-                "调度分类：小图 %d 张（每图 %d 线程并行）/ 大图 %d 张（独占 %d 线程）"
-                % (len(small), nt_small, len(big), cores)
+                "调度分类：小图 %d 张（每图 %d 线程并行）/ 大图 %d 张（每图 %d 线程）"
+                % (len(small), nt_small, len(big), nt_big)
             )
             self.log_signal.emit("")
 
@@ -8281,9 +8395,11 @@ class ConvertWorker(QThread):
             if small:
                 self._run_pool(small, pool_small or 1)
 
-            # 阶段 2：大图独占满核，逐个串行（在途小图已在阶段 1 跑完，此处完全独占）。
+            # 阶段 2：大图逐个串行（在途小图已在阶段 1 跑完，此处完全独占）。
+            # 线程数默认给满核心；若用户显式设了 --num_threads（含 0 / -1 档位）
+            # 则照用，否则大图会无视该设置。
             if big and not self._stopped:
-                self._per_file_threads = cores
+                self._per_file_threads = nt_big
                 for indexed_job in big:
                     if self._stopped:
                         break
@@ -8377,11 +8493,7 @@ class ConvertWorker(QThread):
         """
         cores = self._effective_cores()
         floor_px = self.big_image_floor_px
-        adv_num = None
-        if self.adv_threads_enabled:
-            v = self.advanced.get("num_threads")
-            if isinstance(v, int) and v >= 1:
-                adv_num = v
+        adv_num = _adv_num_threads(self.adv_threads_enabled, self.advanced)
 
         pixels = []
         for _idx, job in indexed_jobs:
@@ -8392,7 +8504,14 @@ class ConvertWorker(QThread):
         def _small_pool(k):
             if adv_num is not None:
                 nt = adv_num
-                pool = max(1, min(k, cores // adv_num)) if adv_num <= cores else 1
+                if adv_num == -1:
+                    # 每个进程都会按机器默认吃满核心，同时跑多个必然超订。
+                    pool = 1
+                elif adv_num == 0:
+                    # 单线程进程不占线程预算，按核心数开满进程数。
+                    pool = min(k or 1, cores)
+                else:
+                    pool = max(1, min(k, cores // adv_num)) if adv_num <= cores else 1
             else:
                 nt = max(1, cores // min(k or 1, cores))
                 pool = min(k, cores)
@@ -8449,7 +8568,7 @@ class ConvertWorker(QThread):
                     else:
                         # Decoding a JXL into a raster (PNG) needs djxl.
                         ok, message = converter.decode(
-                            src, out_path, priority=self.priority
+                            src, out_path, **self._decode_kwargs()
                         )
                         tag = ""
                 else:
