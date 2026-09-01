@@ -620,6 +620,12 @@ FIT_EXTRA_H = 21                         # extra viewport height (px) added when
                                          # fitting the 6x3 grid, so the output page
                                          # (the tallest tab) shows in full without
                                          # clipping; even 1px less and it clips.
+                                         # Baseline measured under 原生（无闪烁） / Fusion.
+FIT_EXTRA_H_NATIVE = 6                   # native-theme bonus for FIT_EXTRA_H (px). Under the
+                                         # pure "native" theme (not 原生（无闪烁）) the output
+                                         # page's GroupBox/checkbox controls render taller
+                                         # (Windows native drawing), so 6 more px of viewport
+                                         # height are needed to avoid a scrollbar on 一键 6×3.
 ROOT_MARGIN_LTR = 9                      # root layout left / top / right contents
                                          # margin (px); identical across themes.
 ROOT_MARGIN_BOTTOM_NATIVE = 2            # root layout bottom contents margin (px)
@@ -637,6 +643,17 @@ def _root_bottom_margin():
     button bar. The native themes (原生 / 原生（无闪烁）) use the smaller value.
     """
     return ROOT_MARGIN_BOTTOM_FUSION if _APP_THEME == "fusion" else ROOT_MARGIN_BOTTOM_NATIVE
+
+
+def _fit_extra_h():
+    """Extra viewport height (px) for the 6x3 fit, theme-dependent.
+
+    Baseline FIT_EXTRA_H (21) is the clearance measured under 原生（无闪烁） /
+    Fusion. Under the pure "native" theme, Windows-native control drawing makes
+    the output page (the tallest tab) render ~6px taller, so we add
+    FIT_EXTRA_H_NATIVE (6) to keep 一键 6×3 from popping a scrollbar.
+    """
+    return FIT_EXTRA_H + FIT_EXTRA_H_NATIVE if _APP_THEME == "native" else FIT_EXTRA_H
 
 
 THUMB_BATCH = 8                           # thumbnails decoded per timer tick when
@@ -2813,7 +2830,7 @@ class MainWindow(QMainWindow):
         sbw = max(lst.verticalScrollBar().sizeHint().width(), 17)
         sbh = max(lst.horizontalScrollBar().sizeHint().height(), 17)
         vp_w = COLS * grid.width() + sbw + FIT_EXTRA_W
-        vp_h = ROWS * grid.height() + sbh + FIT_EXTRA_H
+        vp_h = ROWS * grid.height() + sbh + _fit_extra_h()
         w = max(self.minimumWidth(), vp_w + frame_w)    # target CLIENT width
         h = max(self.minimumHeight(), vp_h + frame_h)   # target CLIENT height
 

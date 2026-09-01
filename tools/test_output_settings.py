@@ -41,7 +41,8 @@ _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
 from libjxl_gui import converter as conv_mod
-from libjxl_gui.main_window import MainWindow, GRID_SIZES, FIT_EXTRA_H
+from libjxl_gui.main_window import (
+    MainWindow, GRID_SIZES, FIT_EXTRA_H, FIT_EXTRA_H_NATIVE, _fit_extra_h)
 
 
 def fresh_window():
@@ -529,6 +530,25 @@ conv_mod.encode = _real_encode
 
 # Clean up persisted groups so this test leaves no stale QSettings behind.
 clear_output_settings()
+
+# --- Group 15: 一键 6×3 的额外视口高度按主题区分。纯「原生」主题下输出页
+# 由 Windows 原生风格绘制，GroupBox/复选框等高控件渲染更高，需比基准
+# FIT_EXTRA_H 再多 FIT_EXTRA_H_NATIVE(6)px，否则会冒出滚动条；
+# 原生（无闪烁）/Fusion 沿用基准值。
+import libjxl_gui.main_window as _mw
+_fit_saved_theme = _mw._APP_THEME
+try:
+    _mw._APP_THEME = "native"
+    check("一键 6×3 额外高度：纯原生主题 = 基准 + 6px（防滚动条）",
+          _fit_extra_h() == FIT_EXTRA_H + FIT_EXTRA_H_NATIVE)
+    _mw._APP_THEME = "native_noflicker"
+    check("一键 6×3 额外高度：原生（无闪烁）= 基准",
+          _fit_extra_h() == FIT_EXTRA_H)
+    _mw._APP_THEME = "fusion"
+    check("一键 6×3 额外高度：Fusion = 基准",
+          _fit_extra_h() == FIT_EXTRA_H)
+finally:
+    _mw._APP_THEME = _fit_saved_theme
 
 print("\n%d/%d checks passed" % (total - len(failures), total))
 print("ALL_OK" if not failures else "FAILED: " + ", ".join(failures))
