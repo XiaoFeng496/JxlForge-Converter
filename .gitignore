@@ -10,6 +10,7 @@ __pycache__/
 # ===== 对比/差异工具（临时 A/B 测试用副本，非主程序） =====
 compare_old/
 compare_old_ini_backup/
+_probe_old/
 run2.bat
 
 # ===== 打包 / 构建产物 =====

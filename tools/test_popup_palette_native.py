@@ -11,12 +11,24 @@
 3. **切控件样式后下拉样式要重启才更新**：popup 容器（frameless flags + QSS）只在
    showPopup 时被单向设置，切回「原生」不会还原。
    修复：_apply_popup_container_style() 做成可重复运行的状态机（能设也能还原）。
-4. **切样式后第一次点击无反应**：showPopup 里每次都 setWindowFlags 会销毁并重建
-   窗口，丢掉 combobox 持有的 mouse grab。修复：仅在 flags 真的需要改变时才改，
-   且主题切换时提前改好。
+4. **双层边框**（控件样式 = 原生 + 亮色）：view 的 QSS 无条件带 1px border，
+   与 Windows 原生给 popup 容器画的圆角框叠在一起，看起来是两个框。
+   修复：view QSS 拆成 Fusion / 原生两份，原生那份不画 border（只保留实色底）。
+5. **setWindowFlags 重建窗口**：容器 flags 一旦要变，setWindowFlags 会销毁并
+   重建底层 native window，丢掉 combobox 持有的 mouse grab（**即使容器处于隐藏
+   状态也会丢**）。修复：改用 overrideWindowFlags（只改内部 flag 状态，不重建）。
+
+### ⚠️ 不属于本项目的 bug（已证伪，勿再修）
+
+「闪电点击下拉第 1 项无反应」是 **Qt 原生 QComboBox 的行为**，不是本项目的
+缺陷。QComboBoxPrivateContainer 会用「位置 + 时间」双重判定吞掉「打开 popup
+那一击」的 mouse release，防止误选；第 1 项紧贴 combo 下沿、与打开 popup 的
+点击位置重叠，所以只有它容易命中。已用 tools/probe_native_combo_first_row.py
+（纯原生 QComboBox，不含本项目任何代码）复现：停一下再点 / 长按 / 划开再回来
+点都正常，只有闪电点会失败；GUI 里其他原生下拉框同样如此。
 
 测试只验证代码层面的不变量（offscreen 无 native popup、无法验证像素），
-视觉差异仍需真机 `run.bat` 验收。
+视觉差异仍需真机 `run.pyw` 验收。
 """
 import os
 import sys
@@ -233,26 +245,82 @@ def test_theme_switch_refreshes_container_without_opening_popup():
 
 
 # --------------------------------------------------------------------------
-# 4. 幂等：点击时不再重建窗口（bug：切样式后第一次点击无反应）
+# 4. 双层边框（bug：原生 + 亮色下下拉菜单两个框叠在一起）
 # --------------------------------------------------------------------------
-def test_show_popup_does_not_rebuild_window_when_flags_already_match():
-    """flags 已是目标值时，showPopup 不得再调 setWindowFlags（会丢 mouse grab）。
+def test_view_qss_has_no_border_under_native_theme():
+    """控件样式 = 「原生」（dropdowns_use_fusion() == False）时，view 的 QSS
+    不得带 border。
 
-    这就是「切完样式第一次点击没反应」的根因：setWindowFlags 销毁并重建底层
-    窗口，combobox 在打开期间持有的 mouse grab 随之丢失。
+    Windows 原生样式自己给 popup 容器画了圆角外框；view 再来一条 1px 方框
+    就会叠成「圆角 + 直角」的双层边框。原生那份只保留实色底（防黑闪）。
+    """
+    _bootstrap()
+    combo = _new_combo("native")
+    qss = combo.view().styleSheet()
+    assert "border" not in qss, (
+        f"native: view QSS 仍带 border，会与原生圆角框叠成双层边框: {qss!r}"
+    )
+    assert "background" in qss, (
+        f"native: view QSS 丢了实色背景，弹窗可能闪黑: {qss!r}"
+    )
+    print("PASS view_qss_has_no_border_under_native_theme")
+
+
+def test_view_qss_has_border_under_fusion_theme():
+    """Fusion 自绘 popup 时，外框得由 view 自己画——这条 border 不能丢。
+
+    覆盖两个自绘主题：fusion（整窗 Fusion）与 native_noflicker（窗口原生、
+    仅下拉用 Fusion）。它们的容器都是 frameless 的，没有原生圆角框可叠。
+    """
+    _bootstrap()
+    for theme in ("fusion", "native_noflicker"):
+        combo = _new_combo(theme)
+        qss = combo.view().styleSheet()
+        assert "border" in qss, f"{theme}: view QSS 丢了边框: {qss!r}"
+        assert "background" in qss, f"{theme}: view QSS 丢了实色背景: {qss!r}"
+    print("PASS view_qss_has_border_under_fusion_theme")
+
+
+def test_view_qss_follows_theme_switch_both_ways():
+    """边框必须跟着主题来回切，不能只在构造时定一次。"""
+    _bootstrap()
+    from libjxl_gui import main_window as mw
+    mw.set_app_theme("native")
+    combo = mw.NoFlickerComboBox()
+    combo.addItems(["a", "b", "c"])
+
+    seen = {}
+    for theme in ("native", "fusion", "native", "native_noflicker", "native"):
+        mw.set_app_theme(theme)
+        combo._apply_fusion_style()
+        seen[theme] = "border" in combo.view().styleSheet()
+
+    assert seen["native"] is False, "「原生」下 view QSS 不该有 border（双层边框回归）"
+    assert seen["fusion"] is True, "Fusion 下 view QSS 应有 border"
+    assert seen["native_noflicker"] is True, \
+        "「原生（无闪烁）」的下拉是 Fusion 自绘，view QSS 应有 border"
+    print("PASS test_view_qss_follows_theme_switch_both_ways")
+
+
+# --------------------------------------------------------------------------
+# 5. 不重建窗口：flags 变更一律走 overrideWindowFlags
+# --------------------------------------------------------------------------
+def test_show_popup_never_calls_setWindowFlags():
+    """任何情况下都不得调 setWindowFlags —— 它会销毁并重建 native window，
+    丢掉 combobox 持有的 mouse grab（即使容器处于隐藏状态也会丢）。
+
+    这是「setWindowFlags vs overrideWindowFlags」这条铁律的执行点。
     """
     _bootstrap()
     from libjxl_gui import main_window as mw
 
-    combo = _new_combo("native")
-    # 切到 noflicker：此刻 flags 被一次性改好（提前应用，而不是等到点击）
-    mw.set_app_theme("native_noflicker")
+    mw.set_app_theme("native")
+    combo = mw.NoFlickerComboBox()
+    combo.addItems(["a", "b", "c"])
     combo._apply_fusion_style()
     container = combo._popup_container
-    assert container.windowFlags() & Qt.FramelessWindowHint, \
-        "前置条件：切主题时容器 flags 应已改好"
+    assert container is not None
 
-    # 现在模拟用户点击：不应再动 flags
     calls = []
     orig = container.setWindowFlags
 
@@ -262,15 +330,18 @@ def test_show_popup_does_not_rebuild_window_when_flags_already_match():
 
     container.setWindowFlags = _spy
     try:
+        # flags 落后的场景：主题改成 noflicker 但不通知这个 combo，
+        # 由 showPopup 补上——这是最容易误用 setWindowFlags 的路径。
+        mw.set_app_theme("native_noflicker")
         combo.showPopup()
     finally:
         combo.hidePopup()
         container.setWindowFlags = orig
     assert not calls, (
-        f"点击弹出时仍调用了 setWindowFlags {len(calls)} 次，"
-        "会重建窗口并丢掉 mouse grab（首次点击无反应的 bug 回归）"
+        f"showPopup 期间调用了 setWindowFlags {len(calls)} 次，"
+        "会重建 native window 并丢掉 mouse grab"
     )
-    print("PASS show_popup_does_not_rebuild_window_when_flags_already_match")
+    print("PASS show_popup_never_calls_setWindowFlags")
 
 
 def test_show_popup_applies_flags_once_when_they_are_stale():
@@ -288,23 +359,45 @@ def test_show_popup_applies_flags_once_when_they_are_stale():
     # 主题变成 noflicker，但没人通知这个 combobox（模拟遗漏刷新的路径）
     mw.set_app_theme("native_noflicker")
     calls = []
-    orig = container.setWindowFlags
+    orig = container.overrideWindowFlags
 
     def _spy(flags):
         calls.append(flags)
         return orig(flags)
 
-    container.setWindowFlags = _spy
+    container.overrideWindowFlags = _spy
     try:
         combo.showPopup()
     finally:
         combo.hidePopup()
-        container.setWindowFlags = orig
+        container.overrideWindowFlags = orig
     assert len(calls) == 1, (
-        f"flags 落后时应恰好补一次 setWindowFlags，实际 {len(calls)} 次"
+        f"flags 落后时应恰好补一次 overrideWindowFlags，实际 {len(calls)} 次"
     )
     assert container.windowFlags() & Qt.FramelessWindowHint
     print("PASS show_popup_applies_flags_once_when_they_are_stale")
+
+
+def test_detached_view_is_never_treated_as_container():
+    """Qt 6 在 hidePopup 里 deleteLater 容器，view 会变成自己的 top-level
+    window（``view.window() is view``）。此时必须返回 None，不能把 QListView
+    当成容器去设 flags / QSS。
+    """
+    _bootstrap()
+    from libjxl_gui import main_window as mw
+    mw.set_app_theme("native")
+    combo = mw.NoFlickerComboBox()
+    combo.addItems(["a", "b", "c"])
+    combo._apply_fusion_style()
+
+    view = combo.view()
+    # 模拟「容器已被销毁、view 成为孤儿窗口」这一 Qt 6 形态
+    view.setParent(None)
+    assert combo._popup_container_widget() is None, \
+        "detached 的 view 被当成了 popup 容器（会对 QListView 设窗口 flags）"
+    assert combo._popup_container is None, "detached 后必须清掉悬挂的容器引用"
+    assert combo._popup_styled_for is None, "detached 后必须清掉样式缓存"
+    print("PASS detached_view_is_never_treated_as_container")
 
 
 def test_resnap_propagates_to_viewport_and_container():
@@ -415,8 +508,12 @@ if __name__ == "__main__":
         test_refresh_combo_styles_picks_up_new_app_palette,
         test_popup_container_style_follows_theme_both_ways,
         test_theme_switch_refreshes_container_without_opening_popup,
-        test_show_popup_does_not_rebuild_window_when_flags_already_match,
+        test_view_qss_has_no_border_under_native_theme,
+        test_view_qss_has_border_under_fusion_theme,
+        test_view_qss_follows_theme_switch_both_ways,
+        test_show_popup_never_calls_setWindowFlags,
         test_show_popup_applies_flags_once_when_they_are_stale,
+        test_detached_view_is_never_treated_as_container,
         test_resnap_propagates_to_viewport_and_container,
         test_color_scheme_change_propagates_after_popup_already_exists,
     ]

@@ -1967,6 +1967,28 @@ class NoFlickerComboBox(QComboBox):
         "border: 1px solid palette(mid); }"
     )
 
+    #: Stylesheet applied to the popup *view* when the dropdown is drawn by the
+    #: Fusion style (themes "fusion" and "native_noflicker"). The 1px frame
+    #: belongs here because the container is forced frameless, so nothing else
+    #: draws an outline around the list.
+    _VIEW_QSS_FUSION = (
+        "QAbstractItemView { border: 1px solid palette(mid); "
+        "background: palette(base); }"
+    )
+    #: Stylesheet applied to the popup view when the dropdown is left to the
+    #: Windows native style (theme "native" — ``dropdowns_use_fusion()`` False).
+    #:
+    #: ⚠️ No border here: the native style keeps the container's own frame and
+    #: draws a rounded one around the popup, so a 1px border on the view stacks
+    #: with it and shows up as a visible double border (rounded outer frame +
+    #: square inner frame). Only the solid background is kept, so the area still
+    #: never flashes through to a default colour.
+    #:
+    #: Note "原生（无闪烁）" is *not* covered here despite its name: it keeps the
+    #: native window chrome but draws its dropdowns with Fusion, so it uses
+    #: ``_VIEW_QSS_FUSION``.
+    _VIEW_QSS_NATIVE = "QAbstractItemView { background: palette(base); }"
+
     def __init__(self, parent=None):
         super().__init__(parent)
         # Popup-container bookkeeping. The container (a frameless-able top-level
@@ -1976,11 +1998,11 @@ class NoFlickerComboBox(QComboBox):
         self._popup_container = None
         self._popup_orig_flags = None
         self._popup_styled_for = None  # last applied dropdowns_use_fusion() value
+        # ``_apply_fusion_style`` sets the view stylesheet, and it has to follow
+        # the same Fusion/native split as the container (see the two constants
+        # above). Setting it unconditionally with a border here is what produced
+        # the double border under the native style.
         self._apply_fusion_style()
-        self.view().setStyleSheet(
-            "QAbstractItemView { border: 1px solid palette(mid); "
-            "background: palette(base); }"
-        )
 
     def _popup_container_widget(self):
         """Return the popup's own top-level container, or ``None`` if the popup
@@ -1989,12 +2011,27 @@ class NoFlickerComboBox(QComboBox):
 
         Caches the container and snapshots its original window flags on the
         first sighting.
+
+        ⚠️ Also returns ``None`` when the container has just been torn down.
+        Qt 6 ``deleteLater`` s the popup container in ``QComboBox.hidePopup()``,
+        which leaves the view as an orphan top-level window — ``view.window()``
+        then returns the *view itself*. Treating that QListView as the container
+        and calling window-flag / stylesheet setters on it rebuilds the list's
+        native window for no reason. Qt re-creates a fresh container on the next
+        ``showPopup()``, so the cached state is dropped and re-snapshotted then.
         """
         view = self.view()
         if view is None:
             return None
         container = view.window()
         if container is None or container is self.window():
+            # The popup has never been opened: the view still lives inside the
+            # main window, so there is no popup container to style.
+            return None
+        if container is view:
+            self._popup_container = None
+            self._popup_orig_flags = None
+            self._popup_styled_for = None
             return None
         if self._popup_container is not container:
             self._popup_container = container
@@ -2012,13 +2049,20 @@ class NoFlickerComboBox(QComboBox):
         and its Fusion stylesheet is cleared, so a popup that was previously
         shown under a Fusion-ish theme is not left stuck frameless/borderless.
 
-        The window flags are only touched when they actually differ: calling
-        ``setWindowFlags`` destroys and recreates the underlying window, which
-        drops the mouse grab the combobox holds while opening. That was the
-        cause of "the first click after switching style does nothing" — after a
-        theme switch the flags are now re-applied up front (see
-        ``_apply_fusion_style``), so the click itself no longer rebuilds the
-        window.
+        The window flags are only touched when they actually differ, and always
+        through ``overrideWindowFlags`` rather than ``setWindowFlags``:
+        ``setWindowFlags`` destroys and recreates the underlying native window,
+        which drops the mouse grab the combobox holds while its popup is open —
+        and it does so even when the container is merely hidden, so "hidden" is
+        not a safe excuse. ``overrideWindowFlags`` only mutates the widget's
+        internal flag state, so the new flags take effect on the next native
+        window show without disturbing any grab.
+
+        Note that on Qt 6 the flags half is usually a no-op:
+        ``QComboBoxPrivateContainer`` is *already* created with
+        ``FramelessWindowHint | NoDropShadowWindowHint``, so the Fusion branch
+        computes ``base_flags`` unchanged. What actually suppresses the black
+        flash is the solid background stylesheet, not the flags.
         """
         container = self._popup_container_widget()
         if container is None:
@@ -2038,13 +2082,9 @@ class NoFlickerComboBox(QComboBox):
                 desired = base_flags
                 qss = ""
             if container.windowFlags() != desired:
-                was_visible = container.isVisible()
-                geo = container.geometry()
-                container.setWindowFlags(desired)
-                container.setGeometry(geo)
-                if was_visible:
-                    container.show()
-                    container.raise_()
+                # overrideWindowFlags — no native window rebuild, so no grab is
+                # lost and no geometry has to be saved and restored.
+                container.overrideWindowFlags(desired)
             if container.styleSheet() != qss:
                 container.setStyleSheet(qss)
         # Always resnap the palette: a freshly created container (first ever
@@ -2058,10 +2098,13 @@ class NoFlickerComboBox(QComboBox):
 
         Safe to call at any time (construction, theme switch, palette change).
 
-        Two pieces of state are refreshed:
+        Three pieces of state are refreshed:
 
         * The combobox's own style — Fusion for the no-flicker themes, the
           application-wide style otherwise.
+        * The popup view's *stylesheet*, which follows the same Fusion/native
+          split as the container: Fusion needs the 1px frame drawn on the view,
+          the native style must not draw one (see ``_VIEW_QSS_NATIVE``).
         * The popup view's palette, pinned to the application-wide **Active**
           group. Qt treats the popup as a separate top-level window and feeds it
           the Inactive group, which under the native Windows style paints the
@@ -2073,12 +2116,21 @@ class NoFlickerComboBox(QComboBox):
         this method — see ``MainWindow._refresh_combo_styles``.
         """
         fusion = _fusion_style()
-        if fusion is not None and dropdowns_use_fusion():
+        use_fusion = dropdowns_use_fusion()
+        if fusion is not None and use_fusion:
             self.setStyle(fusion)
         else:
             # Inherit the application-wide style so the widget reflects the
             # current theme (native, or global Fusion) instead of staying Fusion.
             self.setStyle(QApplication.style())
+        # Refresh the view stylesheet from the *current* theme. It is set here
+        # rather than once in ``__init__`` because it differs between the two
+        # styles, and because ``setStyle`` above repolishes the view.
+        view = self.view()
+        if view is not None:
+            view_qss = self._VIEW_QSS_FUSION if use_fusion else self._VIEW_QSS_NATIVE
+            if view.styleSheet() != view_qss:
+                view.setStyleSheet(view_qss)
         self._resnap_popup_palette()
         # Bring an already-created popup container in line with the new theme:
         # without this, a popup opened under one style keeps the old style's
