@@ -1,0 +1,588 @@
+### formats.py :: ch_str  (1)
+12  未知   [formats.py:377]
+
+### main_window.py :: addItem  (1)
+3   自动   [main_window.py:4220]
+
+### main_window.py :: cjxl_state  (2)
+2   已找到   [main_window.py:8060]
+2   未找到   [main_window.py:8060]
+
+### main_window.py :: res  (1)
+2   处理出错：%s   [main_window.py:8513]
+
+### converter.py :: detail  (1)
+1   未知错误   [converter.py:476]
+
+### formats.py :: get  (1)
+1   未知(%d)   [formats.py:354]
+
+### main_window.py :: extra  (1)
+1   
+通道：%s
+压缩：%s   [main_window.py:6008]
+
+### main_window.py :: size  (2)
+1   宽%d   [main_window.py:6372]
+1   高%d   [main_window.py:6372]
+
+### main_window.py :: showMessage  (36)
+4   已调整顺序，共 %d 个文件   [main_window.py:881]
+2   主题已切换为：%s   [main_window.py:7220]
+2   已取消转换   [main_window.py:7558]
+1   性能监测已开启（F9 关闭）：请在缩略图视图下框选并拖到边缘触发自动翻页   [main_window.py:2617]
+1   性能监测已关闭   [main_window.py:2620]
+1   性能监测 绘制 %.2f ms/帧 (峰值 %.2f) | 拖拽中 FPS %.0f   [main_window.py:2649]
+1   就绪   [main_window.py:2966]
+1   CPU 已更换，已清除旧阈值并将重新校准   [main_window.py:4430]
+1   电源状态已切换，已自动套用该状态下的校准阈值（约 %.1f MP），如需更精确可重新校准   [main_window.py:4445]
+1   电源状态发生变化，建议重新校准大图阈值   [main_window.py:4452]
+1   校准正在进行中，请稍候…   [main_window.py:4489]
+1   正在自动校准大图阈值（按本机 CPU）…   [main_window.py:4499]
+1   正在校准大图阈值（按本机 CPU）…   [main_window.py:4502]
+1   未找到 cjxl，跳过自动校准   [main_window.py:4515]
+1   校准未完成（未找到 cjxl 或测量失败）   [main_window.py:4522]
+1   校准完成：大图阈值 = %.1f MP   [main_window.py:4528]
+1   窗口已居中   [main_window.py:4729]
+1   已恢复 6×3 默认尺寸   [main_window.py:4735]
+1   该文件夹内未发现支持的图像文件   [main_window.py:5033]
+1   已添加 %d 个文件   [main_window.py:5045]
+1   已移除，剩余 %d 个文件   [main_window.py:6143]
+1   已清空输入列表   [main_window.py:6150]
+1   已移除 %d 个文件，剩余 %d 个   [main_window.py:6191]
+1   已添加动作：%s   [main_window.py:6355]
+1   错误：请先在「输入」中添加文件   [main_window.py:7413]
+1   错误：cjxl / djxl 未就绪   [main_window.py:7429]
+1   错误：Pillow 未安装，无法执行动作   [main_window.py:7439]
+1   错误：自定义命令为空   [main_window.py:7481]
+1   已跳过 %d 个非 JPG 文件（JPG 无损重编码仅处理 JPG）   [main_window.py:7567]
+1   已跳过 %d 个非 JXL 文件（JPEG 输出仅重建 JXL）   [main_window.py:7578]
+1   已跳过 %d 个不可重建 JXL（JPEG 输出，已开启直接跳过）   [main_window.py:7589]
+1   没有可处理的文件，转换未开始   [main_window.py:7615]
+1   转换已停止   [main_window.py:7734]
+1   转换完成：%d 个文件   [main_window.py:7739]
+1   提示：cjxl / djxl 未完全就绪   [main_window.py:8071]
+1   环境就绪：cjxl 与 djxl 均可用   [main_window.py:8073]
+
+### main_window.py :: setSpecialValueText  (1)
+4   自动(按比例)   [main_window.py:1610]
+
+### main_window.py :: QLabel  (17)
+4   预计剩余：--   [main_window.py:4029]
+2   请先在「输入」标签添加图片，
+再在此处预览动作效果。   [main_window.py:3124]
+1   无法解析 EXR 头部：%s   [main_window.py:1335]
+1   正在加载预览…   [main_window.py:1344]
+1   查看：   [main_window.py:3015]
+1   动作类型：   [main_window.py:3069]
+1   预览源：   [main_window.py:3096]
+1   输出格式：   [main_window.py:3239]
+1   仅支持无损 JPEG 转码的 JXL 无损重建 JPG   [main_window.py:3249]
+1   编码模式：   [main_window.py:3274]
+1   速度/质量权衡 (--effort)：   [main_window.py:3287]
+1   质量 (--quality)：   [main_window.py:3297]
+1   当输出文件已经存在时：   [main_window.py:3468]
+1   已设置 0 项   [main_window.py:3662]
+1   运行日志与环境信息：   [main_window.py:4007]
+1   当前进度：0 / 0 文件   [main_window.py:4028]
+1   窗口的大小与位置会自动保存，下次打开时原样恢复。   [main_window.py:4098]
+
+### main_window.py :: TABLE_COLUMNS  (9)
+2   文件名   [main_window.py:596]
+1   格式   [main_window.py:597]
+1   大小   [main_window.py:598]
+1   修改日期   [main_window.py:599]
+1   创建日期   [main_window.py:600]
+1   操作日期   [main_window.py:601]
+1   分辨率   [main_window.py:602]
+1   比率   [main_window.py:603]
+1   路径   [main_window.py:604]
+
+### main_window.py :: QPushButton  (20)
+2   适应窗口   [main_window.py:1319]
+2   关闭   [main_window.py:1320]
+2   移除   [main_window.py:1519]
+2   清空   [main_window.py:2981]
+1   放大 +   [main_window.py:1316]
+1   缩小 -   [main_window.py:1317]
+1   上移   [main_window.py:1517]
+1   下移   [main_window.py:1518]
+1   转换   [main_window.py:2950]
+1   停止   [main_window.py:2953]
+1   添加文件   [main_window.py:2978]
+1   添加文件夹   [main_window.py:2979]
+1   添加动作   [main_window.py:3076]
+1   放大   [main_window.py:3107]
+1   缩小   [main_window.py:3108]
+1   显示原图   [main_window.py:3111]
+1   重置高级参数   [main_window.py:3663]
+1   一键居中   [main_window.py:4087]
+1   一键 6×3 排版   [main_window.py:4090]
+1   一键校准大图阈值（按本机 CPU）   [main_window.py:4245]
+
+### main_window.py :: QGroupBox  (6)
+2   选项   [main_window.py:3464]
+2   高级参数   [main_window.py:3652]
+1   预览   [main_window.py:3092]
+1   JXL 编码参数   [main_window.py:3266]
+1   输出位置   [main_window.py:3335]
+1   转换完毕之后   [main_window.py:3574]
+
+### main_window.py :: QCheckBox  (21)
+2   启用高级参数   [main_window.py:4294]
+1   切换预览源后自动适应窗口   [main_window.py:3149]
+1   编码结果更大时丢弃输出（保留原文件）   [main_window.py:3490]
+1   保留文件夹结构   [main_window.py:3504]
+1   保留上级目录   [main_window.py:3519]
+1   保持原创建时间   [main_window.py:3536]
+1   保持原修改时间   [main_window.py:3546]
+1   删除原文件（成功转换后移入回收站）   [main_window.py:3560]
+1   打开资源管理器   [main_window.py:3577]
+1   清除"输入"文件   [main_window.py:3586]
+1   过程结束时发出提示音   [main_window.py:3595]
+1   转换完毕之后退出   [main_window.py:3604]
+1   自定义命令：   [main_window.py:3753]
+1   退出时保存动作列表   [main_window.py:4270]
+1   手动设置每文件线程数 (--num_threads)   [main_window.py:4301]
+1   解锁 effort 第 10 档（最慢、质量最高）   [main_window.py:4312]
+1   JPEG 输出：不可无损重建的 JXL 直接跳过（否则弹确认）   [main_window.py:4327]
+1   解码侧也限制线程（djxl --num_threads）   [main_window.py:4342]
+1   保留原始扩展名（输出沿用输入扩展名，不再强制 .jxl）   [main_window.py:4359]
+1   不再提醒   [main_window.py:4663]
+1   不再提示   [main_window.py:7685]
+
+### main_window.py :: QAction  (2)
+2   (无历史记录)   [main_window.py:6834]
+1   重置列设置   [main_window.py:5500]
+
+### calibrate.py :: msg  (1)
+1   校准跳过：未找到 cjxl，无法测量。   [calibrate.py:114]
+
+### converter.py :: <literal>  (4)
+1   未找到可执行文件：%s（请确认其已加入系统 PATH）   [converter.py:463]
+1   执行命令失败：%s   [converter.py:466]
+1   命令返回错误（退出码 %d）：%s   [converter.py:477]
+1   操作成功完成。   [converter.py:478]
+
+### formats.py :: _COMPRESSION_NAMES  (1)
+1   none（无压缩）   [formats.py:254]
+
+### formats.py :: append  (12)
+1   格式：OpenEXR（浮点 HDR）   [formats.py:371]
+1   文件名：%s   [formats.py:372]
+1   尺寸：%d x %d   [formats.py:375]
+1   尺寸：未知   [formats.py:375]
+1   通道：%s   [formats.py:378]
+1   压缩：%s   [formats.py:379]
+1   像素宽高比：%.4f   [formats.py:380]
+1   行序：%s   [formats.py:383]
+1   分块：%d x %d   [formats.py:386]
+1   多部件：是   [formats.py:388]
+1   文件大小：%s   [formats.py:389]
+1   说明：EXR 为浮点 HDR 格式，本工具仅解析头部元数据，不渲染像素缩略图。   [formats.py:391]
+
+### main_window.py :: <literal>  (30)
+1   %d 秒   [main_window.py:530]
+1   %d 分 %d 秒   [main_window.py:534]
+1   %d 时 %d 分   [main_window.py:537]
+1   无法预览 JXL 文件：未检测到 libjxl 的 djxl 工具。
+
+请确认 libjxl 已正确安装，并将其所在目录加入系统的 PATH 环境变量。   [main_window.py:1440]
+1   无法加载 JXL 图片：%s
+
+djxl 解码失败，文件可能损坏或不受支持。   [main_window.py:1444]
+1   无法加载图片：%s   [main_window.py:1447]
+1   文件名：%s
+格式：%s
+尺寸：%s
+大小：%s
+路径：%s%s   [main_window.py:6011]
+1   %s (亮%.1f/对%.1f)   [main_window.py:6379]
+1   %s (影%.2f/亮%.2f)   [main_window.py:6393]
+1   [自定义命令]   [main_window.py:8274]
+1   [JPEG 重建]   [main_window.py:8279]
+1   [PNG 重建]   [main_window.py:8281]
+1   djxl 解码失败：%s   [main_window.py:8323]
+1   已保存为 PNG。   [main_window.py:8336]
+1   自定义命令解析失败：%s   [main_window.py:8350]
+1   自定义命令为空。   [main_window.py:8352]
+1   输出 PNG 需要 Pillow 支持（请先安装 Pillow）   [main_window.py:8374]
+1   已保存为 PNG（Pillow 解码）。   [main_window.py:8383]
+1   Pillow 解码失败：%s   [main_window.py:8386]
+1   
+    （提示：安装 Pillow 后可兼容 WebP 等更多输入格式）   [main_window.py:8393]
+1   cjxl 无法读取该输入格式，且 Pillow 解码失败：%s   [main_window.py:8409]
+1   通过 Pillow 兼容解码（输入格式 cjxl 不支持）后编码完成。   [main_window.py:8412]
+1   空闲   [main_window.py:4198]
+1   低于正常   [main_window.py:4199]
+1   正常   [main_window.py:4200]
+1   高于正常   [main_window.py:4201]
+1   左边距 (像素):   [main_window.py:8802]
+1   上边距 (像素):   [main_window.py:8803]
+1   宽度 (像素, 0=到边界):   [main_window.py:8804]
+1   高度 (像素, 0=到边界):   [main_window.py:8805]
+
+### main_window.py :: _THEME_LABELS  (2)
+1   原生（无闪烁）   [main_window.py:1911]
+1   原生   [main_window.py:1912]
+
+### main_window.py :: _COLOR_SCHEME_LABELS  (3)
+1   跟随系统   [main_window.py:1947]
+1   亮色   [main_window.py:1948]
+1   暗色   [main_window.py:1949]
+
+### main_window.py :: _NUM_THREADS_TIP  (1)
+1   每文件分配给 cjxl 的 worker 线程数。默认 -1，与 cjxl 不传该参数时的行为一致。
+  -1 = 交给 cjxl 按机器自动决定（等于吃满全部核心，故同时只跑 1 个进程）；
+   0 = 禁用多线程（单线程编码，此时会改为多进程并行）；
+ 1..%d = 指定线程数，并行进程数按「CPU 核心使用数」预算自动收缩，避免超订。   [main_window.py:2376]
+
+### main_window.py :: addTab  (5)
+1   输入   [main_window.py:2939]
+1   动作   [main_window.py:2940]
+1   输出   [main_window.py:2941]
+1   状态   [main_window.py:2943]
+1   设置   [main_window.py:2945]
+
+### main_window.py :: addAction  (3)
+1   移除已过滤的   [main_window.py:2994]
+1   移除未过滤的   [main_window.py:2997]
+1   显示列：   [main_window.py:5490]
+
+### main_window.py :: QRadioButton  (7)
+1   有损   [main_window.py:3275]
+1   无损   [main_window.py:3276]
+1   JPG 无损重编码 (--lossless_jpeg=1)   [main_window.py:3277]
+1   原文件夹   [main_window.py:3338]
+1   文件夹   [main_window.py:3339]
+1   保持原文件名   [main_window.py:3439]
+1   添加后缀：   [main_window.py:3440]
+
+### main_window.py :: color_tip  (1)
+1   跟随系统：自动跟随 Windows 当前是浅色还是深色模式（默认）。
+亮色：始终使用浅色外观。
+暗色：始终使用深色外观。   [main_window.py:4115]
+
+### main_window.py :: style_tip  (1)
+1   原生（无闪烁）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单单独使用 Fusion 样式以消除 Windows 弹出动画闪烁（默认）。
+原生：完全使用系统原生外观，下拉菜单可能出现轻微闪烁。
+Fusion：整套界面使用 Qt 自带的 Fusion 样式。   [main_window.py:4135]
+
+### main_window.py :: lang_tip  (1)
+1   选择界面显示语言。
+切换后需重启程序生效：界面文本是在窗口构建时就取定的，实时刷新每个控件既容易漏、又要额外缓存原文，得不偿失。
+注意：目前已收录的英文文案以「内部标识的显示名」为主（动作类型 / 水印位置 / 查看模式 / 冲突策略），其余界面文本会随翻译推进逐步补全，未收录的暂时保持中文。   [main_window.py:4153]
+
+### main_window.py :: cpu_tip  (1)
+1   设置 cjxl / djxl 转换进程的 CPU 优先级（默认低于正常，减少对前台操作的影响）。   [main_window.py:4193]
+
+### main_window.py :: cores_tip  (1)
+1   转换时并行使用的 CPU 核心数，决定同时转换的文件数（多文件时）或单个大文件的线程数（单文件时）。「自动」等于本机逻辑核心数。   [main_window.py:4215]
+
+### main_window.py :: calib_tip  (1)
+1   双队列调度器会根据「大图」判定把超大图独占满核、其余小图并行，从而充分利用 CPU。判定阈值需按本机 CPU 能力校准：
+点击此按钮将自动生成若干测试图、测量 cjxl 在不同分辨率下的多线程加速比，并把适合本机的像素阈值写入设置——无需任何参数配置。
+首次启动时若尚未校准，会自动运行一次。   [main_window.py:4239]
+
+### main_window.py :: adv_threads_tip  (1)
+1   母开关：勾选以解锁下方各项高级参数，可逐项单独开启；取消勾选则全部恢复默认行为。
+（首次勾选会弹出注意事项，可在弹窗中勾选「不再提醒」。）   [main_window.py:4290]
+
+### main_window.py :: note  (2)
+1   （已套用当前电源状态记录的阈值）   [main_window.py:4469]
+1   （当前电源状态无记录，建议重新校准；或会自动套用同计划记录值）   [main_window.py:4471]
+
+### main_window.py :: tip  (1)
+1   语言已保存为%s，重启程序后生效。   [main_window.py:7287]
+
+### main_window.py :: msg  (1)
+1   未检测到 libjxl 命令行工具（%s），无法执行转换。
+
+请确认 libjxl 已正确安装，并将其所在目录加入系统的 PATH 环境变量，然后重新启动本程序。   [main_window.py:7425]
+
+### main_window.py :: join  (1)
+1    与    [main_window.py:7432]
+
+### main_window.py :: _ADVANCED_SCHEMA  (21)
+5   质量精细   [main_window.py:2387]
+5   编码策略   [main_window.py:2397]
+5   保真合成   [main_window.py:2411]
+4   容器输出   [main_window.py:2423]
+1   Butteraugli 距离 (-d)   [main_window.py:2385]
+1   渐进式解码 (--progressive)   [main_window.py:2388]
+1   加速解码档位 (--faster_decoding, 0–4)   [main_window.py:2391]
+1   Modular 模式 (--modular)   [main_window.py:2395]
+1   线程数 (--num_threads)   [main_window.py:2401]
+1   Brotli 压缩强度 (--brotli_effort)   [main_window.py:2405]
+1   边缘滤波强度 (--epf)   [main_window.py:2409]
+1   噪声合成 (--noise)   [main_window.py:2412]
+1   色度重采样 (--resampling)   [main_window.py:2415]
+1   -1 默认   [main_window.py:2417]
+1   1 八倍   [main_window.py:2417]
+1   2 四倍   [main_window.py:2417]
+1   4 两倍   [main_window.py:2417]
+1   8 无   [main_window.py:2417]
+1   JXL 容器 (--container)   [main_window.py:2420]
+1   启用可保留元数据（如 Exif、XMP、ICC 颜色配置等）   [main_window.py:2422]
+1   码流等级 (--codestream_level)   [main_window.py:2424]
+
+### main_window.py :: _add_param  (15)
+3   高   [main_window.py:1619]
+2   宽   [main_window.py:1612]
+1   算法   [main_window.py:1630]
+1   角度   [main_window.py:1638]
+1   文字   [main_window.py:1643]
+1   字号   [main_window.py:1649]
+1   透明度   [main_window.py:1655]
+1   位置   [main_window.py:1667]
+1   颜色   [main_window.py:1674]
+1   亮度   [main_window.py:1682]
+1   对比度   [main_window.py:1689]
+1   强度   [main_window.py:1697]
+1   截断   [main_window.py:1716]
+1   阴影   [main_window.py:1735]
+1   高光   [main_window.py:1743]
+
+### main_window.py :: _show_warning_centered  (7)
+3   参数无效   [main_window.py:8824]
+1   libjxl 未就绪   [main_window.py:7434]
+1   自定义命令格式   [main_window.py:7486]
+1   自定义命令必须同时包含 <输入> 和 <输出> 占位符（会被替换为每个文件的真实路径）。   [main_window.py:7487]
+1   调整大小需至少设置宽度或高度之一。   [main_window.py:8824]
+1   裁剪需至少设置宽度或高度之一。   [main_window.py:8831]
+1   水印文字不能为空。   [main_window.py:8836]
+
+### main_window.py :: setText  (15)
+2   预览加载中…   [main_window.py:6640]
+1   过滤   [main_window.py:2991]
+1   已设置 %d 项   [main_window.py:3819]
+1   djxl <输入> <输出>   [main_window.py:3835]
+1   当前已校准阈值：约 %.1f MP（%d 像素）。%s   [main_window.py:4473]
+1   当前使用默认阈值（尚未校准）。建议点击上方按钮进行一次校准；阈值会按本机 CPU 与电源状态（计划/插拔电/模式）分别记忆。   [main_window.py:4478]
+1   您正在启用「高级参数」。
+
+这些选项会改变编码行为与系统资源占用，包括：
+   [main_window.py:4656]
+1   请确认您了解上述子项的作用后再逐项开启；如需恢复默认行为，关闭「启用高级参数」即可。   [main_window.py:4659]
+1   预览失败：%s   [main_window.py:6703]
+1   检测到 %d 个 JXL 无法通过 djxl 比特级还原为原始 JPG（如非 JPEG 源编码、或重建数据已剥离）。
+
+若继续，这些文件将以「解码为像素再重新编码为 JPG」的方式输出，属于有损的二次压缩，画质会进一步下降。
+
+是否继续？   [main_window.py:7546]
+1   当前进度：0 / %d 文件   [main_window.py:7660]
+1   检测到当前系统未安装 jxlinfo（libjxl 工具集的一部分）。
+
+在「JPEG 输出」模式下，本程序需要逐个判断 JXL 是否可比特级重建为原 JPG。有 jxlinfo 时仅解析文件头（毫秒级）；未安装则回退到 djxl 全量解码校验，大批量转换时会明显变慢。
+
+建议前往 libjxl 发布页安装 jxlinfo 并加入 PATH，可显著提升校验性能。（不影响功能，仅影响速度。）   [main_window.py:7677]
+1   当前进度：%d / %d 文件   [main_window.py:7863]
+1   预计剩余：%s   [main_window.py:7871]
+1   输出文件已存在：
+%s
+
+如何处理该文件？   [main_window.py:8033]
+
+### calibrate.py :: progress_cb  (3)
+1   校准跳过：未找到 cjxl   [calibrate.py:118]
+1   校准中：测量 %dMP（%d/%d）   [calibrate.py:131]
+1   校准失败：无有效测量数据   [calibrate.py:161]
+
+### calibrate.py :: log_cb  (8)
+1   开始校准大图像素地板：本机逻辑核心数 %d，effort=%d，runs=%d   [calibrate.py:123]
+1     — 测量 %dMP…   [calibrate.py:133]
+1       %2dMP 测量失败，跳过   [calibrate.py:143]
+1       %2dMP 已首达目标加速比 %.1f，提前结束剩余档位测量   [calibrate.py:153]
+1   校准失败：无有效测量数据。   [calibrate.py:159]
+1   注意：speedup 始终未达 %.1f，地板取最大档 %dMP（保守）。   [calibrate.py:168]
+1   校准完成：big_image_floor_px = %d（约 %dMP，speedup≥%.1f 首达档）   [calibrate.py:173]
+1   下次转换将直接使用该校准值。   [calibrate.py:175]
+
+### formats.py :: ValueError  (18)
+1   文件过小，不是 PFM   [formats.py:51]
+1   magic 不符，不是 PFM   [formats.py:55]
+1   PFM 头缺少宽高   [formats.py:60]
+1   PFM 宽高非法   [formats.py:68]
+1   PFM 像素数据不完整   [formats.py:74]
+1   magic 不符，不是 PAM   [formats.py:130]
+1   PAM 缺少 ENDHDR   [formats.py:137]
+1   PAM 头字段缺失或非法   [formats.py:150]
+1   PAM 尺寸非法   [formats.py:152]
+1   PAM MAXVAL 非法   [formats.py:155]
+1   不支持的 PAM MAXVAL（>65535）   [formats.py:159]
+1   PAM 像素数据不完整   [formats.py:166]
+1   magic 不符，不是 PGX   [formats.py:212]
+1   PGX 头参数非法   [formats.py:219]
+1   不支持的 PGX 精度（>16 位）   [formats.py:222]
+1   PGX 像素数据不完整   [formats.py:232]
+1   magic 不符，不是 EXR   [formats.py:298]
+1   EXR 头部缺少有效的 dataWindow   [formats.py:364]
+
+### main_window.py :: RuntimeError  (3)
+1   未找到 send2trash 库，无法将文件移入回收站；请先安装：pip install send2trash   [main_window.py:439]
+1   未安装 pywin32，无法保持创建时间；请先安装：pip install pywin32   [main_window.py:471]
+1   无法解码该图片（%s）   [main_window.py:6527]
+
+### main_window.py :: setWindowTitle  (6)
+1   预览：%s   [main_window.py:1301]
+1   JXL 转换器   [main_window.py:2462]
+1   JPEG 输出质量提示   [main_window.py:7544]
+1   建议安装 jxlinfo   [main_window.py:7675]
+1   输出文件已存在   [main_window.py:8032]
+1   动作参数 - %s   [main_window.py:8728]
+
+### main_window.py :: setToolTip  (29)
+1   折叠/展开参数   [main_window.py:1498]
+1   取消勾选可临时停用该动作（参数保留，不会被应用）   [main_window.py:1507]
+1   截掉直方图两端各 N‰ 的极值像素后再拉满（0=纯规格化）   [main_window.py:1714]
+1   +1 EV = 亮度翻倍，-1 EV = 减半；0=不变   [main_window.py:1724]
+1   >1 提亮阴影，<1 压暗阴影；1.0=不变   [main_window.py:1733]
+1   >1 提亮高光，<1 压暗高光；1.0=不变   [main_window.py:1741]
+1   删除该历史记录   [main_window.py:2246]
+1   取消勾选后，切换预览源时沿用当前缩放位置，不被重置到适应窗口。   [main_window.py:3153]
+1   浏览文件夹...   [main_window.py:3391]
+1   勾选后，当 JXL 输出文件不小于原文件时，丢弃该 JXL 并保留原文件（转换无收益）。仅 JXL 输出生效；选 PNG/JPEG 输出时自动禁用。   [main_window.py:3492]
+1   勾选后，输出文件将按源文件原有的文件夹层级，镜像到自定义输出文件夹中（而非全部拍平到同一目录）。仅「文件夹」输出模式生效；选「原文件夹」时自动禁用。   [main_window.py:3506]
+1   勾选后，被添加的文件夹本身也会作为一层目录出现在输出中（例如拖入「照片」文件夹，输出为 输出目录/照片/图片）。仅「保留文件夹结构」已勾选且为「文件夹」输出模式时生效。   [main_window.py:3521]
+1   勾选后，成功转换的输出文件将保留原文件的创建时间（仅 Windows 有效，需 pywin32；其他平台无创建时间概念，自动忽略）。   [main_window.py:3538]
+1   勾选后，成功转换的输出文件将保留原文件的修改时间（文件管理器中显示的「修改日期」与原文件一致）。   [main_window.py:3548]
+1   勾选后，成功转换的原文件将在转换结束后移入系统回收站；转换失败的文件不会被删除。   [main_window.py:3562]
+1   转换全部完成后，自动打开输出文件夹（资源管理器窗口）。   [main_window.py:3579]
+1   转换全部完成后，清空输入列表中的文件（不会删除磁盘上的原始文件）。   [main_window.py:3588]
+1   转换全部完成后播放一声提示音，便于离开电脑时也能知晓任务结束。   [main_window.py:3597]
+1   转换全部完成后自动退出本程序。   [main_window.py:3606]
+1   将窗口移动到屏幕中央（不改变窗口大小）   [main_window.py:4088]
+1   将窗口恢复为默认的 6 列 × 3 行尺寸（不改变位置）   [main_window.py:4091]
+1   开启后，退出程序时会记住「动作」标签页里当前的动作列表，下次启动自动恢复；
+关闭则该列表不持久化（每次启动恢复到空）。   [main_window.py:4272]
+1   开启后，输出页「线程数 (--num_threads)」行可手动填写；并行进程数 = CPU 核心使用数 ÷ 每文件线程数。   [main_window.py:4303]
+1   开启后，输出页「速度/质量权衡 (--effort)」可选范围由 1–9 扩展到 1–10（第 10 档最慢、质量最高）。   [main_window.py:4314]
+1   输出格式为 JPEG 时，若某 JXL 无法通过 djxl 比特级还原为原始 JPG（如非 JPEG 源编码、或重建数据已剥离），本开关决定处理方式：
+• 勾选（A 模式）：直接跳过该文件并在状态页记录原因；
+• 不勾选（默认，B 模式）：弹一次确认，由你决定是否以「解码为像素再重新编码为 JPG」的方式输出（有损的二次压缩，画质会下降）。   [main_window.py:4330]
+1   默认关闭：djxl 解码时不传 --num_threads，由它自己按机器决定（吃满核心，最快）。
+开启后：每个 djxl 进程按当前每文件线程预算限制线程数，使「CPU 核心使用数」在解码路径同样生效，可精确控制 CPU 负载。
+⚠️ 注意：启用后解码速度可能略有下降。20 核机实测多文件批量解码约慢 7%~13%——解码的线程收益本就远小于编码（满核 vs 单线程约 1.2x，编码是 2.3x），限制线程换不回等价的进程级并行。
+仅建议在需要精确控制 CPU 负载时开启（如转换时需同时跑其他重负载任务）。   [main_window.py:4344]
+1   开启后输出文件使用与输入相同的扩展名；关闭时用输出格式推导扩展名（如 .jxl / .png / .jpg）。若与「原文件夹 + 源文件带扩展名」组合导致输出路径等于输入，将跳过该文件以免覆盖源文件。   [main_window.py:4361]
+1   已启用：下方「手动设置每文件线程数」「解锁 effort 第 10 档」已解锁，可逐项单独开启；关闭则全部恢复默认行为。   [main_window.py:4686]
+1   未启用：所有高级子项均锁定为默认行为。勾选以解锁下方子项，再自行决定是否逐项开启（首次开启会弹出注意事项）。   [main_window.py:4691]
+
+### main_window.py :: setPlaceholderText  (3)
+1   快速过滤   [main_window.py:3002]
+1   选择或输入自定义输出文件夹，下拉可查看历史路径   [main_window.py:3358]
+1   cjxl <输入> <输出> -e 7 ...   [main_window.py:3757]
+
+### main_window.py :: _section  (4)
+1   窗口布局   [main_window.py:4084]
+1   常规   [main_window.py:4107]
+1   转换进程   [main_window.py:4191]
+1   大图并发校准   [main_window.py:4235]
+
+### main_window.py :: _label_row  (5)
+1   主题   [main_window.py:4131]
+1   控件样式   [main_window.py:4148]
+1   语言   [main_window.py:4174]
+1   CPU 优先级   [main_window.py:4212]
+1   CPU 核心使用数   [main_window.py:4227]
+
+### main_window.py :: appendPlainText  (27)
+1   检测到 CPU 型号变化，已清除旧校准数据，将按新硬件重新校准。   [main_window.py:4429]
+1   电源状态发生变化（计划=%s，供电=%s，模式=%s）：检测到该状态下已记录的阈值，已自动套用（约 %.1f MP）。   [main_window.py:4448]
+1   电源状态发生变化（计划=%s，供电=%s，模式=%s）：当前状态无已记录阈值，建议点击「一键校准大图阈值」重新校准。   [main_window.py:4454]
+1   首次启动检测到尚未校准，开始自动校准大图阈值…   [main_window.py:4497]
+1   开始手动校准大图阈值…   [main_window.py:4501]
+1   尚未校准且未找到 cjxl，跳过自动校准，继续使用默认阈值。   [main_window.py:4513]
+1   校准未完成：未找到 cjxl 或测量失败，继续使用默认阈值。   [main_window.py:4524]
+1   校准完成，大图像素阈值已写入设置：约 %.1f MP。   [main_window.py:4530]
+1   通过拖拽添加了 %d 个文件。   [main_window.py:4998]
+1   拖拽内容中没有可添加的文件。   [main_window.py:5001]
+1   错误：输入列表为空。   [main_window.py:7414]
+1   错误：%s 未就绪，请确认 libjxl 已安装并加入 PATH。   [main_window.py:7431]
+1   错误：未检测到 Pillow 库，无法执行图像处理动作。请用命令 `pip install Pillow` 安装后重试。   [main_window.py:7441]
+1   错误：自定义命令已勾选但内容为空。   [main_window.py:7482]
+1   已取消转换（用户拒绝将不可重建 JXL 以重编码方式输出为 JPG）。   [main_window.py:7560]
+1   提示：JPG 无损重编码模式仅支持 JPG 输入，以下 %d 个非 JPG 文件已跳过：   [main_window.py:7570]
+1   提示：JPEG 输出格式仅支持 JXL 输入（无损 JPEG 转码的 JXL 可重建原图），以下 %d 个非 JXL 文件已跳过：   [main_window.py:7581]
+1   提示：以下 %d 个 JXL 无法比特级重建为 JPG（已开启「直接跳过」），已跳过：   [main_window.py:7593]
+1   已取消转换（用户在「文件已存在」冲突询问中选择了取消）。   [main_window.py:7604]
+1   提示：以下 %d 个输出文件已存在且策略为「跳过」，已跳过：   [main_window.py:7609]
+1   错误：当前没有可处理的文件，转换未开始。   [main_window.py:7617]
+1   打开资源管理器失败：%s   [main_window.py:7798]
+1   清除输入列表失败：%s   [main_window.py:7807]
+1   播放提示音失败：%s   [main_window.py:7816]
+1   自动退出失败：%s   [main_window.py:7825]
+1   正在停止……（当前文件处理完毕后中止）   [main_window.py:7880]
+1   检测到操作系统：%s | cjxl：%s | djxl：%s   [main_window.py:8063]
+
+### main_window.py :: getOpenFileNames  (2)
+1   选择输入文件   [main_window.py:5019]
+1   图像文件 (*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.jxl *.avif);;所有文件 (*.*)   [main_window.py:5020]
+
+### main_window.py :: getExistingDirectory  (2)
+1   选择文件夹   [main_window.py:5026]
+1   选择输出文件夹   [main_window.py:6779]
+
+### main_window.py :: setTabText  (2)
+1   输入 [%d个]   [main_window.py:6244]
+1   动作 [%d/%d]   [main_window.py:6247]
+
+### main_window.py :: addButton  (4)
+1   继续   [main_window.py:7552]
+1   取消   [main_window.py:7553]
+1   全部替换   [main_window.py:8034]
+1   取消全部   [main_window.py:8038]
+
+### main_window.py :: log  (17)
+1   已输入文件： %d   [main_window.py:7699]
+1   已输出文件： %d   [main_window.py:7700]
+1   错误： %d   [main_window.py:7701]
+1   输入文件总大小： %s   [main_window.py:7703]
+1   输出文件总大小： %s   [main_window.py:7704]
+1   文件大小比例： %s   [main_window.py:7708]
+1   文件大小比例： --   [main_window.py:7710]
+1   总持续时间： 不到 1 秒   [main_window.py:7714]
+1   总持续时间： %d 秒   [main_window.py:7718]
+1   总持续时间： %d 天 %d 时 %d 分 %d 秒   [main_window.py:7725]
+1   总持续时间： %d 时 %d 分 %d 秒   [main_window.py:7728]
+1   总持续时间： %d 分 %d 秒   [main_window.py:7730]
+1   转换停止：   [main_window.py:7733]
+1   转换完成：   [main_window.py:7737]
+1   删除原文件失败（已保留）：%s —— %s   [main_window.py:7756]
+1   已将 %d 个成功转换的原文件移入回收站。   [main_window.py:7758]
+1   注意：%d 个原文件因删除失败而保留。   [main_window.py:7760]
+
+### main_window.py :: emit  (9)
+1   并发设置：核心数=%s，双队列调度（大图独占满核 / 小图并行均分）   [main_window.py:8439]
+1   开始转换：   [main_window.py:8443]
+1   调度分类：小图 %d 张（每图 %d 线程并行）/ 大图 %d 张（每图 %d 线程）   [main_window.py:8452]
+1   已停止。   [main_window.py:8474]
+1   正在处理 (%d/%d)：%s   [main_window.py:8615]
+1   编码结果较大（%d ≥ %d 字节），已丢弃 JXL 输出，保留原文件。   [main_window.py:8662]
+1   丢弃较大 JXL 输出失败（已保留）：%s —— %s   [main_window.py:8667]
+1   保持时间戳失败（已忽略）：%s —— %s   [main_window.py:8679]
+1   处理失败：%s   [main_window.py:8715]
+
+### main_window.py :: addRow  (11)
+1   目标宽度 (像素, 0=自动):   [main_window.py:8743]
+1   目标高度 (像素, 0=自动):   [main_window.py:8744]
+1   顺时针角度 (度):   [main_window.py:8751]
+1   水印文字:   [main_window.py:8770]
+1   字号:   [main_window.py:8771]
+1   透明度 (0-255):   [main_window.py:8772]
+1   位置:   [main_window.py:8773]
+1   颜色:   [main_window.py:8774]
+1   亮度 (1.0=不变):   [main_window.py:8789]
+1   对比度 (1.0=不变):   [main_window.py:8790]
+1   锐化强度 (1.0=不变):   [main_window.py:8798]
+
+### processor.py :: RESIZE_ALGORITHMS  (6)
+1   LANCZOS (高质量, 默认)   [processor.py:56]
+1   BICUBIC (高质量, 较快)   [processor.py:57]
+1   BILINEAR (较快)   [processor.py:58]
+1   BOX (缩小整数倍)   [processor.py:59]
+1   HAMMING (缩小)   [processor.py:60]
+1   NEAREST (像素画, 最快)   [processor.py:61]
+
+### processor.py :: RuntimeError  (1)
+1   Pillow 未安装，无法执行图像处理动作。   [processor.py:130]

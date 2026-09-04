@@ -5,7 +5,13 @@ r"""回归测试：设置页「常规」区新增的「语言」下拉（占位�
 - 主窗口暴露 language_combo，且它位于「常规」分组内。
 - 内置两项：简体中文 / English，itemData 分别为 zh_CN / en_US。
 - 默认选中简体中文（zh_CN）。
-- 当前为占位项：不接任何切换逻辑，也不写 QSettings（后续实现时再补）。
+- 选择后立即写入 appearance/language，并在下次启动时由
+  ``__main__._apply_persisted_language()`` 于构造窗口前装进 i18n。
+- 语言代码不在白名单时回退 zh_CN。
+
+语言是「重启生效」的：界面文本在窗口构建时取定，运行时改字典会让新旧
+语言混在一起。所以这里测的是「持久化 + 下次启动应用」这条链路，
+而不是「切换后立刻变英文」。
 
 注：每个用例跑在独立的临时 ini 目录，避免污染真实
 %APPDATA%\libjxl\libjxl-gui.ini。
@@ -149,9 +155,8 @@ def test_language_items_and_default():
     print("PASS language_items_and_default")
 
 
-def test_language_is_placeholder_no_persist():
-    r"""占位阶段：不接切换槽、不写 QSettings。后续实现语言功能时
-    本用例需要同步调整。"""
+def test_language_persists_on_change():
+    r"""选择语言后应立即写入 appearance/language（切换本身重启后生效）。"""
     app, _ = _bootstrap()
     from libjxl_gui.main_window import MainWindow
     w = MainWindow()
@@ -159,11 +164,66 @@ def test_language_is_placeholder_no_persist():
     combo.setCurrentIndex(combo.findData("en_US"))
     settings = QSettings()
     settings.beginGroup("appearance")
-    assert not settings.contains("language"), \
-        "占位阶段不应把语言写入 QSettings"
+    stored = settings.value("language")
     settings.endGroup()
+    assert stored == "en_US", \
+        "选择 English 后应写入 appearance/language=en_US，实际=%r" % (stored,)
     w.close()
-    print("PASS language_is_placeholder_no_persist")
+    print("PASS language_persists_on_change")
+
+
+def test_language_applied_on_next_launch():
+    r"""重启路径：__main__._apply_persisted_language() 要在构造窗口前
+    把持久化的语言装进 i18n，否则界面仍是中文。"""
+    app, _ = _bootstrap()
+    from libjxl_gui import i18n
+    from libjxl_gui.__main__ import _apply_persisted_language
+    from libjxl_gui.main_window import MainWindow
+
+    # 先模拟「用户在设置页选了 English」
+    s = QSettings()
+    s.beginGroup("appearance")
+    s.setValue("language", "en_US")
+    s.endGroup()
+    s.sync()
+
+    try:
+        code = _apply_persisted_language()
+        assert code == "en_US", "应加载 en_US，实际=%r" % (code,)
+        assert i18n.current_language() == "en_US", \
+            "i18n 当前语言应为 en_US，实际=%r" % i18n.current_language()
+        # 新窗口的界面文本必须是英文，且内部 ID 仍是中文
+        w = MainWindow()
+        assert w.action_combo.itemText(0) == "Resize", \
+            "重启后动作类型应为英文，实际=%r" % w.action_combo.itemText(0)
+        assert w.action_combo.itemData(0) == "调整大小", \
+            "内部 ID 必须是中文，实际=%r" % w.action_combo.itemData(0)
+        # 设置页的语言下拉要回显当前语言，而不是复位成默认
+        assert w.language_combo.currentData() == "en_US", \
+            "语言下拉应回显 en_US，实际=%r" % w.language_combo.currentData()
+        w.close()
+        print("PASS language_applied_on_next_launch")
+    finally:
+        i18n.set_language("zh_CN")
+
+
+def test_invalid_language_falls_back():
+    r"""ini 被写坏（语言代码不在白名单）时回退到默认，不能让启动崩掉。"""
+    app, _ = _bootstrap()
+    from libjxl_gui import i18n
+    from libjxl_gui.__main__ import _apply_persisted_language
+
+    s = QSettings()
+    s.beginGroup("appearance")
+    s.setValue("language", "mars_MARS")
+    s.endGroup()
+    s.sync()
+    try:
+        code = _apply_persisted_language()
+        assert code == "zh_CN", "非法语言应回退 zh_CN，实际=%r" % (code,)
+        print("PASS invalid_language_falls_back")
+    finally:
+        i18n.set_language("zh_CN")
 
 
 def main():
@@ -172,7 +232,9 @@ def main():
         test_language_row_label,
         test_grid_positions_in_常规,
         test_language_items_and_default,
-        test_language_is_placeholder_no_persist,
+        test_language_persists_on_change,
+        test_language_applied_on_next_launch,
+        test_invalid_language_falls_back,
     ]
     passed = 0
     failed = 0

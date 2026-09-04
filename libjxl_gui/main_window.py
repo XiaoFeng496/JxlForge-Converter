@@ -52,6 +52,7 @@ except ImportError:
 # calibrate 不回注 main_window（无循环依赖），仅导出常量与 run_calibration 等。
 from . import calibrate
 from . import power
+from . import i18n
 
 from PySide6.QtCore import (
     QEvent,
@@ -1576,7 +1577,8 @@ class ActionItemWidget(QWidget):
         try:
             return _mw.MainWindow._action_summary(None, self.action)
         except Exception:
-            return self.action.get("type", "")
+            # 兜底也走 t()：直接返回原始 ID 会让英文界面冒出中文。
+            return i18n.t(self.action.get("type", ""))
 
     def _add_param(self, grid, label, widget):
         """Add 'label: widget' as a row in a QGridLayout (label=左, widget=右)。"""
@@ -1653,10 +1655,15 @@ class ActionItemWidget(QWidget):
             self._add_param(layout, "透明度", op)
             widgets["opacity"] = op
             pos = NoFlickerComboBox()
-            pos.addItems(processor.WATERMARK_POSITIONS)
-            pos.setCurrentText(p.get("position", "右下"))
-            pos.currentTextChanged.connect(
-                lambda v, k="position": self._emit(k, v))
+            # 显示名与内部 ID 分离：显示 t(位置)，userData 存原始中文位置，
+            # 回写 action params 时用 currentData()，英文界面下也不会存成英文。
+            for _pid in processor.WATERMARK_POSITIONS:
+                pos.addItem(i18n.t(_pid), _pid)
+            _pi = pos.findData(p.get("position", "右下"))
+            if _pi >= 0:
+                pos.setCurrentIndex(_pi)
+            pos.currentIndexChanged.connect(
+                lambda _idx, k="position": self._emit(k, pos.currentData()))
             self._add_param(layout, "位置", pos)
             widgets["position"] = pos
             col = NoFlickerComboBox()
@@ -1947,13 +1954,13 @@ _QT_COLOR_SCHEMES = {
     "dark": Qt.ColorScheme.Dark,
 }
 
-# 界面语言（当前仅作为设置页占位项，切换逻辑待后续实现）
-_LANGUAGE_DEFAULT = "zh_CN"
-_LANGUAGE_ORDER = ("zh_CN", "en_US")
-_LANGUAGE_LABELS = {
-    "zh_CN": "简体中文",
-    "en_US": "English",
-}
+# 界面语言。**加语言不需要改这里**：丢一个 <code>.json 进 libjxl_gui/i18n/
+# 就会自动出现在下拉里，显示名取该文件里的 _language_name 元信息键。
+# 语言名用自称名（English / 日本語）而非当前语言的译文，否则英文界面上
+# 会显示成 "Japanese"，反而认不出来。
+_LANGUAGE_DEFAULT = i18n.DEFAULT_LANGUAGE
+_LANGUAGE_ORDER = tuple(i18n.language_order())
+_LANGUAGE_LABELS = {code: i18n.language_name(code) for code in _LANGUAGE_ORDER}
 
 
 def app_color_scheme():
@@ -3006,11 +3013,13 @@ class MainWindow(QMainWindow):
         # menu-item click, eliminating that race entirely.
         self.view_button = QToolButton()
         toolbar.addWidget(QLabel("查看："))
-        self.view_button.setText("缩略图")
+        self.view_button.setText(i18n.t("缩略图"))
         self.view_button.setPopupMode(QToolButton.InstantPopup)
         self.view_menu = QMenu(self.view_button)
         for mode in VIEW_MODES:
-            act = self.view_menu.addAction(mode)
+            # 菜单项显示译文，回调仍传原始中文 ID —— 持久化、GRID_SIZES 查表、
+            # "列表"/"详细信息" 分支判断全部依赖 ID，不能被翻译影响。
+            act = self.view_menu.addAction(i18n.t(mode))
             act.triggered.connect(
                 lambda _checked=False, m=mode: self._on_view_changed(m)
             )
@@ -3059,7 +3068,11 @@ class MainWindow(QMainWindow):
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel("动作类型："))
         self.action_combo = NoFlickerComboBox()
-        self.action_combo.addItems(list(processor.ACTION_TYPES))
+        # 显示名走 t()，userData 存原始中文 ID —— ID 与显示名分离后，
+        # 切英文界面时下拉显示 "Resize"，而 action dict 里仍是 "调整大小"，
+        # processor.apply_actions 那 40 处字面量判断和已有配置都不受影响。
+        for _aid in processor.ACTION_TYPES:
+            self.action_combo.addItem(i18n.t(_aid), _aid)
         self.add_action_button = QPushButton("添加动作")
         self.clear_action_button = QPushButton("清空")
         toolbar.addWidget(self.action_combo)
@@ -3456,10 +3469,14 @@ class MainWindow(QMainWindow):
         # NoFlickerComboBox：与输出格式下拉保持一致（框更大、支持滚轮），
         # 下拉弹窗去掉 Windows DWM 入场动画避免闪烁。
         self.on_exist_combo = NoFlickerComboBox()
-        self.on_exist_combo.addItems(["替换", "询问", "跳过", "重命名"])
-        idx = self.on_exist_combo.findText("替换")
-        if idx >= 0:
-            self.on_exist_combo.setCurrentIndex(idx)
+        # 与动作类型同构：显示 t(策略)，userData 存原始中文策略。
+        # 持久化与转换时的分支判断都读 currentData()，英文界面下不会把
+        # "Overwrite" 当成策略存进 ini（否则下次启动 findData 落空、策略丢默认）。
+        for _eid in ("替换", "询问", "跳过", "重命名"):
+            self.on_exist_combo.addItem(i18n.t(_eid), _eid)
+        _ei = self.on_exist_combo.findData("替换")
+        if _ei >= 0:
+            self.on_exist_combo.setCurrentIndex(_ei)
         exist_row.addWidget(self.on_exist_combo)
         exist_row.addStretch(1)
         options_layout.addLayout(exist_row)
@@ -4133,17 +4150,27 @@ class MainWindow(QMainWindow):
         # 语言（占位项：只提供选项，界面语言切换功能尚未实现）
         # 放在左列第二行（原「控件样式」位置），右列与「主题」同排的是控件样式。
         lang_tip = (
-            "选择界面显示语言（默认简体中文）。\n"
-            "注意：语言切换功能尚未实现，此下拉框目前仅作占位，"
-            "选择后不会立即生效。"
+            "选择界面显示语言。\n"
+            "切换后需重启程序生效：界面文本是在窗口构建时就取定的，实时刷新"
+            "每个控件既容易漏、又要额外缓存原文，得不偿失。\n"
+            "注意：目前已收录的英文文案以「内部标识的显示名」为主"
+            "（动作类型 / 水印位置 / 查看模式 / 冲突策略），"
+            "其余界面文本会随翻译推进逐步补全，未收录的暂时保持中文。"
         )
         self.language_combo = NoFlickerComboBox()
         for key in _LANGUAGE_ORDER:
             self.language_combo.addItem(_LANGUAGE_LABELS[key], key)
         self._set_combo_min_width(self.language_combo)
+        # 回显当前语言：启动入口 __main__.run() 会在构造窗口前按持久化值
+        # 调 i18n.set_language()，这里只是把结果显示出来。
+        _lang_idx = self.language_combo.findData(i18n.current_language())
         self.language_combo.setCurrentIndex(
-            self.language_combo.findData(_LANGUAGE_DEFAULT)
+            _lang_idx if _lang_idx >= 0
+            else self.language_combo.findData(_LANGUAGE_DEFAULT)
         )
+        # 立即持久化 + 提示重启。语言本身要等下次启动才由 __main__ 应用。
+        self.language_combo.currentIndexChanged.connect(
+            self._on_language_combo_changed)
         _label_row(theme_grid, "语言", self.language_combo, lang_tip,
                    row=1, col=0)
 
@@ -4749,7 +4776,8 @@ class MainWindow(QMainWindow):
         # 输出格式（JXL / PNG / JPG）：与编码参数一起持久化。
         settings.setValue("output_format", self.format_combo.currentText())
         # 输出文件已存在时的冲突策略（替换/询问/跳过/重命名）。
-        settings.setValue("on_exist", self.on_exist_combo.currentText())
+        settings.setValue("on_exist", self.on_exist_combo.currentData()
+                          or self.on_exist_combo.currentText())
         # 删除原文件：勾选后成功转换的源文件移入回收站（QSettings 直接存 bool）。
         settings.setValue("delete_original", self.delete_original_check.isChecked())
         # 保持时间戳：输出文件继承原文件的创建/修改时间（QSettings 直接存 bool）。
@@ -4829,7 +4857,12 @@ class MainWindow(QMainWindow):
             self.format_combo.setCurrentText(fmt)
         # 恢复输出文件已存在时的冲突策略（替换/询问/跳过/重命名）。
         on_exist = settings.value("on_exist", "替换")
-        if self.on_exist_combo.findText(on_exist) >= 0:
+        # 按 userData 匹配（ini 里存的一直是中文 ID），找不到再退回按显示名匹配，
+        # 兼容早期可能写入的脏值。
+        if self.on_exist_combo.findData(on_exist) >= 0:
+            self.on_exist_combo.setCurrentIndex(
+                self.on_exist_combo.findData(on_exist))
+        elif self.on_exist_combo.findText(on_exist) >= 0:
             self.on_exist_combo.setCurrentText(on_exist)
         # 恢复「删除原文件」勾选状态（INI 把 bool 存为字符串，需显式解析）。
         self.delete_original_check.setChecked(
@@ -5997,7 +6030,8 @@ class MainWindow(QMainWindow):
             return
         self._last_view = text
         if getattr(self, "view_button", None) is not None:
-            self.view_button.setText(text)
+            # text 是内部 ID，显示给用户的是它的译文
+            self.view_button.setText(i18n.t(text))
         # Persist immediately so the choice survives even an abnormal exit.
         # Must run before the per-mode early returns below (the "详细信息"
         # branch returns early and would otherwise skip the save).
@@ -6312,45 +6346,54 @@ class MainWindow(QMainWindow):
         参数改为 inline 暴露在列表项上：用户可即时调整任意参数，无需切换
         弹窗（旧 ActionParamDialog 已不再被 UI 调用，仅留作历史代码）。
         """
-        name = self.action_combo.currentText()
+        # 取 userData（原始中文 ID）而不是显示文本：英文界面下显示的是 "Resize"，
+        # 但 action dict 必须存 "调整大小"，否则 apply_actions 判断失效。
+        name = self.action_combo.currentData() or self.action_combo.currentText()
         defaults = dict(processor.DEFAULT_PARAMS.get(name, {}))
         action = {"type": name, "params": defaults, "enabled": True}
         self._add_action_item(action)
-        self.statusBar().showMessage("已添加动作：%s" % name)
+        self.statusBar().showMessage("已添加动作：%s" % i18n.t(name))
 
     def _action_summary(self, action):
-        """Short human-readable summary of an action (shown in the list)."""
+        """Short human-readable summary of an action (shown in the list).
+
+        ⚠️ ``atype`` 同时是内部 ID（下面所有分支判断、以及 processor 的
+        apply_actions 都按字面量比较它），不能直接拿来显示。显示一律用
+        ``name = i18n.t(atype)`` —— 英文界面下显示 "Resize"，而 action dict
+        与配置文件里仍然是 "调整大小"。
+        """
         atype = action.get("type", "")
+        name = i18n.t(atype)
         p = action.get("params", {}) or {}
         if atype == "调整大小":
             w, h = int(p.get("width", 0) or 0), int(p.get("height", 0) or 0)
             algo = p.get("algorithm") or "LANCZOS"
             size = ("%dx%d" % (w, h)) if (w and h) else (
                 ("宽%d" % w) if w else (("高%d" % h) if h else "自动"))
-            return "%s (%s, %s)" % (atype, size, algo)
+            return "%s (%s, %s)" % (name, size, algo)
         if atype == "旋转":
-            return "%s (%d°)" % (atype, int(p.get("angle", 0) or 0))
+            return "%s (%d°)" % (name, int(p.get("angle", 0) or 0))
         if atype == "水印":
-            return "%s (%s)" % (atype, p.get("text", ""))
+            return "%s (%s)" % (name, p.get("text", ""))
         if atype == "亮度/对比度":
             return "%s (亮%.1f/对%.1f)" % (
-                atype, float(p.get("brightness", 1.0)), float(p.get("contrast", 1.0)))
+                name, float(p.get("brightness", 1.0)), float(p.get("contrast", 1.0)))
         if atype == "锐化":
-            return "%s (%.1f)" % (atype, float(p.get("factor", 1.0)))
+            return "%s (%.1f)" % (name, float(p.get("factor", 1.0)))
         if atype == "裁剪":
             return "%s (%d,%d %dx%d)" % (
-                atype, int(p.get("left", 0)), int(p.get("top", 0)),
+                name, int(p.get("left", 0)), int(p.get("top", 0)),
                 int(p.get("width", 0)), int(p.get("height", 0)))
         if atype == "规格化":
             co = int(p.get("cutoff", 0) or 0)
-            return ("%s" % atype) if co == 0 else ("%s (cutoff=%d‰)" % (atype, co))
+            return ("%s" % name) if co == 0 else ("%s (cutoff=%d‰)" % (name, co))
         if atype == "曝光":
-            return "%s (%+.1f EV)" % (atype, float(p.get("ev", 0.0) or 0.0))
+            return "%s (%+.1f EV)" % (name, float(p.get("ev", 0.0) or 0.0))
         if atype == "阴影/高光":
             return "%s (影%.2f/亮%.2f)" % (
-                atype, float(p.get("shadow", 1.0) or 1.0),
+                name, float(p.get("shadow", 1.0) or 1.0),
                 float(p.get("highlight", 1.0) or 1.0))
-        return atype
+        return name
 
     def _collect_actions(self):
         """Return the ordered list of **enabled** action dicts (处理用)。
@@ -7224,6 +7267,26 @@ class MainWindow(QMainWindow):
         settings.endGroup()
         settings.sync()
 
+    def _on_language_combo_changed(self, _index):
+        """持久化所选语言，并明确告知「重启后生效」。
+
+        这里**不**调用 ``i18n.set_language()``：界面上成百上千处文本在窗口
+        构建时就已取定，运行时改字典只会让新旧语言混在一起（新弹出的控件
+        是英文、已存在的是中文）。语言由 ``__main__.run()`` 在下次启动、
+        构造窗口之前统一应用。
+        """
+        code = self.language_combo.currentData()
+        if code not in _LANGUAGE_ORDER:
+            return
+        settings = QSettings()
+        settings.beginGroup("appearance")
+        settings.setValue("language", code)
+        settings.endGroup()
+        settings.sync()
+        label = _LANGUAGE_LABELS.get(code, code)
+        tip = ("语言已切换为%s，重启程序后生效。" % label)
+        self.statusBar().showMessage(tip, 8000)
+
     def _apply_color_scheme(self, scheme):
         """Apply a color scheme in full: update the global key, push the new
         scheme to QStyleHints, and force every top-level widget to repaint so
@@ -7914,7 +7977,9 @@ class MainWindow(QMainWindow):
         """
         # 每批次重新初始化「全部替换」标志，避免跨批次沿用。
         self._replace_all_pending = False
-        on_exist = self.on_exist_combo.currentText()
+        # 取 userData（中文 ID）而非显示文本 —— 下面的分支判断全靠它。
+        on_exist = (self.on_exist_combo.currentData()
+                    or self.on_exist_combo.currentText())
         if on_exist == "替换":
             return jobs, [], False
         resolved, skipped, cancelled = [], [], False
@@ -8694,8 +8759,11 @@ class ActionParamDialog(QDialog):
             op.setRange(0, 255)
             op.setValue(128)
             pos = NoFlickerComboBox()
-            pos.addItems(processor.WATERMARK_POSITIONS)
-            pos.setCurrentText("右下")
+            for _pid in processor.WATERMARK_POSITIONS:
+                pos.addItem(i18n.t(_pid), _pid)
+            _pi = pos.findData("右下")
+            if _pi >= 0:
+                pos.setCurrentIndex(_pi)
             col = NoFlickerComboBox()
             col.addItems(["white", "black"])
             col.setCurrentText("white")
@@ -8707,7 +8775,7 @@ class ActionParamDialog(QDialog):
             self._controls["text"] = (t, lambda: t.text())
             self._controls["font_size"] = (fs, lambda: fs.value())
             self._controls["opacity"] = (op, lambda: op.value())
-            self._controls["position"] = (pos, lambda: pos.currentText())
+            self._controls["position"] = (pos, lambda: pos.currentData())
             self._controls["color"] = (col, lambda: col.currentText())
         elif action_type == "亮度/对比度":
             b = QDoubleSpinBox()

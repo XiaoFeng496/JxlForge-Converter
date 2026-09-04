@@ -1,0 +1,67 @@
+{
+  "_batch": "02 动作参数 / 预览 / 时长格式 / 缩放算法",
+
+  "宽": "Width",
+  "高": "Height",
+  "算法": "Algorithm",
+  "角度": "Angle",
+  "文字": "Text",
+  "字号": "Font size",
+  "透明度": "Opacity",
+  "位置": "Position",
+  "颜色": "Color",
+  "亮度": "Brightness",
+  "对比度": "Contrast",
+  "强度": "Strength",
+  "截断": "Cutoff",
+  "阴影": "Shadow",
+  "高光": "Highlight",
+
+  "目标宽度 (像素, 0=自动):": "Target width (px, 0 = auto):",
+  "目标高度 (像素, 0=自动):": "Target height (px, 0 = auto):",
+  "顺时针角度 (度):": "Clockwise angle (degrees):",
+  "水印文字:": "Watermark text:",
+  "字号:": "Font size:",
+  "透明度 (0-255):": "Opacity (0-255):",
+  "位置:": "Position:",
+  "颜色:": "Color:",
+  "亮度 (1.0=不变):": "Brightness (1.0 = unchanged):",
+  "对比度 (1.0=不变):": "Contrast (1.0 = unchanged):",
+  "锐化强度 (1.0=不变):": "Sharpen strength (1.0 = unchanged):",
+
+  "左边距 (像素):": "Left margin (px):",
+  "上边距 (像素):": "Top margin (px):",
+  "宽度 (像素, 0=到边界):": "Width (px, 0 = to edge):",
+  "高度 (像素, 0=到边界):": "Height (px, 0 = to edge):",
+
+  "切换预览源后自动适应窗口": "Fit to window after switching preview source",
+  "取消勾选后，切换预览源时沿用当前缩放位置，不被重置到适应窗口。": "When unchecked, switching the preview source keeps the current zoom instead of resetting to fit.",
+
+  "折叠/展开参数": "Collapse/expand parameters",
+  "取消勾选可临时停用该动作（参数保留，不会被应用）": "Uncheck to temporarily disable this action (parameters are kept and not applied)",
+  "截掉直方图两端各 N‰ 的极值像素后再拉满（0=纯规格化）": "Clip N‰ of extreme pixels from both ends of the histogram, then stretch to full range (0 = plain normalization)",
+  "+1 EV = 亮度翻倍，-1 EV = 减半；0=不变": "+1 EV doubles brightness, -1 EV halves it; 0 = unchanged",
+  ">1 提亮阴影，<1 压暗阴影；1.0=不变": ">1 lifts shadows, <1 darkens them; 1.0 = unchanged",
+  ">1 提亮高光，<1 压暗高光；1.0=不变": ">1 lifts highlights, <1 darkens them; 1.0 = unchanged",
+
+  "宽%d": "W%d",
+  "高%d": "H%d",
+  "%s (亮%.1f/对%.1f)": "%s (B%.1f/C%.1f)",
+  "%s (影%.2f/亮%.2f)": "%s (S%.2f/H%.2f)",
+
+  "%d 秒": "%d s",
+  "%d 分 %d 秒": "%d min %d s",
+  "%d 时 %d 分": "%d h %d min",
+
+  "无法预览 JXL 文件：未检测到 libjxl 的 djxl 工具。\n\n请确认 libjxl 已正确安装，并将其所在目录加入系统的 PATH 环境变量。": "Cannot preview JXL files: the djxl tool from libjxl was not found.\n\nMake sure libjxl is installed correctly and its directory is on the system PATH environment variable.",
+  "无法加载 JXL 图片：%s\n\ndjxl 解码失败，文件可能损坏或不受支持。": "Cannot load JXL image: %s\n\ndjxl decoding failed; the file may be corrupt or unsupported.",
+  "无法加载图片：%s": "Cannot load image: %s",
+  "文件名：%s\n格式：%s\n尺寸：%s\n大小：%s\n路径：%s%s": "Name: %s\nFormat: %s\nDimensions: %s\nSize: %s\nPath: %s%s",
+
+  "LANCZOS (高质量, 默认)": "LANCZOS (high quality, default)",
+  "BICUBIC (高质量, 较快)": "BICUBIC (high quality, faster)",
+  "BILINEAR (较快)": "BILINEAR (faster)",
+  "BOX (缩小整数倍)": "BOX (integer downscaling)",
+  "HAMMING (缩小)": "HAMMING (downscaling)",
+  "NEAREST (像素画, 最快)": "NEAREST (pixel art, fastest)"
+}
