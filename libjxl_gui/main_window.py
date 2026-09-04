@@ -5311,7 +5311,7 @@ class MainWindow(QMainWindow):
         table.setColumnCount(0)
         table.setColumnCount(len(TABLE_COLUMNS))
         table.setHorizontalHeaderLabels(
-            [label for (_k, label, _v, _w, _a) in TABLE_COLUMNS]
+            [i18n.t(label) for (_k, label, _v, _w, _a) in TABLE_COLUMNS]
         )
         header.setSectionsMovable(True)
         header.setSectionsClickable(True)
@@ -5494,7 +5494,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self.input_table)
         menu.addAction(i18n.t("显示列：")).setEnabled(False)
         for key, label, _v, _w, _a in TABLE_COLUMNS:
-            act = QAction(label, menu)
+            act = QAction(i18n.t(label), menu)
             act.setCheckable(True)
             act.setChecked(key not in self._table_hidden)
             act.triggered.connect(
@@ -7289,7 +7289,8 @@ class MainWindow(QMainWindow):
         settings.endGroup()
         settings.sync()
         label = _LANGUAGE_LABELS.get(code, code)
-        tip = ("语言已切换为%s，重启程序后生效。" % label)
+        # label 是语言自称名（简体中文 / English），按约定保持原样不翻译。
+        tip = i18n.t("语言已切换为%s，重启程序后生效。") % label
         self.statusBar().showMessage(tip, 8000)
 
     def _apply_color_scheme(self, scheme):
