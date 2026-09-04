@@ -1,12 +1,12 @@
 {
-  "target_total": 446,
+  "target_total": 447,
   "stage6_count": 27,
   "languages": [
     {
       "code": "en_US",
       "name": "English",
-      "translated": 446,
-      "total": 446,
+      "translated": 447,
+      "total": 447,
       "missing": 0,
       "percent": 100.0,
       "orphans": []

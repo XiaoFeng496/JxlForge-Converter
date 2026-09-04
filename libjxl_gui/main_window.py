@@ -2377,7 +2377,6 @@ _NUM_THREADS_TIP = (
     "  -1 = 交给 cjxl 按机器自动决定（等于吃满全部核心，故同时只跑 1 个进程）；\n"
     "   0 = 禁用多线程（单线程编码，此时会改为多进程并行）；\n"
     " 1..%d = 指定线程数，并行进程数按「CPU 核心使用数」预算自动收缩，避免超订。"
-    % _LOGICAL_CORES
 )
 
 _ADVANCED_SCHEMA = [
@@ -3697,8 +3696,14 @@ class MainWindow(QMainWindow):
             check = QCheckBox(i18n.t(s["label"]))
             check.setChecked(False)
             tip = s.get("tip")
+            rendered_tip = None
             if tip:
-                check.setToolTip(i18n.t(tip))
+                # _NUM_THREADS_TIP 模板含 %d（机器核心数），翻译后再代入，
+                # 否则字典键（带 %d）与运行时字符串（已代入数字）永远对不上。
+                rendered_tip = i18n.t(tip)
+                if "%d" in rendered_tip:
+                    rendered_tip %= _LOGICAL_CORES
+                check.setToolTip(rendered_tip)
             row.addWidget(check)
             val_w = None
             if s["kind"] == "double":
@@ -3715,13 +3720,13 @@ class MainWindow(QMainWindow):
             elif s["kind"] == "choice":
                 val_w = NoFlickerComboBox()
                 for v, t in s["choices"]:
-                    val_w.addItem(t, v)
+                    val_w.addItem(i18n.t(t), v)
                 idx = val_w.findData(s["default"])
                 if idx >= 0:
                     val_w.setCurrentIndex(idx)
                 row.addWidget(val_w)
-            if val_w is not None and tip:
-                val_w.setToolTip(i18n.t(tip))
+            if val_w is not None and rendered_tip:
+                val_w.setToolTip(rendered_tip)
             # switch / bool_value：仅复选框，无独立值控件
             sub_layouts[s["group"]].addLayout(row)
             self._adv_widgets[s["key"]] = (check, val_w, s)
@@ -4118,7 +4123,7 @@ class MainWindow(QMainWindow):
         )
         self.color_scheme_combo = NoFlickerComboBox()
         for key in _COLOR_SCHEME_ORDER:
-            self.color_scheme_combo.addItem(_COLOR_SCHEME_LABELS[key], key)
+            self.color_scheme_combo.addItem(i18n.t(_COLOR_SCHEME_LABELS[key]), key)
         self._set_combo_min_width(self.color_scheme_combo)
         self._color_scheme_loading = True
         self.color_scheme_combo.setCurrentIndex(
@@ -4139,7 +4144,7 @@ class MainWindow(QMainWindow):
         )
         self.theme_combo = NoFlickerComboBox()
         for key in _THEME_ORDER:
-            self.theme_combo.addItem(_THEME_LABELS[key], key)
+            self.theme_combo.addItem(i18n.t(_THEME_LABELS[key]), key)
         self._set_combo_min_width(self.theme_combo)
         self._theme_loading = True
         self.theme_combo.setCurrentIndex(self.theme_combo.findData(app_theme()))
@@ -7217,7 +7222,7 @@ class MainWindow(QMainWindow):
                 ROOT_MARGIN_LTR, ROOT_MARGIN_LTR, ROOT_MARGIN_LTR,
                 _root_bottom_margin())
         self.statusBar().showMessage(
-            i18n.t("主题已切换为：%s") % _THEME_LABELS.get(theme, theme))
+            i18n.t("主题已切换为：%s") % i18n.t(_THEME_LABELS.get(theme, theme)))
 
     def _refresh_combo_styles(self):
         """Re-apply the active style and palette to every dropdown.
@@ -7313,7 +7318,7 @@ class MainWindow(QMainWindow):
         self._refresh_combo_styles()
         self._sync_inactive_palette()
         self.statusBar().showMessage(
-            i18n.t("主题已切换为：%s") % _COLOR_SCHEME_LABELS.get(scheme, scheme))
+            i18n.t("颜色方案已切换为：%s") % i18n.t(_COLOR_SCHEME_LABELS.get(scheme, scheme)))
 
     def _on_color_scheme_changed(self, _index):
         """Persist and apply the newly chosen color scheme."""
