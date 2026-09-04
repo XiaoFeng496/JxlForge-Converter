@@ -79,7 +79,12 @@ def dotted_name(node):
 
 
 def collect_docstring_lines(tree):
-    """模块 / 类 / 函数的首个 Expr(Constant str) 是 docstring，不参与翻译。"""
+    """模块 / 类 / 函数的首个字符串字面量表达式是 docstring，不参与翻译。
+
+    注意：i18n 回填会在文件顶部插入 ``from . import i18n``，把模块 docstring
+    从 body[0] 挤到 body[1]。这里跳过前导的 import / __future__ / 注释，
+    认「第一个字符串字面量表达式」为文档串，才能稳定排除它（文档串不是 UI 文本）。
+    """
     lines = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef,
@@ -88,11 +93,14 @@ def collect_docstring_lines(tree):
         body = getattr(node, "body", None)
         if not body:
             continue
-        first = body[0]
-        if (isinstance(first, ast.Expr)
-                and isinstance(first.value, ast.Constant)
-                and isinstance(first.value.value, str)):
-            lines.add(first.value.lineno)
+        for stmt in body:
+            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                continue
+            if (isinstance(stmt, ast.Expr)
+                    and isinstance(stmt.value, ast.Constant)
+                    and isinstance(stmt.value.value, str)):
+                lines.add(stmt.value.lineno)
+            break  # 遇到非 import 语句即停止（无论是否 docstring）
     return lines
 
 

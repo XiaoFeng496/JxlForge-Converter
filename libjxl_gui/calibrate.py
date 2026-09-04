@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from . import i18n
+
 """大图像素地板的按-CPU 校准逻辑（与应用、命令行脚本共用）。
 
 双队列调度器用「相对中位数 + 绝对地板」两道闸门判定大图。绝对地板依赖 CPU——
@@ -111,16 +113,16 @@ def run_calibration(progress_cb=None, log_cb=None, effort=7, runs=3, max_mp=64):
     """
     cjxl = cjxl_path()
     if not cjxl:
-        msg = "校准跳过：未找到 cjxl，无法测量。"
+        msg = i18n.t("校准跳过：未找到 cjxl，无法测量。")
         if log_cb:
             log_cb(msg)
         if progress_cb:
-            progress_cb("校准跳过：未找到 cjxl")
+            progress_cb(i18n.t("校准跳过：未找到 cjxl"))
         return None
 
     cores = os.cpu_count() or 1
     if log_cb:
-        log_cb("开始校准大图像素地板：本机逻辑核心数 %d，effort=%d，runs=%d"
+        log_cb(i18n.t("开始校准大图像素地板：本机逻辑核心数 %d，effort=%d，runs=%d")
                % (cores, effort, runs))
 
     levels = [m for m in MP_LEVELS if m <= max_mp]
@@ -128,9 +130,9 @@ def run_calibration(progress_cb=None, log_cb=None, effort=7, runs=3, max_mp=64):
     rows = []
     for i, mp in enumerate(levels):
         if progress_cb:
-            progress_cb("校准中：测量 %dMP（%d/%d）" % (mp, i + 1, len(levels)))
+            progress_cb(i18n.t("校准中：测量 %dMP（%d/%d）") % (mp, i + 1, len(levels)))
         if log_cb:
-            log_cb("  — 测量 %dMP…" % mp)
+            log_cb(i18n.t("  — 测量 %dMP…") % mp)
         png = make_photo_mp(mp)
         t1 = bench(png, 1, effort, runs)
         tfull = bench(png, cores, effort, runs)
@@ -140,7 +142,7 @@ def run_calibration(progress_cb=None, log_cb=None, effort=7, runs=3, max_mp=64):
             pass
         if t1 is None or tfull is None or tfull <= 0:
             if log_cb:
-                log_cb("    %2dMP 测量失败，跳过" % mp)
+                log_cb(i18n.t("    %2dMP 测量失败，跳过") % mp)
             continue
         speedup = t1 / tfull
         rows.append((mp, t1, tfull, speedup))
@@ -150,29 +152,29 @@ def run_calibration(progress_cb=None, log_cb=None, effort=7, runs=3, max_mp=64):
         if speedup >= BIG_IMAGE_TARGET_SPEEDUP and floor_mp is None:
             floor_mp = mp
             if log_cb:
-                log_cb("    %2dMP 已首达目标加速比 %.1f，提前结束剩余档位测量"
+                log_cb(i18n.t("    %2dMP 已首达目标加速比 %.1f，提前结束剩余档位测量")
                        % (mp, BIG_IMAGE_TARGET_SPEEDUP))
             break
 
     if not rows:
         if log_cb:
-            log_cb("校准失败：无有效测量数据。")
+            log_cb(i18n.t("校准失败：无有效测量数据。"))
         if progress_cb:
-            progress_cb("校准失败：无有效测量数据")
+            progress_cb(i18n.t("校准失败：无有效测量数据"))
         return None
 
     if floor_mp is None:
         # 全程 speedup 未达目标：地板设为最大测量档（最激进但仍保守）。
         floor_mp = rows[-1][0]
         if log_cb:
-            log_cb("注意：speedup 始终未达 %.1f，地板取最大档 %dMP（保守）。"
+            log_cb(i18n.t("注意：speedup 始终未达 %.1f，地板取最大档 %dMP（保守）。")
                    % (BIG_IMAGE_TARGET_SPEEDUP, floor_mp))
 
     floor_px = floor_mp * 1000 * 1000
     if log_cb:
-        log_cb("校准完成：big_image_floor_px = %d（约 %dMP，speedup≥%.1f 首达档）"
+        log_cb(i18n.t("校准完成：big_image_floor_px = %d（约 %dMP，speedup≥%.1f 首达档）")
                % (floor_px, floor_mp, BIG_IMAGE_TARGET_SPEEDUP))
-        log_cb("下次转换将直接使用该校准值。")
+        log_cb(i18n.t("下次转换将直接使用该校准值。"))
     return floor_px
 
 

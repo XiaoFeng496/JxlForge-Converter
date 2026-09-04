@@ -93,6 +93,11 @@ UI_CONTEXTS = {
     "_show_warning_centered", "setValue", "setRange", "setText",
     "setToolTip", "setPlaceholderText", "addItems", "addItem",
     "setWindowTitle", "information", "warning", "critical", "question",
+    # (4b) 阶段 3 回填后，显示文本统一写成 ``i18n.t("...")``。
+    # 传进 ``t()`` 的字面量 100% 是给人看的界面文本（回填时已排除
+    # 标识符/冻结键/显示键双用 ID），判高置信「翻」才不会把 400+ 条
+    # 已翻译文案全算进低置信，拖垮 5% 健全性阈值。
+    "t",
 }
 
 # (5c) i18n 基础设施模块本身不产生界面文本。

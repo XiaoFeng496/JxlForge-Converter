@@ -364,7 +364,6 @@
   "该文件夹内未发现支持的图像文件": "No supported image files found in this folder",
   "详细信息": "Details",
   "语言": "Language",
-  "语言已保存为%s，重启程序后生效。": "Language saved as %s; takes effect after restart.",
   "说明：EXR 为浮点 HDR 格式，本工具仅解析头部元数据，不渲染像素缩略图。": "Note: EXR is a floating-point HDR format; this tool only parses header metadata and does not render pixel thumbnails.",
   "请先在「输入」标签添加图片，\n再在此处预览动作效果。": "Please add images on the Input tab first,\nthen preview the action effects here.",
   "请确认您了解上述子项的作用后再逐项开启；如需恢复默认行为，关闭「启用高级参数」即可。": "Please confirm you understand what the sub-items above do before enabling them one by one; to restore default behavior, just turn off \"Enable advanced parameters\".",
@@ -455,5 +454,6 @@
   "高级参数": "Advanced parameters",
   "默认关闭：djxl 解码时不传 --num_threads，由它自己按机器决定（吃满核心，最快）。\n开启后：每个 djxl 进程按当前每文件线程预算限制线程数，使「CPU 核心使用数」在解码路径同样生效，可精确控制 CPU 负载。\n⚠️ 注意：启用后解码速度可能略有下降。20 核机实测多文件批量解码约慢 7%~13%——解码的线程收益本就远小于编码（满核 vs 单线程约 1.2x，编码是 2.3x），限制线程换不回等价的进程级并行。\n仅建议在需要精确控制 CPU 负载时开启（如转换时需同时跑其他重负载任务）。": "Off by default: djxl decode does not pass --num_threads and decides on its own (uses all cores, fastest).\nWhen on: each djxl process limits its threads to the current per-file thread budget, so \"CPU cores to use\" also applies on the decode path, giving precise CPU load control.\n⚠️ Note: enabling it may slightly slow decoding. On a 20-core machine, bulk multi-file decoding was measured about 7%–13% lower than multithreaded (decode's thread benefit is far smaller than encode's (full vs single thread ~1.2x for decode, 2.3x for encode), so limiting threads does not pay back equivalent process-level parallelism.\nOnly enable when you need precise CPU load control (e.g. running other heavy tasks during conversion).",
   "（已套用当前电源状态记录的阈值）": "(threshold recorded for the current power state has been applied)",
-  "（当前电源状态无记录，建议重新校准；或会自动套用同计划记录值）": "(no record for the current power state; recalibration is recommended, or the same-plan recorded value will be applied automatically)"
+  "（当前电源状态无记录，建议重新校准；或会自动套用同计划记录值）": "(no record for the current power state; recalibration is recommended, or the same-plan recorded value will be applied automatically)",
+  "语言已切换为%s，重启程序后生效。": "Language switched to %s; takes effect after restart."
 }

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from . import i18n
+
 """Wrapper around the libjxl command-line tools cjxl and djxl.
 
 All code identifiers (variables, functions, classes) and subprocess command
@@ -460,10 +462,10 @@ def _run(args, priority=DEFAULT_PRIORITY):
         )
     except FileNotFoundError:
         _current_process = None
-        return False, "未找到可执行文件：%s（请确认其已加入系统 PATH）" % args[0]
+        return False, i18n.t("未找到可执行文件：%s（请确认其已加入系统 PATH）") % args[0]
     except OSError as exc:
         _current_process = None
-        return False, "执行命令失败：%s" % exc
+        return False, i18n.t("执行命令失败：%s") % exc
     _current_process = proc
     _active_processes.add(proc)
     try:
@@ -473,6 +475,6 @@ def _run(args, priority=DEFAULT_PRIORITY):
         if _current_process is proc:
             _current_process = None
     if proc.returncode != 0:
-        detail = (stderr or "").strip() or "未知错误"
-        return False, "命令返回错误（退出码 %d）：%s" % (proc.returncode, detail), stderr
-    return True, (stdout or "").strip() or "操作成功完成。", stderr
+        detail = (stderr or "").strip() or i18n.t("未知错误")
+        return False, i18n.t("命令返回错误（退出码 %d）：%s") % (proc.returncode, detail), stderr
+    return True, (stdout or "").strip() or i18n.t("操作成功完成。"), stderr

@@ -4,8 +4,10 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "libjxl_gui"))
-import processor
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_REPO = os.path.dirname(_HERE)
+sys.path.insert(0, _REPO)
+from libjxl_gui import processor
 from PIL import Image
 
 passed = 0

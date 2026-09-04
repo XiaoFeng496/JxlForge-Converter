@@ -113,11 +113,17 @@ def main():
     check("配对的显示名一律可翻", not wrong, str(wrong))
 
     # --- 3b. 报错文案必须翻（会被 str(exc) 显示给用户）---
+    # 回填阶段后这些文案已被 i18n.t(...) 包住，classify 会判成「已翻译」。
+    # 真实不变量是「用户能在英文界面看到译文」，即字典里确有译文。
+    import json as _json  # noqa: E402
+    import os as _os  # noqa: E402
+    _en_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                             "libjxl_gui", "i18n", "en_US.json")
+    _en = _json.load(open(_en_path, encoding="utf-8"))
     missing = [t for t in MUST_TRANSLATE_ERRORS if t not in by_text]
     check("报错文案样本都还在清单里", not missing, str(missing))
-    wrong = [t for t in MUST_TRANSLATE_ERRORS
-             if t in by_text and by_text[t]["verdict"] != TRANSLATE]
-    check("raise 的报错文案一律可翻", not wrong, str(wrong))
+    wrong = [t for t in MUST_TRANSLATE_ERRORS if t in by_text and t not in _en]
+    check("raise 的报错文案一律有译文", not wrong, str(wrong))
 
     # --- 4. bench 诊断输出不翻 ---
     missing = [t for t in MUST_SKIP_BENCH if t not in by_text]

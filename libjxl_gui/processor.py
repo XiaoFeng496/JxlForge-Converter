@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from . import i18n
+
 """Pillow-based image processing actions applied before libjxl encode/decode.
 
 All code identifiers (variables, functions, classes) are in English. The
@@ -127,7 +129,7 @@ def apply_actions(image, actions):
     """Apply each action in ``actions`` (in order) to ``image`` and return the
     resulting ``PIL.Image`` (mode RGBA)."""
     if not AVAILABLE:
-        raise RuntimeError("Pillow 未安装，无法执行图像处理动作。")
+        raise RuntimeError(i18n.t("Pillow 未安装，无法执行图像处理动作。"))
     img = image.convert("RGBA")
     for action in actions:
         atype = action.get("type")

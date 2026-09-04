@@ -436,7 +436,7 @@ def _move_to_recycle_bin(path):
     """
     if send2trash is None:
         raise RuntimeError(
-            "未找到 send2trash 库，无法将文件移入回收站；请先安装：pip install send2trash"
+            i18n.t("未找到 send2trash 库，无法将文件移入回收站；请先安装：pip install send2trash")
         )
     send2trash.send2trash(path)
 
@@ -468,7 +468,7 @@ def _preserve_ctime(src, dst):
         import win32con
     except ImportError:
         raise RuntimeError(
-            "未安装 pywin32，无法保持创建时间；请先安装：pip install pywin32"
+            i18n.t("未安装 pywin32，无法保持创建时间；请先安装：pip install pywin32")
         )
     # 部分 pywin32 构建未在 win32con/win32file 暴露 FILE_WRITE_ATTRIBUTES
     # （访问掩码 0x100，仅需写属性的最小权限，无需写文件数据）。缺失时回退字面量，
@@ -527,14 +527,14 @@ def _format_duration(seconds):
         return "--"
     seconds = int(round(seconds))
     if seconds < 60:
-        return "%d 秒" % seconds
+        return i18n.t("%d 秒") % seconds
     minutes = seconds // 60
     secs = seconds % 60
     if minutes < 60:
-        return "%d 分 %d 秒" % (minutes, secs)
+        return i18n.t("%d 分 %d 秒") % (minutes, secs)
     hours = minutes // 60
     mins = minutes % 60
-    return "%d 时 %d 分" % (hours, mins)
+    return i18n.t("%d 时 %d 分") % (hours, mins)
 
 
 def _safe_getsize(path):
@@ -878,7 +878,7 @@ class InputListWidget(QListWidget):
             self.main_window._refresh_list()
             self.main_window._refresh_table()
             self.main_window.statusBar().showMessage(
-                "已调整顺序，共 %d 个文件" % len(new_order)
+                i18n.t("已调整顺序，共 %d 个文件") % len(new_order)
             )
             # Safety net: a drag-reorder may swallow mouseReleaseEvent, so make
             # sure thumbnail decoding restarts (and auto-scroll is stopped) here
@@ -1083,7 +1083,7 @@ class InputTableWidget(QTableWidget):
             self.main_window._refresh_list()
             self.main_window._save_table_layout()
             self.main_window.statusBar().showMessage(
-                "已调整顺序，共 %d 个文件" % len(new_order)
+                i18n.t("已调整顺序，共 %d 个文件") % len(new_order)
             )
             event.accept()
             return
@@ -1298,7 +1298,7 @@ class PreviewDialog(QDialog):
         is_exr = path.lower().endswith(".exr")
 
         name = os.path.basename(path)
-        self.setWindowTitle("预览：%s" % name)
+        self.setWindowTitle(i18n.t("预览：%s") % name)
 
         # Do not grow larger than the parent (main) window.
         if parent is not None:
@@ -1313,11 +1313,11 @@ class PreviewDialog(QDialog):
 
         root = QVBoxLayout(self)
         bar = QHBoxLayout()
-        self.zoom_in_button = QPushButton("放大 +")
-        self.zoom_out_button = QPushButton("缩小 -")
+        self.zoom_in_button = QPushButton(i18n.t("放大 +"))
+        self.zoom_out_button = QPushButton(i18n.t("缩小 -"))
         self.zoom_actual_button = QPushButton("1:1")
-        self.fit_button = QPushButton("适应窗口")
-        self.close_button = QPushButton("关闭")
+        self.fit_button = QPushButton(i18n.t("适应窗口"))
+        self.close_button = QPushButton(i18n.t("关闭"))
         bar.addWidget(self.zoom_in_button)
         bar.addWidget(self.zoom_out_button)
         bar.addWidget(self.zoom_actual_button)
@@ -1332,7 +1332,7 @@ class PreviewDialog(QDialog):
                 meta = formats.parse_exr_header(path)
                 msg = QLabel(formats.exr_metadata_text(meta))
             except Exception as exc:
-                msg = QLabel("无法解析 EXR 头部：%s" % exc)
+                msg = QLabel(i18n.t("无法解析 EXR 头部：%s") % exc)
             msg.setAlignment(Qt.AlignTop)
             msg.setWordWrap(True)
             # 等宽字体更易读元数据
@@ -1341,7 +1341,7 @@ class PreviewDialog(QDialog):
             msg.setFont(font)
             self._set_center(msg)
         else:
-            loading = QLabel("正在加载预览…")
+            loading = QLabel(i18n.t("正在加载预览…"))
             loading.setAlignment(Qt.AlignCenter)
             loading.setWordWrap(True)
             self._set_center(loading)
@@ -1437,14 +1437,14 @@ class PreviewDialog(QDialog):
         if path.lower().endswith(".jxl"):
             if converter.find_tool("djxl") is None:
                 return (
-                    "无法预览 JXL 文件：未检测到 libjxl 的 djxl 工具。\n\n"
-                    "请确认 libjxl 已正确安装，并将其所在目录加入系统的 PATH 环境变量。"
+                    i18n.t("无法预览 JXL 文件：未检测到 libjxl 的 djxl 工具。\n\n"
+                    "请确认 libjxl 已正确安装，并将其所在目录加入系统的 PATH 环境变量。")
                 )
             return (
-                "无法加载 JXL 图片：%s\n\n"
-                "djxl 解码失败，文件可能损坏或不受支持。" % name
+                i18n.t("无法加载 JXL 图片：%s\n\n"
+                "djxl 解码失败，文件可能损坏或不受支持。") % name
             )
-        return "无法加载图片：%s" % name
+        return i18n.t("无法加载图片：%s") % name
 
     def _zoom(self, factor):
         if self.scroll is not None:
@@ -1495,7 +1495,7 @@ class ActionItemWidget(QWidget):
         self.collapse_btn = QToolButton()
         self.collapse_btn.setArrowType(Qt.DownArrow)
         self.collapse_btn.setFixedSize(20, 20)
-        self.collapse_btn.setToolTip("折叠/展开参数")
+        self.collapse_btn.setToolTip(i18n.t("折叠/展开参数"))
         self._collapsed = False  # 折叠按钮为非 checkable，状态自己维护
         # ⚠️ 用 AlignVCenter 而非 AlignTop：AlignTop 会把 20px 的小控件贴到
         # 行顶，而旁边的文字/勾选框基线偏下 → 视觉上「上漂」（原生下折叠
@@ -1504,7 +1504,7 @@ class ActionItemWidget(QWidget):
         self.enable_check = QCheckBox()
         self.enable_check.setChecked(bool(self.action.get("enabled", True)))
         self.enable_check.setToolTip(
-            "取消勾选可临时停用该动作（参数保留，不会被应用）")
+            i18n.t("取消勾选可临时停用该动作（参数保留，不会被应用）"))
         top_row.addWidget(self.enable_check, 0, Qt.AlignVCenter)
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
@@ -1514,9 +1514,9 @@ class ActionItemWidget(QWidget):
         # 三个紧凑按钮（与标题同行，不另起一行）
         # 用户要求：高度用默认（QPushButton 标准高度），宽度刚好显示文字。
         # 设 setMaximumWidth 让内容决定宽度（不再设 fixed/minimum 强制拉宽）。
-        self.up_button = QPushButton("上移")
-        self.down_button = QPushButton("下移")
-        self.remove_button = QPushButton("移除")
+        self.up_button = QPushButton(i18n.t("上移"))
+        self.down_button = QPushButton(i18n.t("下移"))
+        self.remove_button = QPushButton(i18n.t("移除"))
         for b in (self.up_button, self.down_button, self.remove_button):
             b.setMaximumWidth(50)
             top_row.addWidget(b)
@@ -1607,16 +1607,16 @@ class ActionItemWidget(QWidget):
             w = QSpinBox()
             w.setRange(0, 100000)
             w.setValue(int(p.get("width", 0) or 0))
-            w.setSpecialValueText("自动(按比例)")
+            w.setSpecialValueText(i18n.t("自动(按比例)"))
             w.valueChanged.connect(lambda v, k="width": self._emit(k, v))
-            self._add_param(layout, "宽", w)
+            self._add_param(layout, i18n.t("宽"), w)
             widgets["width"] = w
             h = QSpinBox()
             h.setRange(0, 100000)
             h.setValue(int(p.get("height", 0) or 0))
-            h.setSpecialValueText("自动(按比例)")
+            h.setSpecialValueText(i18n.t("自动(按比例)"))
             h.valueChanged.connect(lambda v, k="height": self._emit(k, v))
-            self._add_param(layout, "高", h)
+            self._add_param(layout, i18n.t("高"), h)
             widgets["height"] = h
             algo = NoFlickerComboBox()
             for key, lab in processor.RESIZE_ALGORITHMS:
@@ -1627,7 +1627,7 @@ class ActionItemWidget(QWidget):
             algo.setCurrentIndex(idx)
             algo.currentIndexChanged.connect(
                 lambda i, c=algo: self._emit("algorithm", c.itemData(i)))
-            self._add_param(layout, "算法", algo)
+            self._add_param(layout, i18n.t("算法"), algo)
             widgets["algorithm"] = algo
         elif atype == "旋转":
             a = QSpinBox()
@@ -1635,24 +1635,24 @@ class ActionItemWidget(QWidget):
             a.setValue(int(p.get("angle", 90) or 90))
             a.setSuffix(" °")
             a.valueChanged.connect(lambda v, k="angle": self._emit(k, v))
-            self._add_param(layout, "角度", a)
+            self._add_param(layout, i18n.t("角度"), a)
             widgets["angle"] = a
         elif atype == "水印":
             t = QLineEdit(p.get("text", "Sample") or "Sample")
             t.editingFinished.connect(lambda k="text", w=t: self._emit(k, w.text()))
-            self._add_param(layout, "文字", t)
+            self._add_param(layout, i18n.t("文字"), t)
             widgets["text"] = t
             fs = QSpinBox()
             fs.setRange(8, 400)
             fs.setValue(int(p.get("font_size", 32) or 32))
             fs.valueChanged.connect(lambda v, k="font_size": self._emit(k, v))
-            self._add_param(layout, "字号", fs)
+            self._add_param(layout, i18n.t("字号"), fs)
             widgets["font_size"] = fs
             op = QSpinBox()
             op.setRange(0, 255)
             op.setValue(int(p.get("opacity", 128) or 128))
             op.valueChanged.connect(lambda v, k="opacity": self._emit(k, v))
-            self._add_param(layout, "透明度", op)
+            self._add_param(layout, i18n.t("透明度"), op)
             widgets["opacity"] = op
             pos = NoFlickerComboBox()
             # 显示名与内部 ID 分离：显示 t(位置)，userData 存原始中文位置，
@@ -1664,14 +1664,14 @@ class ActionItemWidget(QWidget):
                 pos.setCurrentIndex(_pi)
             pos.currentIndexChanged.connect(
                 lambda _idx, k="position": self._emit(k, pos.currentData()))
-            self._add_param(layout, "位置", pos)
+            self._add_param(layout, i18n.t("位置"), pos)
             widgets["position"] = pos
             col = NoFlickerComboBox()
             col.addItems(["white", "black"])
             col.setCurrentText(p.get("color", "white"))
             col.currentTextChanged.connect(
                 lambda v, k="color": self._emit(k, v))
-            self._add_param(layout, "颜色", col)
+            self._add_param(layout, i18n.t("颜色"), col)
             widgets["color"] = col
         elif atype == "亮度/对比度":
             b = QDoubleSpinBox()
@@ -1679,14 +1679,14 @@ class ActionItemWidget(QWidget):
             b.setSingleStep(0.1)
             b.setValue(float(p.get("brightness", 1.0) or 1.0))
             b.valueChanged.connect(lambda v, k="brightness": self._emit(k, v))
-            self._add_param(layout, "亮度", b)
+            self._add_param(layout, i18n.t("亮度"), b)
             widgets["brightness"] = b
             c = QDoubleSpinBox()
             c.setRange(0.0, 3.0)
             c.setSingleStep(0.1)
             c.setValue(float(p.get("contrast", 1.0) or 1.0))
             c.valueChanged.connect(lambda v, k="contrast": self._emit(k, v))
-            self._add_param(layout, "对比度", c)
+            self._add_param(layout, i18n.t("对比度"), c)
             widgets["contrast"] = c
         elif atype == "锐化":
             f = QDoubleSpinBox()
@@ -1694,12 +1694,12 @@ class ActionItemWidget(QWidget):
             f.setSingleStep(0.1)
             f.setValue(float(p.get("factor", 1.5) or 1.5))
             f.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
-            self._add_param(layout, "强度", f)
+            self._add_param(layout, i18n.t("强度"), f)
             widgets["factor"] = f
         elif atype == "裁剪":
             for label, key in (
                 ("左", "left"), ("上", "top"),
-                ("宽", "width"), ("高", "height"),
+                (i18n.t("宽"), "width"), (i18n.t("高"), "height"),
             ):
                 sp = QSpinBox()
                 sp.setRange(0, 100000)
@@ -1711,9 +1711,9 @@ class ActionItemWidget(QWidget):
             co = QSpinBox()
             co.setRange(0, 50)
             co.setValue(int(p.get("cutoff", 0) or 0))
-            co.setToolTip("截掉直方图两端各 N‰ 的极值像素后再拉满（0=纯规格化）")
+            co.setToolTip(i18n.t("截掉直方图两端各 N‰ 的极值像素后再拉满（0=纯规格化）"))
             co.valueChanged.connect(lambda v, k="cutoff": self._emit(k, v))
-            self._add_param(layout, "截断", co)
+            self._add_param(layout, i18n.t("截断"), co)
             widgets["cutoff"] = co
         elif atype == "曝光":
             ev = QDoubleSpinBox()
@@ -1721,7 +1721,7 @@ class ActionItemWidget(QWidget):
             ev.setSingleStep(0.1)
             ev.setValue(float(p.get("ev", 0.0) or 0.0))
             ev.setSuffix(" EV")
-            ev.setToolTip("+1 EV = 亮度翻倍，-1 EV = 减半；0=不变")
+            ev.setToolTip(i18n.t("+1 EV = 亮度翻倍，-1 EV = 减半；0=不变"))
             ev.valueChanged.connect(lambda v, k="ev": self._emit(k, v))
             self._add_param(layout, "曝光", ev)
             widgets["ev"] = ev
@@ -1730,17 +1730,17 @@ class ActionItemWidget(QWidget):
             s.setRange(0.0, 2.0)
             s.setSingleStep(0.05)
             s.setValue(float(p.get("shadow", 1.0) or 1.0))
-            s.setToolTip(">1 提亮阴影，<1 压暗阴影；1.0=不变")
+            s.setToolTip(i18n.t(">1 提亮阴影，<1 压暗阴影；1.0=不变"))
             s.valueChanged.connect(lambda v, k="shadow": self._emit(k, v))
-            self._add_param(layout, "阴影", s)
+            self._add_param(layout, i18n.t("阴影"), s)
             widgets["shadow"] = s
             h = QDoubleSpinBox()
             h.setRange(0.0, 2.0)
             h.setSingleStep(0.05)
             h.setValue(float(p.get("highlight", 1.0) or 1.0))
-            h.setToolTip(">1 提亮高光，<1 压暗高光；1.0=不变")
+            h.setToolTip(i18n.t(">1 提亮高光，<1 压暗高光；1.0=不变"))
             h.valueChanged.connect(lambda v, k="highlight": self._emit(k, v))
-            self._add_param(layout, "高光", h)
+            self._add_param(layout, i18n.t("高光"), h)
             widgets["highlight"] = h
         return widgets
 
@@ -2243,7 +2243,7 @@ class HistoryRowWidget(QWidget):
         del_btn = QToolButton()
         del_btn.setText("✕")
         del_btn.setFixedSize(22, 22)
-        del_btn.setToolTip("删除该历史记录")
+        del_btn.setToolTip(i18n.t("删除该历史记录"))
         del_btn.clicked.connect(lambda: self.deleteRequested.emit(self._row))
         layout.addWidget(label, stretch=1)
         layout.addWidget(del_btn)
@@ -2459,7 +2459,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("JXL 转换器")
+        self.setWindowTitle(i18n.t("JXL 转换器"))
         self.resize(880, 640)
 
         # Windows animates menus into view (slide / fade). That entrance effect
@@ -2614,10 +2614,10 @@ class MainWindow(QMainWindow):
                 self._perf_drag_last = 0.0
                 self._perf_status_t = 0.0
                 self.statusBar().showMessage(
-                    "性能监测已开启（F9 关闭）：请在缩略图视图下框选并拖到边缘触发自动翻页"
+                    i18n.t("性能监测已开启（F9 关闭）：请在缩略图视图下框选并拖到边缘触发自动翻页")
                 )
             else:
-                self.statusBar().showMessage("性能监测已关闭")
+                self.statusBar().showMessage(i18n.t("性能监测已关闭"))
             event.accept()
             return
         super().keyPressEvent(event)
@@ -2646,7 +2646,7 @@ class MainWindow(QMainWindow):
             else:
                 avg = peak = 0.0
             self.statusBar().showMessage(
-                "性能监测 绘制 %.2f ms/帧 (峰值 %.2f) | 拖拽中 FPS %.0f"
+                i18n.t("性能监测 绘制 %.2f ms/帧 (峰值 %.2f) | 拖拽中 FPS %.0f")
                 % (avg, peak, self._perf_fps)
             )
 
@@ -2936,25 +2936,25 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.input_tab = self._build_input_tab()
         # 记录索引，供 _update_tab_titles 按索引刷新标题上的数量统计。
-        self._input_tab_index = self.tabs.addTab(self.input_tab, "输入")
-        self._actions_tab_index = self.tabs.addTab(self._build_actions_tab(), "动作")
-        self.tabs.addTab(self._build_output_tab(), "输出")
+        self._input_tab_index = self.tabs.addTab(self.input_tab, i18n.t("输入"))
+        self._actions_tab_index = self.tabs.addTab(self._build_actions_tab(), i18n.t("动作"))
+        self.tabs.addTab(self._build_output_tab(), i18n.t("输出"))
         self.status_tab = self._build_status_tab()
-        self.tabs.addTab(self.status_tab, "状态")
+        self.tabs.addTab(self.status_tab, i18n.t("状态"))
         self.settings_tab = self._build_settings_tab()
-        self.tabs.addTab(self.settings_tab, "设置")
+        self.tabs.addTab(self.settings_tab, i18n.t("设置"))
         root.addWidget(self.tabs, stretch=1)
 
         # Persistent bottom bar: 转换 (left) + 停止 + 关闭 (right).
         bottom = QHBoxLayout()
-        self.convert_button = QPushButton("转换")
+        self.convert_button = QPushButton(i18n.t("转换"))
         self.convert_button.setMinimumHeight(34)
         self.convert_button.clicked.connect(self._on_convert)
-        self.stop_button = QPushButton("停止")
+        self.stop_button = QPushButton(i18n.t("停止"))
         self.stop_button.setMinimumHeight(34)
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self._on_convert_stop)
-        self.close_button = QPushButton("关闭")
+        self.close_button = QPushButton(i18n.t("关闭"))
         self.close_button.setMinimumHeight(34)
         self.close_button.clicked.connect(self.close)
         bottom.addWidget(self.convert_button)
@@ -2963,7 +2963,7 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.close_button)
         root.addLayout(bottom, stretch=0)
 
-        self.statusBar().showMessage("就绪")
+        self.statusBar().showMessage(i18n.t("就绪"))
         self.setAcceptDrops(True)
 
         # Radio buttons and checkboxes keep their selected (blue) colour even
@@ -2975,10 +2975,10 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
 
         toolbar = QHBoxLayout()
-        self.add_files_button = QPushButton("添加文件")
-        self.add_folder_button = QPushButton("添加文件夹")
-        self.remove_button = QPushButton("移除")
-        self.clear_button = QPushButton("清空")
+        self.add_files_button = QPushButton(i18n.t("添加文件"))
+        self.add_folder_button = QPushButton(i18n.t("添加文件夹"))
+        self.remove_button = QPushButton(i18n.t("移除"))
+        self.clear_button = QPushButton(i18n.t("清空"))
         for button in (
             self.add_files_button, self.add_folder_button,
             self.remove_button, self.clear_button,
@@ -2988,18 +2988,18 @@ class MainWindow(QMainWindow):
 
         # Filter bar: drop-down button (left) + text box "快速过滤" (right).
         self.filter_button = QToolButton()
-        self.filter_button.setText("过滤")
+        self.filter_button.setText(i18n.t("过滤"))
         filter_menu = QMenu(self.filter_button)
         filter_menu.addAction(
-            "移除已过滤的", lambda: self._on_remove_filtered("filtered")
+            i18n.t("移除已过滤的"), lambda: self._on_remove_filtered("filtered")
         )
         filter_menu.addAction(
-            "移除未过滤的", lambda: self._on_remove_filtered("unfiltered")
+            i18n.t("移除未过滤的"), lambda: self._on_remove_filtered("unfiltered")
         )
         self.filter_button.setMenu(filter_menu)
         self.filter_button.setPopupMode(QToolButton.InstantPopup)
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("快速过滤")
+        self.filter_edit.setPlaceholderText(i18n.t("快速过滤"))
         self.filter_edit.setFixedWidth(150)
         self.filter_edit.textChanged.connect(self._apply_filter)
         toolbar.addWidget(self.filter_button)
@@ -3012,7 +3012,7 @@ class MainWindow(QMainWindow):
         # need two clicks to switch. QMenu.triggered fires reliably on every
         # menu-item click, eliminating that race entirely.
         self.view_button = QToolButton()
-        toolbar.addWidget(QLabel("查看："))
+        toolbar.addWidget(QLabel(i18n.t("查看：")))
         self.view_button.setText(i18n.t("缩略图"))
         self.view_button.setPopupMode(QToolButton.InstantPopup)
         self.view_menu = QMenu(self.view_button)
@@ -3066,15 +3066,15 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left)
 
         toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel("动作类型："))
+        toolbar.addWidget(QLabel(i18n.t("动作类型：")))
         self.action_combo = NoFlickerComboBox()
         # 显示名走 t()，userData 存原始中文 ID —— ID 与显示名分离后，
         # 切英文界面时下拉显示 "Resize"，而 action dict 里仍是 "调整大小"，
         # processor.apply_actions 那 40 处字面量判断和已有配置都不受影响。
         for _aid in processor.ACTION_TYPES:
             self.action_combo.addItem(i18n.t(_aid), _aid)
-        self.add_action_button = QPushButton("添加动作")
-        self.clear_action_button = QPushButton("清空")
+        self.add_action_button = QPushButton(i18n.t("添加动作"))
+        self.clear_action_button = QPushButton(i18n.t("清空"))
         toolbar.addWidget(self.action_combo)
         toolbar.addWidget(self.add_action_button)
         toolbar.addWidget(self.clear_action_button)
@@ -3089,11 +3089,11 @@ class MainWindow(QMainWindow):
         splitter.addWidget(left)
 
         # --- Right: live preview of the added actions --------------------
-        right = QGroupBox("预览")
+        right = QGroupBox(i18n.t("预览"))
         right_layout = QVBoxLayout(right)
 
         src_row = QHBoxLayout()
-        src_row.addWidget(QLabel("预览源："))
+        src_row.addWidget(QLabel(i18n.t("预览源：")))
         self.preview_source_combo = NoFlickerComboBox()
         self.preview_source_combo.setMinimumWidth(160)
         src_row.addWidget(self.preview_source_combo, stretch=1)
@@ -3104,11 +3104,11 @@ class MainWindow(QMainWindow):
         # of overflowing / clipping) when the panel is narrow (e.g. at the
         # default 6x3 window width).
         pbar = QHBoxLayout()
-        self.zoom_in_button = QPushButton("放大")
-        self.zoom_out_button = QPushButton("缩小")
+        self.zoom_in_button = QPushButton(i18n.t("放大"))
+        self.zoom_out_button = QPushButton(i18n.t("缩小"))
         self.zoom_actual_button = QPushButton("1:1")
-        self.zoom_fit_button = QPushButton("适应窗口")
-        self.show_original_button = QPushButton("显示原图")
+        self.zoom_fit_button = QPushButton(i18n.t("适应窗口"))
+        self.show_original_button = QPushButton(i18n.t("显示原图"))
         for b in (
             self.zoom_in_button, self.zoom_out_button, self.zoom_actual_button,
             self.zoom_fit_button, self.show_original_button,
@@ -3121,7 +3121,7 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.preview_view, stretch=1)
 
         self.preview_msg = QLabel(
-            "请先在「输入」标签添加图片，\n再在此处预览动作效果。"
+            i18n.t("请先在「输入」标签添加图片，\n再在此处预览动作效果。")
         )
         self.preview_msg.setAlignment(Qt.AlignCenter)
         # 错误信息可能很长（含 PIL 抛出的完整文件路径），必须约束它的尺寸
@@ -3146,11 +3146,11 @@ class MainWindow(QMainWindow):
         # 「切换预览源后自动适应窗口」复选框：控制切换预览源时是否 fit 到窗口。
         # 取消勾选后，切源沿用当前缩放位置（便于对比多张图的同一局部）。
         # 默认启用（保留「切换预览源后自动适应窗口」的既有行为）。
-        self.fit_on_source_change_check = QCheckBox("切换预览源后自动适应窗口")
+        self.fit_on_source_change_check = QCheckBox(i18n.t("切换预览源后自动适应窗口"))
         self.fit_on_source_change_check.setChecked(True)
         # 不设样式：保留与默认 QCheckBox 一致的外观（颜色/字号同系统控件）
         self.fit_on_source_change_check.setToolTip(
-            "取消勾选后，切换预览源时沿用当前缩放位置，不被重置到适应窗口。"
+            i18n.t("取消勾选后，切换预览源时沿用当前缩放位置，不被重置到适应窗口。")
         )
         # 勾选状态即时持久化（toggled 首参是 checked，无需 _checked 守卫）。
         self.fit_on_source_change_check.toggled.connect(
@@ -3236,7 +3236,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(inner)
 
         fmt_row = QHBoxLayout()
-        fmt_row.addWidget(QLabel("输出格式："))
+        fmt_row.addWidget(QLabel(i18n.t("输出格式：")))
         # NoFlickerComboBox：普通 QComboBox 行为（框更大、支持鼠标滚轮），
         # 但下拉弹窗去掉 Windows DWM 入场动画，避免展开时闪烁。
         self.format_combo = NoFlickerComboBox()
@@ -3246,7 +3246,7 @@ class MainWindow(QMainWindow):
         fmt_row.addWidget(self.format_combo)
         # 选择 JPEG 输出时，在下拉框右侧提醒：仅支持「无损 JPEG 转码的 JXL
         # 重建 JPG」，而非任意 JXL。默认隐藏，选中时由 _update_format_hint 显示。
-        self.format_hint_label = QLabel("仅支持无损 JPEG 转码的 JXL 无损重建 JPG")
+        self.format_hint_label = QLabel(i18n.t("仅支持无损 JPEG 转码的 JXL 无损重建 JPG"))
         self.format_hint_label.setVisible(False)
         self.format_hint_label.setStyleSheet("color: #888; font-size: 11px;")
         fmt_row.addWidget(self.format_hint_label)
@@ -3263,7 +3263,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(fmt_row)
 
         # ---- JXL 编码参数（仅输出 JPEG XL 时生效；输出 PNG / JPEG 时走解码）----
-        enc_group = QGroupBox("JXL 编码参数")
+        enc_group = QGroupBox(i18n.t("JXL 编码参数"))
         enc_group.setAutoFillBackground(False)
         enc_layout = QVBoxLayout(enc_group)
 
@@ -3271,10 +3271,10 @@ class MainWindow(QMainWindow):
         # effort（--effort，1-9，默认 7）放在模式右侧，三种模式通用，
         # 给下方高级参数预留垂直空间。
         mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel("编码模式："))
-        self.lossy_radio = QRadioButton("有损")
-        self.lossless_radio = QRadioButton("无损")
-        self.lossless_jpeg_radio = QRadioButton("JPG 无损重编码 (--lossless_jpeg=1)")
+        mode_row.addWidget(QLabel(i18n.t("编码模式：")))
+        self.lossy_radio = QRadioButton(i18n.t("有损"))
+        self.lossless_radio = QRadioButton(i18n.t("无损"))
+        self.lossless_jpeg_radio = QRadioButton(i18n.t("JPG 无损重编码 (--lossless_jpeg=1)"))
         self.lossy_radio.setChecked(True)
         self.encode_mode_group = QButtonGroup(self)
         self.encode_mode_group.addButton(self.lossy_radio)
@@ -3284,7 +3284,7 @@ class MainWindow(QMainWindow):
         mode_row.addWidget(self.lossless_radio)
         mode_row.addWidget(self.lossless_jpeg_radio)
         mode_row.addStretch(1)
-        mode_row.addWidget(QLabel("速度/质量权衡 (--effort)："))
+        mode_row.addWidget(QLabel(i18n.t("速度/质量权衡 (--effort)：")))
         self.effort_combo = NoFlickerComboBox()
         self.effort_combo.addItems([str(i) for i in range(1, 10)])
         self.effort_combo.setCurrentText("7")
@@ -3294,7 +3294,7 @@ class MainWindow(QMainWindow):
         # 质量滑块（--quality，0-100，默认 90）：仅「有损」模式可用。
         # 右侧用 QSpinBox 显示数值，支持键盘输入与鼠标上下箭头微调。
         qual_row = QHBoxLayout()
-        qual_row.addWidget(QLabel("质量 (--quality)："))
+        qual_row.addWidget(QLabel(i18n.t("质量 (--quality)：")))
         self.quality_slider = QSlider(Qt.Horizontal)
         self.quality_slider.setRange(0, 100)
         self.quality_slider.setValue(90)
@@ -3332,11 +3332,11 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(enc_group)
 
-        dest_group = QGroupBox("输出位置")
+        dest_group = QGroupBox(i18n.t("输出位置"))
         dest_group.setAutoFillBackground(False)
         dest_layout = QVBoxLayout(dest_group)
-        self.same_folder_radio = QRadioButton("原文件夹")
-        self.custom_folder_radio = QRadioButton("文件夹")
+        self.same_folder_radio = QRadioButton(i18n.t("原文件夹"))
+        self.custom_folder_radio = QRadioButton(i18n.t("文件夹"))
         self.same_folder_radio.setChecked(True)
         self.dest_group = QButtonGroup(self)
         self.dest_group.addButton(self.same_folder_radio)
@@ -3355,7 +3355,7 @@ class MainWindow(QMainWindow):
         self._folder_history = []
         self.custom_folder_edit = QLineEdit()
         self.custom_folder_edit.setPlaceholderText(
-            "选择或输入自定义输出文件夹，下拉可查看历史路径"
+            i18n.t("选择或输入自定义输出文件夹，下拉可查看历史路径")
         )
         self.custom_folder_edit.setEnabled(False)
         self.folder_menu = FolderMenu(self)
@@ -3388,7 +3388,7 @@ class MainWindow(QMainWindow):
         self.browse_folder_button.setText(browse_text)
         self.browse_folder_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.browse_folder_button.setEnabled(False)
-        self.browse_folder_button.setToolTip("浏览文件夹...")
+        self.browse_folder_button.setToolTip(i18n.t("浏览文件夹..."))
         self.browse_folder_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         self.browse_folder_button.setFixedWidth(self.custom_folder_dropdown.width())
         # Native controls: a plain QLineEdit next to a plain QToolButton arrow.
@@ -3430,14 +3430,14 @@ class MainWindow(QMainWindow):
         dest_name_row.setSpacing(12)
         dest_name_row.addWidget(dest_group, stretch=1)
 
-        name_group = QGroupBox("文件名")
+        name_group = QGroupBox(i18n.t("文件名"))
         name_group.setAutoFillBackground(False)
         # 文件名区域只需紧凑容纳「保持原文件名 / 添加后缀：_converted」两行，
         # 不抢占输出位置框的水平空间。
         name_group.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
         name_layout = QVBoxLayout(name_group)
-        self.keep_name_radio = QRadioButton("保持原文件名")
-        self.add_suffix_radio = QRadioButton("添加后缀：")
+        self.keep_name_radio = QRadioButton(i18n.t("保持原文件名"))
+        self.add_suffix_radio = QRadioButton(i18n.t("添加后缀："))
         self.keep_name_radio.setChecked(True)
         self.name_group = QButtonGroup(self)
         self.name_group.addButton(self.keep_name_radio)
@@ -3461,11 +3461,11 @@ class MainWindow(QMainWindow):
         layout.addLayout(dest_name_row)
 
         # ---- 选项（输出文件已存在时的冲突策略）----
-        options_group = QGroupBox("选项")
+        options_group = QGroupBox(i18n.t("选项"))
         options_group.setAutoFillBackground(False)
         options_layout = QVBoxLayout(options_group)
         exist_row = QHBoxLayout()
-        exist_row.addWidget(QLabel("当输出文件已经存在时："))
+        exist_row.addWidget(QLabel(i18n.t("当输出文件已经存在时：")))
         # NoFlickerComboBox：与输出格式下拉保持一致（框更大、支持滚轮），
         # 下拉弹窗去掉 Windows DWM 入场动画避免闪烁。
         self.on_exist_combo = NoFlickerComboBox()
@@ -3487,10 +3487,10 @@ class MainWindow(QMainWindow):
         # 「编码结果更大时丢弃输出（保留原文件）」：仅 JXL 输出生效。勾选后，
         # 当 JXL 输出字节数 ≥ 原文件时，丢弃该无用 JXL 输出、保留原文件；
         # 否则照常保留 JXL。PNG/JPEG 输出时此选项无意义，自动置灰。默认不勾选。
-        self.discard_if_larger_check = QCheckBox("编码结果更大时丢弃输出（保留原文件）")
+        self.discard_if_larger_check = QCheckBox(i18n.t("编码结果更大时丢弃输出（保留原文件）"))
         self.discard_if_larger_check.setToolTip(
-            "勾选后，当 JXL 输出文件不小于原文件时，丢弃该 JXL 并保留原文件"
-            "（转换无收益）。仅 JXL 输出生效；选 PNG/JPEG 输出时自动禁用。"
+            i18n.t("勾选后，当 JXL 输出文件不小于原文件时，丢弃该 JXL 并保留原文件"
+            "（转换无收益）。仅 JXL 输出生效；选 PNG/JPEG 输出时自动禁用。")
         )
         self.discard_if_larger_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
@@ -3501,10 +3501,10 @@ class MainWindow(QMainWindow):
         # （「原文件夹」模式下输出本就落在源文件各自所在目录，结构天然保留，无需此选项）。
         # 勾选后，输出文件按源文件相对「根」的子路径镜像到自定义文件夹；
         # 子选项额外把根上移一级，使被添加文件夹本身成为输出下的顶层段。默认均不勾选。
-        self.structure_check = QCheckBox("保留文件夹结构")
+        self.structure_check = QCheckBox(i18n.t("保留文件夹结构"))
         self.structure_check.setToolTip(
-            "勾选后，输出文件将按源文件原有的文件夹层级，镜像到自定义输出文件夹中"
-            "（而非全部拍平到同一目录）。仅「文件夹」输出模式生效；选「原文件夹」时自动禁用。"
+            i18n.t("勾选后，输出文件将按源文件原有的文件夹层级，镜像到自定义输出文件夹中"
+            "（而非全部拍平到同一目录）。仅「文件夹」输出模式生效；选「原文件夹」时自动禁用。")
         )
         self.structure_check.toggled.connect(
             lambda _=None: (
@@ -3516,11 +3516,11 @@ class MainWindow(QMainWindow):
 
         _parent_row = QHBoxLayout()
         _parent_row.addSpacing(20)  # 视觉缩进，表明其为「保留文件夹结构」的子选项
-        self.parent_check = QCheckBox("保留上级目录")
+        self.parent_check = QCheckBox(i18n.t("保留上级目录"))
         self.parent_check.setToolTip(
-            "勾选后，被添加的文件夹本身也会作为一层目录出现在输出中"
+            i18n.t("勾选后，被添加的文件夹本身也会作为一层目录出现在输出中"
             "（例如拖入「照片」文件夹，输出为 输出目录/照片/图片）。"
-            "仅「保留文件夹结构」已勾选且为「文件夹」输出模式时生效。"
+            "仅「保留文件夹结构」已勾选且为「文件夹」输出模式时生效。")
         )
         self.parent_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
@@ -3533,20 +3533,20 @@ class MainWindow(QMainWindow):
         # 两项语义成对，合并到同一行以节省垂直空间（窗口默认高度有限）。
         _ts_row = QHBoxLayout()
         _ts_row.setSpacing(24)
-        self.preserve_ctime_check = QCheckBox("保持原创建时间")
+        self.preserve_ctime_check = QCheckBox(i18n.t("保持原创建时间"))
         self.preserve_ctime_check.setToolTip(
-            "勾选后，成功转换的输出文件将保留原文件的创建时间"
-            "（仅 Windows 有效，需 pywin32；其他平台无创建时间概念，自动忽略）。"
+            i18n.t("勾选后，成功转换的输出文件将保留原文件的创建时间"
+            "（仅 Windows 有效，需 pywin32；其他平台无创建时间概念，自动忽略）。")
         )
         self.preserve_ctime_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
         )
         _ts_row.addWidget(self.preserve_ctime_check)
 
-        self.preserve_mtime_check = QCheckBox("保持原修改时间")
+        self.preserve_mtime_check = QCheckBox(i18n.t("保持原修改时间"))
         self.preserve_mtime_check.setToolTip(
-            "勾选后，成功转换的输出文件将保留原文件的修改时间"
-            "（文件管理器中显示的「修改日期」与原文件一致）。"
+            i18n.t("勾选后，成功转换的输出文件将保留原文件的修改时间"
+            "（文件管理器中显示的「修改日期」与原文件一致）。")
         )
         self.preserve_mtime_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
@@ -3557,10 +3557,10 @@ class MainWindow(QMainWindow):
 
         # 「删除原文件」：勾选后，转换成功的原文件在批处理结束后移入回收站，
         # 失败的源文件保持不变。默认不勾选（保守，避免误删）。
-        self.delete_original_check = QCheckBox("删除原文件（成功转换后移入回收站）")
+        self.delete_original_check = QCheckBox(i18n.t("删除原文件（成功转换后移入回收站）"))
         self.delete_original_check.setToolTip(
-            "勾选后，成功转换的原文件将在转换结束后移入系统回收站；"
-            "转换失败的文件不会被删除。"
+            i18n.t("勾选后，成功转换的原文件将在转换结束后移入系统回收站；"
+            "转换失败的文件不会被删除。")
         )
         self.delete_original_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
@@ -3571,39 +3571,39 @@ class MainWindow(QMainWindow):
         # 与「选项」组水平并排：利用「选项」组原本独占整行时在右侧留下的空白，
         # 避免整页过宽或另起一行。两组均按自身内容宽度紧凑显示，行尾的
         # addStretch 把剩余空间推到最右，从而「压缩」了选项区右侧的空白。
-        done_group = QGroupBox("转换完毕之后")
+        done_group = QGroupBox(i18n.t("转换完毕之后"))
         done_group.setAutoFillBackground(False)
         done_layout = QVBoxLayout(done_group)
-        self.open_explorer_check = QCheckBox("打开资源管理器")
+        self.open_explorer_check = QCheckBox(i18n.t("打开资源管理器"))
         self.open_explorer_check.setToolTip(
-            "转换全部完成后，自动打开输出文件夹（资源管理器窗口）。"
+            i18n.t("转换全部完成后，自动打开输出文件夹（资源管理器窗口）。")
         )
         self.open_explorer_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
         )
         done_layout.addWidget(self.open_explorer_check)
 
-        self.clear_input_check = QCheckBox('清除"输入"文件')
+        self.clear_input_check = QCheckBox(i18n.t('清除"输入"文件'))
         self.clear_input_check.setToolTip(
-            "转换全部完成后，清空输入列表中的文件（不会删除磁盘上的原始文件）。"
+            i18n.t("转换全部完成后，清空输入列表中的文件（不会删除磁盘上的原始文件）。")
         )
         self.clear_input_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
         )
         done_layout.addWidget(self.clear_input_check)
 
-        self.beep_check = QCheckBox("过程结束时发出提示音")
+        self.beep_check = QCheckBox(i18n.t("过程结束时发出提示音"))
         self.beep_check.setToolTip(
-            "转换全部完成后播放一声提示音，便于离开电脑时也能知晓任务结束。"
+            i18n.t("转换全部完成后播放一声提示音，便于离开电脑时也能知晓任务结束。")
         )
         self.beep_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
         )
         done_layout.addWidget(self.beep_check)
 
-        self.exit_after_check = QCheckBox("转换完毕之后退出")
+        self.exit_after_check = QCheckBox(i18n.t("转换完毕之后退出"))
         self.exit_after_check.setToolTip(
-            "转换全部完成后自动退出本程序。"
+            i18n.t("转换全部完成后自动退出本程序。")
         )
         self.exit_after_check.toggled.connect(
             lambda _=None: self._save_jxl_output()
@@ -3649,7 +3649,7 @@ class MainWindow(QMainWindow):
         的逐项置灰逻辑冲突。
         """
         # 非 checkable 的标题框；折叠/展开由 adv_toggle 控制内部内容显隐。
-        self.adv_group = QGroupBox("高级参数")
+        self.adv_group = QGroupBox(i18n.t("高级参数"))
         adv_outer = QVBoxLayout(self.adv_group)
 
         # 折叠头：箭头按钮 + 「已设置 N 项」摘要 + 右侧「重置高级参数」按钮。
@@ -3659,8 +3659,8 @@ class MainWindow(QMainWindow):
         self.adv_toggle.setAutoRaise(True)
         self.adv_toggle.setFixedWidth(22)
         self.adv_toggle.clicked.connect(self._toggle_advanced)
-        self.adv_summary = QLabel("已设置 0 项")
-        self.reset_adv_button = QPushButton("重置高级参数")
+        self.adv_summary = QLabel(i18n.t("已设置 0 项"))
+        self.reset_adv_button = QPushButton(i18n.t("重置高级参数"))
         self.reset_adv_button.clicked.connect(self._reset_advanced)
         header_row.addWidget(self.adv_toggle)
         header_row.addWidget(self.adv_summary)
@@ -3685,7 +3685,7 @@ class MainWindow(QMainWindow):
         sub_boxes = {}
         sub_layouts = {}
         for sg in sub_order:
-            sb = QGroupBox(sg)
+            sb = QGroupBox(i18n.t(sg))
             sub_boxes[sg] = sb
             sub_layouts[sg] = QVBoxLayout(sb)
             r, c = sub_pos[sg]
@@ -3694,11 +3694,11 @@ class MainWindow(QMainWindow):
         self._adv_widgets = {}  # key -> (checkbox, value_widget_or_None, schema)
         for s in _ADVANCED_SCHEMA:
             row = QHBoxLayout()
-            check = QCheckBox(s["label"])
+            check = QCheckBox(i18n.t(s["label"]))
             check.setChecked(False)
             tip = s.get("tip")
             if tip:
-                check.setToolTip(tip)
+                check.setToolTip(i18n.t(tip))
             row.addWidget(check)
             val_w = None
             if s["kind"] == "double":
@@ -3721,7 +3721,7 @@ class MainWindow(QMainWindow):
                     val_w.setCurrentIndex(idx)
                 row.addWidget(val_w)
             if val_w is not None and tip:
-                val_w.setToolTip(tip)
+                val_w.setToolTip(i18n.t(tip))
             # switch / bool_value：仅复选框，无独立值控件
             sub_layouts[s["group"]].addLayout(row)
             self._adv_widgets[s["key"]] = (check, val_w, s)
@@ -3750,7 +3750,7 @@ class MainWindow(QMainWindow):
         # 未勾选时等同原命令预览（只读、随控件变化即时刷新）；勾选后可编辑，
         # 转换时直接执行用户编辑的命令（<输入>/<输出> 占位符逐文件替换）。
         cmd_row = QHBoxLayout()
-        self.custom_cmd_check = QCheckBox("自定义命令：")
+        self.custom_cmd_check = QCheckBox(i18n.t("自定义命令："))
         self.custom_cmd_check.toggled.connect(self._on_custom_cmd_toggled)
         cmd_row.addWidget(self.custom_cmd_check)
         self.cmd_edit = QLineEdit()
@@ -3816,7 +3816,7 @@ class MainWindow(QMainWindow):
             check, _, _ = self._adv_widgets[s["key"]]
             if check.isEnabled() and check.isChecked():
                 n += 1
-        self.adv_summary.setText("已设置 %d 项" % n)
+        self.adv_summary.setText(i18n.t("已设置 %d 项") % n)
 
     def _update_cmd_preview(self, force=False):
         """根据当前控件状态刷新底部 cjxl 命令预览（输入/输出用占位符）。
@@ -4004,7 +4004,7 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        layout.addWidget(QLabel("运行日志与环境信息："))
+        layout.addWidget(QLabel(i18n.t("运行日志与环境信息：")))
         self.log_edit = QPlainTextEdit()
         self.log_edit.setReadOnly(True)
         layout.addWidget(self.log_edit, stretch=1)
@@ -4025,8 +4025,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress_bar)
 
         progress_row = QHBoxLayout()
-        self.progress_label = QLabel("当前进度：0 / 0 文件")
-        self.eta_label = QLabel("预计剩余：--")
+        self.progress_label = QLabel(i18n.t("当前进度：0 / 0 文件"))
+        self.eta_label = QLabel(i18n.t("预计剩余：--"))
         progress_row.addWidget(self.progress_label)
         progress_row.addStretch(1)
         progress_row.addWidget(self.eta_label)
@@ -4081,21 +4081,21 @@ class MainWindow(QMainWindow):
                 container.addLayout(row_layout)
 
         # ---- 窗口布局 ----
-        win_group, win_inner = _section("窗口布局")
+        win_group, win_inner = _section(i18n.t("窗口布局"))
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        btn_center = QPushButton("一键居中")
-        btn_center.setToolTip("将窗口移动到屏幕中央（不改变窗口大小）")
+        btn_center = QPushButton(i18n.t("一键居中"))
+        btn_center.setToolTip(i18n.t("将窗口移动到屏幕中央（不改变窗口大小）"))
         btn_center.clicked.connect(self._on_center_window)
-        btn_fit = QPushButton("一键 6×3 排版")
-        btn_fit.setToolTip("将窗口恢复为默认的 6 列 × 3 行尺寸（不改变位置）")
+        btn_fit = QPushButton(i18n.t("一键 6×3 排版"))
+        btn_fit.setToolTip(i18n.t("将窗口恢复为默认的 6 列 × 3 行尺寸（不改变位置）"))
         btn_fit.clicked.connect(self._on_fit_window)
         btn_row.addWidget(btn_center)
         btn_row.addWidget(btn_fit)
         btn_row.addStretch(1)
         win_inner.addLayout(btn_row)
 
-        hint = QLabel("窗口的大小与位置会自动保存，下次打开时原样恢复。")
+        hint = QLabel(i18n.t("窗口的大小与位置会自动保存，下次打开时原样恢复。"))
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888; font-size: 11px;")
         win_inner.addWidget(hint)
@@ -4104,7 +4104,7 @@ class MainWindow(QMainWindow):
         # ---- 常规 ----
         # 分组内部再分两列：左列放 主题 / 控件样式，右列与「主题」同排放 语言，
         # 避免右半边留白。
-        theme_group, theme_inner = _section("常规")
+        theme_group, theme_inner = _section(i18n.t("常规"))
         theme_grid = QGridLayout()
         theme_grid.setColumnStretch(0, 1)
         theme_grid.setColumnStretch(1, 1)
@@ -4112,9 +4112,9 @@ class MainWindow(QMainWindow):
         theme_inner.addLayout(theme_grid)
         # 主题（颜色方案）— 亮 / 暗 / 跟随系统
         color_tip = (
-            "跟随系统：自动跟随 Windows 当前是浅色还是深色模式（默认）。\n"
+            i18n.t("跟随系统：自动跟随 Windows 当前是浅色还是深色模式（默认）。\n"
             "亮色：始终使用浅色外观。\n"
-            "暗色：始终使用深色外观。"
+            "暗色：始终使用深色外观。")
         )
         self.color_scheme_combo = NoFlickerComboBox()
         for key in _COLOR_SCHEME_ORDER:
@@ -4128,14 +4128,14 @@ class MainWindow(QMainWindow):
         self.color_scheme_combo.currentIndexChanged.connect(
             self._on_color_scheme_changed
         )
-        _label_row(theme_grid, "主题", self.color_scheme_combo, color_tip,
+        _label_row(theme_grid, i18n.t("主题"), self.color_scheme_combo, color_tip,
                    row=0, col=0)
         # 控件样式（原"界面主题"）
         style_tip = (
-            "原生（无闪烁）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单"
+            i18n.t("原生（无闪烁）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单"
             "单独使用 Fusion 样式以消除 Windows 弹出动画闪烁（默认）。\n"
             "原生：完全使用系统原生外观，下拉菜单可能出现轻微闪烁。\n"
-            "Fusion：整套界面使用 Qt 自带的 Fusion 样式。"
+            "Fusion：整套界面使用 Qt 自带的 Fusion 样式。")
         )
         self.theme_combo = NoFlickerComboBox()
         for key in _THEME_ORDER:
@@ -4145,17 +4145,17 @@ class MainWindow(QMainWindow):
         self.theme_combo.setCurrentIndex(self.theme_combo.findData(app_theme()))
         self._theme_loading = False
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        _label_row(theme_grid, "控件样式", self.theme_combo, style_tip,
+        _label_row(theme_grid, i18n.t("控件样式"), self.theme_combo, style_tip,
                    row=0, col=1)
         # 语言（占位项：只提供选项，界面语言切换功能尚未实现）
         # 放在左列第二行（原「控件样式」位置），右列与「主题」同排的是控件样式。
         lang_tip = (
-            "选择界面显示语言。\n"
+            i18n.t("选择界面显示语言。\n"
             "切换后需重启程序生效：界面文本是在窗口构建时就取定的，实时刷新"
             "每个控件既容易漏、又要额外缓存原文，得不偿失。\n"
             "注意：目前已收录的英文文案以「内部标识的显示名」为主"
             "（动作类型 / 水印位置 / 查看模式 / 冲突策略），"
-            "其余界面文本会随翻译推进逐步补全，未收录的暂时保持中文。"
+            "其余界面文本会随翻译推进逐步补全，未收录的暂时保持中文。")
         )
         self.language_combo = NoFlickerComboBox()
         for key in _LANGUAGE_ORDER:
@@ -4171,7 +4171,7 @@ class MainWindow(QMainWindow):
         # 立即持久化 + 提示重启。语言本身要等下次启动才由 __main__ 应用。
         self.language_combo.currentIndexChanged.connect(
             self._on_language_combo_changed)
-        _label_row(theme_grid, "语言", self.language_combo, lang_tip,
+        _label_row(theme_grid, i18n.t("语言"), self.language_combo, lang_tip,
                    row=1, col=0)
 
         # 本区下拉的最小宽度是按"构建时的样式"量出来的。切到「原生」后，Windows
@@ -4188,18 +4188,18 @@ class MainWindow(QMainWindow):
         grid.addWidget(theme_group, 0, 0)
 
         # ---- 转换进程 ----
-        proc_group, proc_inner = _section("转换进程")
+        proc_group, proc_inner = _section(i18n.t("转换进程"))
         cpu_tip = (
-            "设置 cjxl / djxl 转换进程的 CPU 优先级（默认低于正常，"
-            "减少对前台操作的影响）。"
+            i18n.t("设置 cjxl / djxl 转换进程的 CPU 优先级（默认低于正常，"
+            "减少对前台操作的影响）。")
         )
         self.cpu_priority_combo = NoFlickerComboBox()
         for key, label in (
-            ("idle", "空闲"),
-            ("below_normal", "低于正常"),
-            ("normal", "正常"),
-            ("above_normal", "高于正常"),
-            ("high", "高"),
+            ("idle", i18n.t("空闲")),
+            ("below_normal", i18n.t("低于正常")),
+            ("normal", i18n.t("正常")),
+            ("above_normal", i18n.t("高于正常")),
+            ("high", i18n.t("高")),
         ):
             self.cpu_priority_combo.addItem(label, key)
         self._set_combo_min_width(self.cpu_priority_combo)
@@ -4209,22 +4209,22 @@ class MainWindow(QMainWindow):
         self.cpu_priority_combo.currentIndexChanged.connect(
             self._on_cpu_priority_changed
         )
-        _label_row(proc_inner, "CPU 优先级", self.cpu_priority_combo, cpu_tip)
+        _label_row(proc_inner, i18n.t("CPU 优先级"), self.cpu_priority_combo, cpu_tip)
 
         cores_tip = (
-            "转换时并行使用的 CPU 核心数，决定同时转换的文件数（多文件时）"
-            "或单个大文件的线程数（单文件时）。「自动」等于本机逻辑核心数。"
+            i18n.t("转换时并行使用的 CPU 核心数，决定同时转换的文件数（多文件时）"
+            "或单个大文件的线程数（单文件时）。「自动」等于本机逻辑核心数。")
         )
         self.cpu_cores_combo = NoFlickerComboBox()
         self.cpu_cores_combo.setToolTip(cores_tip)
-        self.cpu_cores_combo.addItem("自动", "auto")
+        self.cpu_cores_combo.addItem(i18n.t("自动"), "auto")
         max_cores = os.cpu_count() or 1
         for n in range(1, max_cores + 1):
             self.cpu_cores_combo.addItem(str(n), n)
         self._set_combo_min_width(self.cpu_cores_combo)
         self.cpu_cores_combo.setCurrentIndex(self.cpu_cores_combo.findData("auto"))
         self.cpu_cores_combo.currentIndexChanged.connect(self._on_cpu_cores_changed)
-        _label_row(proc_inner, "CPU 核心使用数", self.cpu_cores_combo, cores_tip)
+        _label_row(proc_inner, i18n.t("CPU 核心使用数"), self.cpu_cores_combo, cores_tip)
         grid.addWidget(proc_group, 1, 0)
 
         # ---- 大图并发校准（一键傻瓜式，独立于「高级参数」） ----
@@ -4232,17 +4232,17 @@ class MainWindow(QMainWindow):
         # 本机 CPU 校准。这里提供一键按钮：自动生成测试图、测 cjxl 多线程加速比、
         # 把像素阈值写入设置，全程无需用户配置任何参数。故刻意放在高级参数之外。
         # 用 _section 保持与其他分区一致的内边距，框体更紧凑。
-        calib_group, calib_layout = _section("大图并发校准")
+        calib_group, calib_layout = _section(i18n.t("大图并发校准"))
         calib_layout.setSpacing(6)
 
         calib_tip = (
-            "双队列调度器会根据「大图」判定把超大图独占满核、其余小图并行，"
+            i18n.t("双队列调度器会根据「大图」判定把超大图独占满核、其余小图并行，"
             "从而充分利用 CPU。判定阈值需按本机 CPU 能力校准：\n"
             "点击此按钮将自动生成若干测试图、测量 cjxl 在不同分辨率下的多线程"
             "加速比，并把适合本机的像素阈值写入设置——无需任何参数配置。\n"
-            "首次启动时若尚未校准，会自动运行一次。"
+            "首次启动时若尚未校准，会自动运行一次。")
         )
-        self.calib_button = QPushButton("一键校准大图阈值（按本机 CPU）")
+        self.calib_button = QPushButton(i18n.t("一键校准大图阈值（按本机 CPU）"))
         self.calib_button.setToolTip(calib_tip)
         self.calib_button.clicked.connect(self._on_calibrate_clicked)
         # 左对齐、保持自然宽度，避免撑满整行显得过大（与工具栏按钮一致）。
@@ -4263,14 +4263,14 @@ class MainWindow(QMainWindow):
         layout.addLayout(grid)
 
         # ---- 选项（零散开关区；位于高级参数上方） ----
-        options_group, options_inner = _section("选项")
+        options_group, options_inner = _section(i18n.t("选项"))
 
         # 「退出时保存动作列表」：勾选后退出应用会序列化当前动作标签页的动作列表
         # 到 QSettings，下次启动自动恢复；关闭则退出时不保存（已存数据会被清除）。
-        self.save_actions_on_exit_check = QCheckBox("退出时保存动作列表")
+        self.save_actions_on_exit_check = QCheckBox(i18n.t("退出时保存动作列表"))
         self.save_actions_on_exit_check.setToolTip(
-            "开启后，退出程序时会记住「动作」标签页里当前的动作列表，下次启动自动恢复；\n"
-            "关闭则该列表不持久化（每次启动恢复到空）。"
+            i18n.t("开启后，退出程序时会记住「动作」标签页里当前的动作列表，下次启动自动恢复；\n"
+            "关闭则该列表不持久化（每次启动恢复到空）。")
         )
         self.save_actions_on_exit_check.setChecked(False)
         self.save_actions_on_exit_check.toggled.connect(self._save_actions_setting)
@@ -4282,26 +4282,26 @@ class MainWindow(QMainWindow):
         # ---- 高级参数区域（母开关 + 逐项子开关，子项默认禁用） ----
         # 「启用高级参数」仅作为母开关：勾选时解锁下方子项按钮，取消时全部置灰。
         # 每个子项是否真正生效由各自勾选决定（见 _on_adv_*_toggled）。
-        adv_params_group = QGroupBox("高级参数")
+        adv_params_group = QGroupBox(i18n.t("高级参数"))
         adv_params_layout = QVBoxLayout(adv_params_group)
         adv_params_layout.setSpacing(6)
 
         adv_threads_tip = (
-            "母开关：勾选以解锁下方各项高级参数，可逐项单独开启；"
+            i18n.t("母开关：勾选以解锁下方各项高级参数，可逐项单独开启；"
             "取消勾选则全部恢复默认行为。"
-            "\n（首次勾选会弹出注意事项，可在弹窗中勾选「不再提醒」。）"
+            "\n（首次勾选会弹出注意事项，可在弹窗中勾选「不再提醒」。）")
         )
-        self.adv_threads_toggle = QCheckBox("启用高级参数")
+        self.adv_threads_toggle = QCheckBox(i18n.t("启用高级参数"))
         self.adv_threads_toggle.setToolTip(adv_threads_tip)
         self.adv_threads_toggle.setChecked(False)
         self.adv_threads_toggle.toggled.connect(self._on_adv_threads_toggled)
         adv_params_layout.addWidget(self.adv_threads_toggle)
 
         # 子项 1：手动设置每文件线程数（--num_threads）。默认禁用（母开关关闭时置灰）。
-        self.adv_num_threads_toggle = QCheckBox("手动设置每文件线程数 (--num_threads)")
+        self.adv_num_threads_toggle = QCheckBox(i18n.t("手动设置每文件线程数 (--num_threads)"))
         self.adv_num_threads_toggle.setToolTip(
-            "开启后，输出页「线程数 (--num_threads)」行可手动填写；"
-            "并行进程数 = CPU 核心使用数 ÷ 每文件线程数。"
+            i18n.t("开启后，输出页「线程数 (--num_threads)」行可手动填写；"
+            "并行进程数 = CPU 核心使用数 ÷ 每文件线程数。")
         )
         self.adv_num_threads_toggle.setChecked(False)
         self.adv_num_threads_toggle.setEnabled(False)
@@ -4309,10 +4309,10 @@ class MainWindow(QMainWindow):
         adv_params_layout.addWidget(self.adv_num_threads_toggle)
 
         # 子项 2：解锁 effort 第 10 档。默认禁用（母开关关闭时置灰）。
-        self.adv_effort10_toggle = QCheckBox("解锁 effort 第 10 档（最慢、质量最高）")
+        self.adv_effort10_toggle = QCheckBox(i18n.t("解锁 effort 第 10 档（最慢、质量最高）"))
         self.adv_effort10_toggle.setToolTip(
-            "开启后，输出页「速度/质量权衡 (--effort)」可选范围由 1–9 扩展到 1–10"
-            "（第 10 档最慢、质量最高）。"
+            i18n.t("开启后，输出页「速度/质量权衡 (--effort)」可选范围由 1–9 扩展到 1–10"
+            "（第 10 档最慢、质量最高）。")
         )
         self.adv_effort10_toggle.setChecked(False)
         self.adv_effort10_toggle.setEnabled(False)
@@ -4324,14 +4324,14 @@ class MainWindow(QMainWindow):
         # 关闭（默认）= B 模式：弹一次确认，由用户决定是否以解码重编码方式输出；
         # 开启 = A 模式：直接跳过并在状态页记录，不弹确认。
         self.jpeg_hard_skip_check = QCheckBox(
-            "JPEG 输出：不可无损重建的 JXL 直接跳过（否则弹确认）"
+            i18n.t("JPEG 输出：不可无损重建的 JXL 直接跳过（否则弹确认）")
         )
         self.jpeg_hard_skip_check.setToolTip(
-            "输出格式为 JPEG 时，若某 JXL 无法通过 djxl 比特级还原为原始 JPG"
+            i18n.t("输出格式为 JPEG 时，若某 JXL 无法通过 djxl 比特级还原为原始 JPG"
             "（如非 JPEG 源编码、或重建数据已剥离），本开关决定处理方式：\n"
             "• 勾选（A 模式）：直接跳过该文件并在状态页记录原因；\n"
             "• 不勾选（默认，B 模式）：弹一次确认，由你决定是否以「解码为像素再重新"
-            "编码为 JPG」的方式输出（有损的二次压缩，画质会下降）。"
+            "编码为 JPG」的方式输出（有损的二次压缩，画质会下降）。")
         )
         self.jpeg_hard_skip_check.setChecked(False)
         self.jpeg_hard_skip_check.toggled.connect(self._on_jpeg_hard_skip_toggled)
@@ -4339,15 +4339,15 @@ class MainWindow(QMainWindow):
 
         # 子项：解码侧线程控制。默认关闭——实测限制 djxl 线程数会让解码变慢
         # （解码的并行度远低于编码），故仅在用户需要精确控制 CPU 负载时才开。
-        self.decode_threads_check = QCheckBox("解码侧也限制线程（djxl --num_threads）")
+        self.decode_threads_check = QCheckBox(i18n.t("解码侧也限制线程（djxl --num_threads）"))
         self.decode_threads_check.setToolTip(
-            "默认关闭：djxl 解码时不传 --num_threads，由它自己按机器决定（吃满核心，最快）。\n"
+            i18n.t("默认关闭：djxl 解码时不传 --num_threads，由它自己按机器决定（吃满核心，最快）。\n"
             "开启后：每个 djxl 进程按当前每文件线程预算限制线程数，使「CPU 核心使用数」"
             "在解码路径同样生效，可精确控制 CPU 负载。\n"
             "⚠️ 注意：启用后解码速度可能略有下降。20 核机实测多文件批量解码约慢 7%~13%"
             "——解码的线程收益本就远小于编码（满核 vs 单线程约 1.2x，编码是 2.3x），"
             "限制线程换不回等价的进程级并行。\n"
-            "仅建议在需要精确控制 CPU 负载时开启（如转换时需同时跑其他重负载任务）。"
+            "仅建议在需要精确控制 CPU 负载时开启（如转换时需同时跑其他重负载任务）。")
         )
         self.decode_threads_check.setChecked(False)
         self.decode_threads_check.toggled.connect(self._on_decode_threads_toggled)
@@ -4356,11 +4356,11 @@ class MainWindow(QMainWindow):
         # 保留原始扩展名：输出命名选项（非 cjxl 参数），独立于此「高级参数」母开关，
         # 始终可用、不随母开关置灰（它不是 cjxl 专家参数，只是输出文件命名行为）。
         # 默认关闭；开启后输出文件沿用输入扩展名。持久化复用 _save_jxl_output。
-        self.preserve_ext_check = QCheckBox("保留原始扩展名（输出沿用输入扩展名，不再强制 .jxl）")
+        self.preserve_ext_check = QCheckBox(i18n.t("保留原始扩展名（输出沿用输入扩展名，不再强制 .jxl）"))
         self.preserve_ext_check.setToolTip(
-            "开启后输出文件使用与输入相同的扩展名；关闭时用输出格式推导扩展名"
+            i18n.t("开启后输出文件使用与输入相同的扩展名；关闭时用输出格式推导扩展名"
             "（如 .jxl / .png / .jpg）。若与「原文件夹 + 源文件带扩展名」组合导致"
-            "输出路径等于输入，将跳过该文件以免覆盖源文件。"
+            "输出路径等于输入，将跳过该文件以免覆盖源文件。")
         )
         self.preserve_ext_check.setChecked(False)
         self.preserve_ext_check.toggled.connect(self._save_jxl_output)
@@ -4426,8 +4426,8 @@ class MainWindow(QMainWindow):
             calibrate.clear_all_calibration()
             calibrate.write_cpu_signature(cur)
             self.log_edit.appendPlainText(
-                "检测到 CPU 型号变化，已清除旧校准数据，将按新硬件重新校准。")
-            self.statusBar().showMessage("CPU 已更换，已清除旧阈值并将重新校准")
+                i18n.t("检测到 CPU 型号变化，已清除旧校准数据，将按新硬件重新校准。"))
+            self.statusBar().showMessage(i18n.t("CPU 已更换，已清除旧阈值并将重新校准"))
 
     def _on_power_state_changed(self, new_state):
         """电源状态（计划/插拔电/模式任一变化）：轻量提示 + 自动套用该状态下已记录的
@@ -4442,18 +4442,18 @@ class MainWindow(QMainWindow):
             calibrate.write_floor_px(per, scheme=scheme, ac=ac, mode=mode)
             mp = per / 1_000_000.0
             self.statusBar().showMessage(
-                "电源状态已切换，已自动套用该状态下的校准阈值（约 %.1f MP），如需更精确可重新校准"
+                i18n.t("电源状态已切换，已自动套用该状态下的校准阈值（约 %.1f MP），如需更精确可重新校准")
                 % mp)
             self.log_edit.appendPlainText(
-                "电源状态发生变化（计划=%s，供电=%s，模式=%s）：检测到该状态下已记录的阈值，"
-                "已自动套用（约 %.1f MP）。"
-                % (scheme or "未知", ac or "未知", mode or "未知", mp))
+                i18n.t("电源状态发生变化（计划=%s，供电=%s，模式=%s）：检测到该状态下已记录的阈值，"
+                "已自动套用（约 %.1f MP）。")
+                % (scheme or i18n.t("未知"), ac or i18n.t("未知"), mode or i18n.t("未知"), mp))
         else:
-            self.statusBar().showMessage("电源状态发生变化，建议重新校准大图阈值")
+            self.statusBar().showMessage(i18n.t("电源状态发生变化，建议重新校准大图阈值"))
             self.log_edit.appendPlainText(
-                "电源状态发生变化（计划=%s，供电=%s，模式=%s）：当前状态无已记录阈值，"
-                "建议点击「一键校准大图阈值」重新校准。"
-                % (scheme or "未知", ac or "未知", mode or "未知"))
+                i18n.t("电源状态发生变化（计划=%s，供电=%s，模式=%s）：当前状态无已记录阈值，"
+                "建议点击「一键校准大图阈值」重新校准。")
+                % (scheme or i18n.t("未知"), ac or i18n.t("未知"), mode or i18n.t("未知")))
         self._refresh_calib_value_label()
 
     def _refresh_calib_value_label(self):
@@ -4466,17 +4466,17 @@ class MainWindow(QMainWindow):
             # 电源状态相关提醒：阈值按 CPU 与完整电源状态（计划/插拔电/模式）记忆，
             # 切换后建议重校准或自动套用该状态记录值。
             if calibrate.read_per_state_floor_px(state) is not None:
-                note = "（已套用当前电源状态记录的阈值）"
+                note = i18n.t("（已套用当前电源状态记录的阈值）")
             else:
-                note = "（当前电源状态无记录，建议重新校准；或会自动套用同计划记录值）"
+                note = i18n.t("（当前电源状态无记录，建议重新校准；或会自动套用同计划记录值）")
             self.calib_value_label.setText(
-                "当前已校准阈值：约 %.1f MP（%d 像素）。%s"
+                i18n.t("当前已校准阈值：约 %.1f MP（%d 像素）。%s")
                 % (mp, floor, note)
             )
         else:
             self.calib_value_label.setText(
-                "当前使用默认阈值（尚未校准）。建议点击上方按钮进行一次校准；"
-                "阈值会按本机 CPU 与电源状态（计划/插拔电/模式）分别记忆。"
+                i18n.t("当前使用默认阈值（尚未校准）。建议点击上方按钮进行一次校准；"
+                "阈值会按本机 CPU 与电源状态（计划/插拔电/模式）分别记忆。")
             )
 
     def _on_calibrate_clicked(self):
@@ -4486,7 +4486,7 @@ class MainWindow(QMainWindow):
     def _start_calibration(self, auto):
         """启动后台校准线程（避免阻塞 UI）。重复点击或已在进行中则忽略。"""
         if self._calib_worker is not None and self._calib_worker.isRunning():
-            self.statusBar().showMessage("校准正在进行中，请稍候…")
+            self.statusBar().showMessage(i18n.t("校准正在进行中，请稍候…"))
             return
         self._calib_worker = CalibrateWorker(effort=7, runs=3, max_mp=64)
         self._calib_worker.log_signal.connect(self.log_edit.appendPlainText)
@@ -4494,12 +4494,12 @@ class MainWindow(QMainWindow):
         self._calib_worker.done_signal.connect(self._on_calibration_done)
         if auto:
             self.log_edit.appendPlainText(
-                "首次启动检测到尚未校准，开始自动校准大图阈值…"
+                i18n.t("首次启动检测到尚未校准，开始自动校准大图阈值…")
             )
-            self.statusBar().showMessage("正在自动校准大图阈值（按本机 CPU）…")
+            self.statusBar().showMessage(i18n.t("正在自动校准大图阈值（按本机 CPU）…"))
         else:
-            self.log_edit.appendPlainText("开始手动校准大图阈值…")
-            self.statusBar().showMessage("正在校准大图阈值（按本机 CPU）…")
+            self.log_edit.appendPlainText(i18n.t("开始手动校准大图阈值…"))
+            self.statusBar().showMessage(i18n.t("正在校准大图阈值（按本机 CPU）…"))
         self.calib_button.setEnabled(False)
         self._calib_worker.start()
 
@@ -4510,24 +4510,24 @@ class MainWindow(QMainWindow):
             return
         if not calibrate.cjxl_path():
             self.log_edit.appendPlainText(
-                "尚未校准且未找到 cjxl，跳过自动校准，继续使用默认阈值。"
+                i18n.t("尚未校准且未找到 cjxl，跳过自动校准，继续使用默认阈值。")
             )
-            self.statusBar().showMessage("未找到 cjxl，跳过自动校准")
+            self.statusBar().showMessage(i18n.t("未找到 cjxl，跳过自动校准"))
             return
         self._start_calibration(auto=True)
 
     def _on_calibration_done(self, floor_px):
         """校准线程结束：刷新状态栏/日志/阈值说明，恢复按钮可用。"""
         if floor_px is None:
-            self.statusBar().showMessage("校准未完成（未找到 cjxl 或测量失败）")
+            self.statusBar().showMessage(i18n.t("校准未完成（未找到 cjxl 或测量失败）"))
             self.log_edit.appendPlainText(
-                "校准未完成：未找到 cjxl 或测量失败，继续使用默认阈值。"
+                i18n.t("校准未完成：未找到 cjxl 或测量失败，继续使用默认阈值。")
             )
         else:
             mp = floor_px / 1_000_000.0
-            self.statusBar().showMessage("校准完成：大图阈值 = %.1f MP" % mp)
+            self.statusBar().showMessage(i18n.t("校准完成：大图阈值 = %.1f MP") % mp)
             self.log_edit.appendPlainText(
-                "校准完成，大图像素阈值已写入设置：约 %.1f MP。" % mp
+                i18n.t("校准完成，大图像素阈值已写入设置：约 %.1f MP。") % mp
             )
         self._refresh_calib_value_label()
         self.calib_button.setEnabled(True)
@@ -4641,7 +4641,7 @@ class MainWindow(QMainWindow):
         复选框，勾选后持久化 adv_warning_suppressed，下次不再弹。"""
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("启用高级参数")
+        box.setWindowTitle(i18n.t("启用高级参数"))
         # 子项列表动态从「高级参数」组收集（排除母开关自身），新增子项自动进弹窗，
         # 无需每次手动同步文本。
         subitems = []
@@ -4660,7 +4660,7 @@ class MainWindow(QMainWindow):
             "如需恢复默认行为，关闭「启用高级参数」即可。"
         )
         box.setStandardButtons(QMessageBox.Ok)
-        cb = QCheckBox("不再提醒")
+        cb = QCheckBox(i18n.t("不再提醒"))
         box.setCheckBox(cb)
         box.exec()
         if cb.isChecked():
@@ -4683,13 +4683,13 @@ class MainWindow(QMainWindow):
         if hasattr(self, "adv_threads_toggle"):
             if enabled:
                 self.adv_threads_toggle.setToolTip(
-                    "已启用：下方「手动设置每文件线程数」「解锁 effort 第 10 档」"
-                    "已解锁，可逐项单独开启；关闭则全部恢复默认行为。"
+                    i18n.t("已启用：下方「手动设置每文件线程数」「解锁 effort 第 10 档」"
+                    "已解锁，可逐项单独开启；关闭则全部恢复默认行为。")
                 )
             else:
                 self.adv_threads_toggle.setToolTip(
-                    "未启用：所有高级子项均锁定为默认行为。勾选以解锁下方子项，"
-                    "再自行决定是否逐项开启（首次开启会弹出注意事项）。"
+                    i18n.t("未启用：所有高级子项均锁定为默认行为。勾选以解锁下方子项，"
+                    "再自行决定是否逐项开启（首次开启会弹出注意事项）。")
                 )
 
     def _set_effort_range(self, allow_ten):
@@ -4726,13 +4726,13 @@ class MainWindow(QMainWindow):
             y = sg.y() + max(0, (sg.height() - fg.height()) // 2)
             self.move(x, y)
         self._save_geometry()
-        self.statusBar().showMessage("窗口已居中")
+        self.statusBar().showMessage(i18n.t("窗口已居中"))
 
     def _on_fit_window(self):
         """Resize to the default 6x3 startup size (keep position)."""
         self._fit_window_to_grid(center=False)
         self._save_geometry()
-        self.statusBar().showMessage("已恢复 6×3 默认尺寸")
+        self.statusBar().showMessage(i18n.t("已恢复 6×3 默认尺寸"))
 
     # ---- window geometry persistence (QSettings) ----------------------
 
@@ -4995,10 +4995,10 @@ class MainWindow(QMainWindow):
             for root, files in by_root.items():
                 self._add_input_paths(files, root=root)
             self.log_edit.appendPlainText(
-                "通过拖拽添加了 %d 个文件。" % (len(self.input_files) - before)
+                i18n.t("通过拖拽添加了 %d 个文件。") % (len(self.input_files) - before)
             )
         else:
-            self.log_edit.appendPlainText("拖拽内容中没有可添加的文件。")
+            self.log_edit.appendPlainText(i18n.t("拖拽内容中没有可添加的文件。"))
         event.acceptProposedAction()
 
     def _collect_images_from_folder(self, folder):
@@ -5016,21 +5016,21 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _on_add_files(self):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "选择输入文件", "",
-            "图像文件 (*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.jxl *.avif);;所有文件 (*.*)",
+            self, i18n.t("选择输入文件"), "",
+            i18n.t("图像文件 (*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.jxl *.avif);;所有文件 (*.*)"),
         )
         # 多选文件：每文件的根默认取其父目录（root=None 时 _add_input_paths 回退）。
         self._add_input_paths(paths, root=None)
 
     def _on_add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "选择文件夹")
+        folder = QFileDialog.getExistingDirectory(self, i18n.t("选择文件夹"))
         if not folder:
             return
         # 递归收集（与拖拽一致），文件夹本身作为这批文件的根。
         added = self._collect_images_from_folder(folder)
         self._add_input_paths(added, root=folder)
         if not added:
-            self.statusBar().showMessage("该文件夹内未发现支持的图像文件")
+            self.statusBar().showMessage(i18n.t("该文件夹内未发现支持的图像文件"))
 
     def _add_input_paths(self, paths, root=None):
         now = time.time()
@@ -5042,7 +5042,7 @@ class MainWindow(QMainWindow):
                 # 记录根目录：显式传入则用之，否则回退到文件自身所在目录。
                 self.input_roots[path] = root if root is not None else os.path.dirname(path)
         self._refresh_input_views()
-        self.statusBar().showMessage("已添加 %d 个文件" % len(self.input_files))
+        self.statusBar().showMessage(i18n.t("已添加 %d 个文件") % len(self.input_files))
 
     def _refresh_list(self):
         mode = getattr(self, "_last_view", "缩略图")
@@ -5487,7 +5487,7 @@ class MainWindow(QMainWindow):
 
     def _build_table_header_menu(self):
         menu = QMenu(self.input_table)
-        menu.addAction("显示列：").setEnabled(False)
+        menu.addAction(i18n.t("显示列：")).setEnabled(False)
         for key, label, _v, _w, _a in TABLE_COLUMNS:
             act = QAction(label, menu)
             act.setCheckable(True)
@@ -5497,7 +5497,7 @@ class MainWindow(QMainWindow):
             )
             menu.addAction(act)
         menu.addSeparator()
-        reset_act = QAction("重置列设置", menu)
+        reset_act = QAction(i18n.t("重置列设置"), menu)
         reset_act.triggered.connect(self._reset_table_columns)
         menu.addAction(reset_act)
         return menu
@@ -5991,9 +5991,9 @@ class MainWindow(QMainWindow):
     def _image_info(self, path):
         name = os.path.basename(path)
         is_jxl = path.lower().endswith(".jxl")
-        ext = "JXL" if is_jxl else (os.path.splitext(path)[1].lstrip(".").upper() or "未知")
+        ext = "JXL" if is_jxl else (os.path.splitext(path)[1].lstrip(".").upper() or i18n.t("未知"))
         size_text = self._format_size(path)
-        dims = "未知"
+        dims = i18n.t("未知")
         w, h = get_image_dims(path)
         if w and h:
             dims = "%d x %d" % (w, h)
@@ -6004,11 +6004,11 @@ class MainWindow(QMainWindow):
                 meta = formats.parse_exr_header(path)
                 ch = "、".join(
                     "%s(%s)" % (c["name"], c["type"]) for c in meta.get("channels", [])
-                ) or "未知"
-                extra = "\n通道：%s\n压缩：%s" % (ch, meta.get("compression") or "未知")
+                ) or i18n.t("未知")
+                extra = i18n.t("\n通道：%s\n压缩：%s") % (ch, meta.get("compression") or i18n.t("未知"))
             except Exception:
                 extra = ""
-        return "文件名：%s\n格式：%s\n尺寸：%s\n大小：%s\n路径：%s%s" % (
+        return i18n.t("文件名：%s\n格式：%s\n尺寸：%s\n大小：%s\n路径：%s%s") % (
             name, ext, dims, size_text, path, extra,
         )
 
@@ -6116,7 +6116,7 @@ class MainWindow(QMainWindow):
         self.input_files = order
         self._refresh_table()
         self._update_tab_titles()
-        self.statusBar().showMessage("已调整顺序，共 %d 个文件" % len(self.input_files))
+        self.statusBar().showMessage(i18n.t("已调整顺序，共 %d 个文件") % len(self.input_files))
 
     def _sync_files_from_table(self):
         """Rebuild input_files from the (reordered) table row order."""
@@ -6129,7 +6129,7 @@ class MainWindow(QMainWindow):
         self.input_files = order
         self._refresh_list()
         self._update_tab_titles()
-        self.statusBar().showMessage("已调整顺序，共 %d 个文件" % len(self.input_files))
+        self.statusBar().showMessage(i18n.t("已调整顺序，共 %d 个文件") % len(self.input_files))
 
     def _on_remove_selected(self):
         paths = self._selected_paths()
@@ -6140,14 +6140,14 @@ class MainWindow(QMainWindow):
             self._file_meta.pop(p, None)
             self._table_added.pop(p, None)
         self._refresh_input_views()
-        self.statusBar().showMessage("已移除，剩余 %d 个文件" % len(self.input_files))
+        self.statusBar().showMessage(i18n.t("已移除，剩余 %d 个文件") % len(self.input_files))
 
     def _on_clear_inputs(self):
         self.input_files.clear()
         self._file_meta.clear()
         self._table_added.clear()
         self._refresh_input_views()
-        self.statusBar().showMessage("已清空输入列表")
+        self.statusBar().showMessage(i18n.t("已清空输入列表"))
 
     # ------------------------------------------------------------------
     # Filtering
@@ -6188,7 +6188,7 @@ class MainWindow(QMainWindow):
         self.input_files = keep
         self._refresh_input_views()
         self.statusBar().showMessage(
-            "已移除 %d 个文件，剩余 %d 个" % (removed, len(self.input_files))
+            i18n.t("已移除 %d 个文件，剩余 %d 个") % (removed, len(self.input_files))
         )
 
     # ------------------------------------------------------------------
@@ -6241,10 +6241,10 @@ class MainWindow(QMainWindow):
         action_idx = getattr(self, "_actions_tab_index", 1)
         count = len(getattr(self, "input_files", None) or [])
         if 0 <= input_idx < tabs.count():
-            tabs.setTabText(input_idx, "输入 [%d个]" % count)
+            tabs.setTabText(input_idx, i18n.t("输入 [%d个]") % count)
         if 0 <= action_idx < tabs.count():
             enabled, total = self._action_counts()
-            tabs.setTabText(action_idx, "动作 [%d/%d]" % (enabled, total))
+            tabs.setTabText(action_idx, i18n.t("动作 [%d/%d]") % (enabled, total))
 
     def _insert_action_item(self, row, action, render_preview=True):
         """在 ``row`` 处插入一个**全新**的动作项（item 与 widget 都新建）。
@@ -6352,7 +6352,7 @@ class MainWindow(QMainWindow):
         defaults = dict(processor.DEFAULT_PARAMS.get(name, {}))
         action = {"type": name, "params": defaults, "enabled": True}
         self._add_action_item(action)
-        self.statusBar().showMessage("已添加动作：%s" % i18n.t(name))
+        self.statusBar().showMessage(i18n.t("已添加动作：%s") % i18n.t(name))
 
     def _action_summary(self, action):
         """Short human-readable summary of an action (shown in the list).
@@ -6369,14 +6369,14 @@ class MainWindow(QMainWindow):
             w, h = int(p.get("width", 0) or 0), int(p.get("height", 0) or 0)
             algo = p.get("algorithm") or "LANCZOS"
             size = ("%dx%d" % (w, h)) if (w and h) else (
-                ("宽%d" % w) if w else (("高%d" % h) if h else "自动"))
+                (i18n.t("宽%d") % w) if w else ((i18n.t("高%d") % h) if h else i18n.t("自动")))
             return "%s (%s, %s)" % (name, size, algo)
         if atype == "旋转":
             return "%s (%d°)" % (name, int(p.get("angle", 0) or 0))
         if atype == "水印":
             return "%s (%s)" % (name, p.get("text", ""))
         if atype == "亮度/对比度":
-            return "%s (亮%.1f/对%.1f)" % (
+            return i18n.t("%s (亮%.1f/对%.1f)") % (
                 name, float(p.get("brightness", 1.0)), float(p.get("contrast", 1.0)))
         if atype == "锐化":
             return "%s (%.1f)" % (name, float(p.get("factor", 1.0)))
@@ -6390,7 +6390,7 @@ class MainWindow(QMainWindow):
         if atype == "曝光":
             return "%s (%+.1f EV)" % (name, float(p.get("ev", 0.0) or 0.0))
         if atype == "阴影/高光":
-            return "%s (影%.2f/亮%.2f)" % (
+            return i18n.t("%s (影%.2f/亮%.2f)") % (
                 name, float(p.get("shadow", 1.0) or 1.0),
                 float(p.get("highlight", 1.0) or 1.0))
         return name
@@ -6524,7 +6524,7 @@ class MainWindow(QMainWindow):
                 loadable = _display_path(self.path)
                 if loadable is None:
                     raise RuntimeError(
-                        "无法解码该图片（%s）" % os.path.basename(self.path))
+                        i18n.t("无法解码该图片（%s）") % os.path.basename(self.path))
                 img = Image.open(loadable)
                 img.load()
                 w, h = img.size
@@ -6599,7 +6599,7 @@ class MainWindow(QMainWindow):
             # "预览加载中…"），此处只隐藏 preview_view、显示 preview_msg 却
             # 保留了旧文本，清空输入后再回动作页就会一直显示「加载中」。
             self.preview_msg.setText(
-                "请先在「输入」标签添加图片，\n再在此处预览动作效果。"
+                i18n.t("请先在「输入」标签添加图片，\n再在此处预览动作效果。")
             )
             self.preview_msg.setVisible(True)
             self.preview_msg_container.setVisible(True)
@@ -6637,7 +6637,7 @@ class MainWindow(QMainWindow):
             # 即时反馈，否则预览区会长时间空白。
             self._preview_fit_deferred = True
             self.preview_view.setVisible(False)
-            self.preview_msg.setText("预览加载中…")
+            self.preview_msg.setText(i18n.t("预览加载中…"))
             self.preview_msg.setVisible(True)
             self.preview_msg_container.setVisible(True)
         self._thumb_pool.start(worker)
@@ -6661,7 +6661,7 @@ class MainWindow(QMainWindow):
             return  # 已在阈值内回填，无需提示（也就不会闪）
         self._preview_fit_deferred = True
         self.preview_view.setVisible(False)
-        self.preview_msg.setText("预览加载中…")
+        self.preview_msg.setText(i18n.t("预览加载中…"))
         self.preview_msg.setVisible(True)
         self.preview_msg_container.setVisible(True)
 
@@ -6700,7 +6700,7 @@ class MainWindow(QMainWindow):
                     err_text = err_text.replace(full, "")
                     err_text = err_text.replace(path, os.path.basename(path))
                 self.preview_view.setVisible(False)
-                self.preview_msg.setText("预览失败：%s" % err_text)
+                self.preview_msg.setText(i18n.t("预览失败：%s") % err_text)
                 self.preview_msg.setVisible(True)
                 self.preview_msg_container.setVisible(True)
                 self._preview_original_pixmap = None
@@ -6776,7 +6776,7 @@ class MainWindow(QMainWindow):
     # Output tab slots
     # ------------------------------------------------------------------
     def _on_browse_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "选择输出文件夹")
+        folder = QFileDialog.getExistingDirectory(self, i18n.t("选择输出文件夹"))
         if folder:
             folder = os.path.normpath(folder)
             self.custom_folder_edit.setText(folder)
@@ -6831,7 +6831,7 @@ class MainWindow(QMainWindow):
                 w.set_row(r)
         # A blank menu looks broken; show the placeholder when nothing remains.
         if not self._folder_history:
-            empty = QAction("(无历史记录)", self.folder_menu)
+            empty = QAction(i18n.t("(无历史记录)"), self.folder_menu)
             empty.setEnabled(False)
             self.folder_menu.addAction(empty)
         self._save_output_settings()
@@ -6841,7 +6841,7 @@ class MainWindow(QMainWindow):
         Each row is a HistoryRowWidget (clickable path + per-row delete)."""
         self.folder_menu.clear()
         if not getattr(self, "_folder_history", []):
-            empty = QAction("(无历史记录)", self.folder_menu)
+            empty = QAction(i18n.t("(无历史记录)"), self.folder_menu)
             empty.setEnabled(False)
             self.folder_menu.addAction(empty)
             return
@@ -7217,7 +7217,7 @@ class MainWindow(QMainWindow):
                 ROOT_MARGIN_LTR, ROOT_MARGIN_LTR, ROOT_MARGIN_LTR,
                 _root_bottom_margin())
         self.statusBar().showMessage(
-            "主题已切换为：%s" % _THEME_LABELS.get(theme, theme))
+            i18n.t("主题已切换为：%s") % _THEME_LABELS.get(theme, theme))
 
     def _refresh_combo_styles(self):
         """Re-apply the active style and palette to every dropdown.
@@ -7313,7 +7313,7 @@ class MainWindow(QMainWindow):
         self._refresh_combo_styles()
         self._sync_inactive_palette()
         self.statusBar().showMessage(
-            "主题已切换为：%s" % _COLOR_SCHEME_LABELS.get(scheme, scheme))
+            i18n.t("主题已切换为：%s") % _COLOR_SCHEME_LABELS.get(scheme, scheme))
 
     def _on_color_scheme_changed(self, _index):
         """Persist and apply the newly chosen color scheme."""
@@ -7410,8 +7410,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _on_convert(self):
         if not self.input_files:
-            self.statusBar().showMessage("错误：请先在「输入」中添加文件")
-            self.log_edit.appendPlainText("错误：输入列表为空。")
+            self.statusBar().showMessage(i18n.t("错误：请先在「输入」中添加文件"))
+            self.log_edit.appendPlainText(i18n.t("错误：输入列表为空。"))
             return
 
         tools = converter.check_tools()
@@ -7422,24 +7422,24 @@ class MainWindow(QMainWindow):
             if not tools["djxl"]:
                 missing.append("djxl")
             msg = (
-                "未检测到 libjxl 命令行工具（%s），无法执行转换。\n\n"
+                i18n.t("未检测到 libjxl 命令行工具（%s），无法执行转换。\n\n"
                 "请确认 libjxl 已正确安装，并将其所在目录加入系统的 PATH 环境变量，"
-                "然后重新启动本程序。" % "、".join(missing)
+                "然后重新启动本程序。") % "、".join(missing)
             )
-            self.statusBar().showMessage("错误：cjxl / djxl 未就绪")
+            self.statusBar().showMessage(i18n.t("错误：cjxl / djxl 未就绪"))
             self.log_edit.appendPlainText(
-                "错误：%s 未就绪，请确认 libjxl 已安装并加入 PATH。"
-                % " 与 ".join(missing)
+                i18n.t("错误：%s 未就绪，请确认 libjxl 已安装并加入 PATH。")
+                % i18n.t(" 与 ").join(missing)
             )
-            self._show_warning_centered("libjxl 未就绪", msg)
+            self._show_warning_centered(i18n.t("libjxl 未就绪"), msg)
             return
 
         actions = self._collect_actions()
         if actions and not processor.AVAILABLE:
-            self.statusBar().showMessage("错误：Pillow 未安装，无法执行动作")
+            self.statusBar().showMessage(i18n.t("错误：Pillow 未安装，无法执行动作"))
             self.log_edit.appendPlainText(
-                "错误：未检测到 Pillow 库，无法执行图像处理动作。"
-                "请用命令 `pip install Pillow` 安装后重试。"
+                i18n.t("错误：未检测到 Pillow 库，无法执行图像处理动作。"
+                "请用命令 `pip install Pillow` 安装后重试。")
             )
             return
 
@@ -7478,14 +7478,14 @@ class MainWindow(QMainWindow):
         if self.custom_cmd_check.isChecked():
             raw = self.cmd_edit.text().strip()
             if not raw:
-                self.statusBar().showMessage("错误：自定义命令为空")
-                self.log_edit.appendPlainText("错误：自定义命令已勾选但内容为空。")
+                self.statusBar().showMessage(i18n.t("错误：自定义命令为空"))
+                self.log_edit.appendPlainText(i18n.t("错误：自定义命令已勾选但内容为空。"))
                 return
             if "<输入>" not in raw or "<输出>" not in raw:
                 self._show_warning_centered(
-                    "自定义命令格式",
-                    "自定义命令必须同时包含 <输入> 和 <输出> 占位符"
-                    "（会被替换为每个文件的真实路径）。",
+                    i18n.t("自定义命令格式"),
+                    i18n.t("自定义命令必须同时包含 <输入> 和 <输出> 占位符"
+                    "（会被替换为每个文件的真实路径）。"),
                 )
                 return
             custom_cmd = raw
@@ -7541,33 +7541,33 @@ class MainWindow(QMainWindow):
             n = len(nonrecon_jpg)
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Question)
-            box.setWindowTitle("JPEG 输出质量提示")
+            box.setWindowTitle(i18n.t("JPEG 输出质量提示"))
             box.setText(
-                "检测到 %d 个 JXL 无法通过 djxl 比特级还原为原始 JPG"
+                i18n.t("检测到 %d 个 JXL 无法通过 djxl 比特级还原为原始 JPG"
                 "（如非 JPEG 源编码、或重建数据已剥离）。\n\n"
                 "若继续，这些文件将以「解码为像素再重新编码为 JPG」的方式输出，"
                 "属于有损的二次压缩，画质会进一步下降。\n\n"
-                "是否继续？" % n
+                "是否继续？") % n
             )
-            b_continue = box.addButton("继续", QMessageBox.AcceptRole)
-            b_cancel = box.addButton("取消", QMessageBox.RejectRole)
+            b_continue = box.addButton(i18n.t("继续"), QMessageBox.AcceptRole)
+            b_cancel = box.addButton(i18n.t("取消"), QMessageBox.RejectRole)
             box.setDefaultButton(b_cancel)
             box.setStandardButtons(QMessageBox.NoButton)
             box.exec()
             if box.clickedButton() is not b_continue:
-                self.statusBar().showMessage("已取消转换")
+                self.statusBar().showMessage(i18n.t("已取消转换"))
                 self.log_edit.appendPlainText(
-                    "已取消转换（用户拒绝将不可重建 JXL 以重编码方式输出为 JPG）。"
+                    i18n.t("已取消转换（用户拒绝将不可重建 JXL 以重编码方式输出为 JPG）。")
                 )
                 return
 
         # JPG 无损重编码模式：把被跳过的非 JPG 文件在状态中提示出来。
         if skipped:
             self.statusBar().showMessage(
-                "已跳过 %d 个非 JPG 文件（JPG 无损重编码仅处理 JPG）" % len(skipped)
+                i18n.t("已跳过 %d 个非 JPG 文件（JPG 无损重编码仅处理 JPG）") % len(skipped)
             )
             self.log_edit.appendPlainText(
-                "提示：JPG 无损重编码模式仅支持 JPG 输入，以下 %d 个非 JPG 文件已跳过："
+                i18n.t("提示：JPG 无损重编码模式仅支持 JPG 输入，以下 %d 个非 JPG 文件已跳过：")
                 % len(skipped)
             )
             for s in skipped:
@@ -7575,22 +7575,22 @@ class MainWindow(QMainWindow):
         # JPEG 输出格式：把被跳过的非 JXL 文件在状态中提示出来。
         if skipped_jpg:
             self.statusBar().showMessage(
-                "已跳过 %d 个非 JXL 文件（JPEG 输出仅重建 JXL）" % len(skipped_jpg)
+                i18n.t("已跳过 %d 个非 JXL 文件（JPEG 输出仅重建 JXL）") % len(skipped_jpg)
             )
             self.log_edit.appendPlainText(
-                "提示：JPEG 输出格式仅支持 JXL 输入（无损 JPEG 转码的 JXL 可重建原图），"
-                "以下 %d 个非 JXL 文件已跳过：" % len(skipped_jpg)
+                i18n.t("提示：JPEG 输出格式仅支持 JXL 输入（无损 JPEG 转码的 JXL 可重建原图），"
+                "以下 %d 个非 JXL 文件已跳过：") % len(skipped_jpg)
             )
             for s in skipped_jpg:
                 self.log_edit.appendPlainText("    - %s" % s)
         # A 模式跳过的不可重建 JXL：在状态中提示出来。
         if skipped_jpg_nonrecon:
             self.statusBar().showMessage(
-                "已跳过 %d 个不可重建 JXL（JPEG 输出，已开启直接跳过）"
+                i18n.t("已跳过 %d 个不可重建 JXL（JPEG 输出，已开启直接跳过）")
                 % len(skipped_jpg_nonrecon)
             )
             self.log_edit.appendPlainText(
-                "提示：以下 %d 个 JXL 无法比特级重建为 JPG（已开启「直接跳过」），已跳过："
+                i18n.t("提示：以下 %d 个 JXL 无法比特级重建为 JPG（已开启「直接跳过」），已跳过：")
                 % len(skipped_jpg_nonrecon)
             )
             for s in skipped_jpg_nonrecon:
@@ -7599,22 +7599,22 @@ class MainWindow(QMainWindow):
         # 不在 worker 线程弹窗。「替换」即 cjxl/djxl 默认覆盖，原样保留 jobs。
         jobs, skipped_exist, exist_cancelled = self._resolve_existing_outputs(jobs)
         if exist_cancelled:
-            self.statusBar().showMessage("已取消转换")
+            self.statusBar().showMessage(i18n.t("已取消转换"))
             self.log_edit.appendPlainText(
-                "已取消转换（用户在「文件已存在」冲突询问中选择了取消）。"
+                i18n.t("已取消转换（用户在「文件已存在」冲突询问中选择了取消）。")
             )
             return
         if skipped_exist:
             self.log_edit.appendPlainText(
-                "提示：以下 %d 个输出文件已存在且策略为「跳过」，已跳过："
+                i18n.t("提示：以下 %d 个输出文件已存在且策略为「跳过」，已跳过：")
                 % len(skipped_exist)
             )
             for s in skipped_exist:
                 self.log_edit.appendPlainText("    - %s" % s)
         if not jobs:
-            self.statusBar().showMessage("没有可处理的文件，转换未开始")
+            self.statusBar().showMessage(i18n.t("没有可处理的文件，转换未开始"))
             self.log_edit.appendPlainText(
-                "错误：当前没有可处理的文件，转换未开始。"
+                i18n.t("错误：当前没有可处理的文件，转换未开始。")
             )
             return
 
@@ -7657,8 +7657,8 @@ class MainWindow(QMainWindow):
         # 重置进度条与文案，并记录起点用于预计剩余时间
         self.progress_bar.setMaximum(max(1, len(jobs)))
         self.progress_bar.setValue(0)
-        self.progress_label.setText("当前进度：0 / %d 文件" % len(jobs))
-        self.eta_label.setText("预计剩余：--")
+        self.progress_label.setText(i18n.t("当前进度：0 / %d 文件") % len(jobs))
+        self.eta_label.setText(i18n.t("预计剩余：--"))
         self._convert_start_time = time.time()
         self._convert_worker.start()
 
@@ -7672,17 +7672,17 @@ class MainWindow(QMainWindow):
             return
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Information)
-        box.setWindowTitle("建议安装 jxlinfo")
+        box.setWindowTitle(i18n.t("建议安装 jxlinfo"))
         box.setText(
-            "检测到当前系统未安装 jxlinfo（libjxl 工具集的一部分）。\n\n"
+            i18n.t("检测到当前系统未安装 jxlinfo（libjxl 工具集的一部分）。\n\n"
             "在「JPEG 输出」模式下，本程序需要逐个判断 JXL 是否可比特级重建为原 JPG。"
             "有 jxlinfo 时仅解析文件头（毫秒级）；未安装则回退到 djxl 全量解码校验，"
             "大批量转换时会明显变慢。\n\n"
             "建议前往 libjxl 发布页安装 jxlinfo 并加入 PATH，可显著提升校验性能。"
-            "（不影响功能，仅影响速度。）"
+            "（不影响功能，仅影响速度。）")
         )
         box.setStandardButtons(QMessageBox.Ok)
-        cb = QCheckBox("不再提示")
+        cb = QCheckBox(i18n.t("不再提示"))
         box.setCheckBox(cb)
         box.exec()
         if cb.isChecked():
@@ -7696,47 +7696,47 @@ class MainWindow(QMainWindow):
 
         # 汇总块
         log("")
-        log("已输入文件： %d" % worker._stat_processed)
-        log("已输出文件： %d" % worker._stat_ok)
-        log("错误： %d" % worker._stat_err)
+        log(i18n.t("已输入文件： %d") % worker._stat_processed)
+        log(i18n.t("已输出文件： %d") % worker._stat_ok)
+        log(i18n.t("错误： %d") % worker._stat_err)
         log("")
-        log("输入文件总大小： %s" % _format_bytes(worker._stat_in_bytes))
-        log("输出文件总大小： %s" % _format_bytes(worker._stat_out_bytes))
+        log(i18n.t("输入文件总大小： %s") % _format_bytes(worker._stat_in_bytes))
+        log(i18n.t("输出文件总大小： %s") % _format_bytes(worker._stat_out_bytes))
         if worker._stat_in_bytes > 0:
             ratio = (worker._stat_out_bytes - worker._stat_in_bytes) \
                 / worker._stat_in_bytes * 100.0
-            log("文件大小比例： %s" % ("%+d%%" % round(ratio)))
+            log(i18n.t("文件大小比例： %s") % ("%+d%%" % round(ratio)))
         else:
-            log("文件大小比例： --")
+            log(i18n.t("文件大小比例： --"))
         log("")
         duration = now - worker._stat_started
         if duration < 1:
-            log("总持续时间： 不到 1 秒")
+            log(i18n.t("总持续时间： 不到 1 秒"))
         else:
             total = int(round(duration))
             if total < 60:
-                log("总持续时间： %d 秒" % total)
+                log(i18n.t("总持续时间： %d 秒") % total)
             else:
                 days = total // 86400
                 h = (total % 86400) // 3600
                 m = (total % 3600) // 60
                 s = total % 60
                 if days > 0:
-                    log("总持续时间： %d 天 %d 时 %d 分 %d 秒"
+                    log(i18n.t("总持续时间： %d 天 %d 时 %d 分 %d 秒")
                         % (days, h, m, s))
                 elif h > 0:
-                    log("总持续时间： %d 时 %d 分 %d 秒" % (h, m, s))
+                    log(i18n.t("总持续时间： %d 时 %d 分 %d 秒") % (h, m, s))
                 else:
-                    log("总持续时间： %d 分 %d 秒" % (m, s))
+                    log(i18n.t("总持续时间： %d 分 %d 秒") % (m, s))
         log("")
         if stopped:
             log("转换停止：" + _format_datetime(now))
-            self.statusBar().showMessage("转换已停止")
+            self.statusBar().showMessage(i18n.t("转换已停止"))
             self._stop_requested = False
         else:
             log("转换完成：" + _format_datetime(now))
             self.statusBar().showMessage(
-                "转换完成：%d 个文件" % worker._stat_ok
+                i18n.t("转换完成：%d 个文件") % worker._stat_ok
             )
         log("")
 
@@ -7753,11 +7753,11 @@ class MainWindow(QMainWindow):
                     _move_to_recycle_bin(src)
                     n_del += 1
                 except Exception as exc:
-                    log("删除原文件失败（已保留）：%s —— %s" % (src, exc))
+                    log(i18n.t("删除原文件失败（已保留）：%s —— %s") % (src, exc))
             if n_del:
-                log("已将 %d 个成功转换的原文件移入回收站。" % n_del)
+                log(i18n.t("已将 %d 个成功转换的原文件移入回收站。") % n_del)
             if n_del < len(ok_sources):
-                log("注意：%d 个原文件因删除失败而保留。" % (len(ok_sources) - n_del))
+                log(i18n.t("注意：%d 个原文件因删除失败而保留。") % (len(ok_sources) - n_del))
             log("")
 
         # 「转换完毕之后」的后处理动作（4 个独立开关，由 _save_jxl_output 持久化）：
@@ -7770,7 +7770,7 @@ class MainWindow(QMainWindow):
 
         # 进度条收尾：停在已处理数（正常完成=总数，中止=部分），清除预计剩余。
         self.progress_bar.setValue(worker._stat_processed)
-        self.eta_label.setText("预计剩余：--")
+        self.eta_label.setText(i18n.t("预计剩余：--"))
 
         self.convert_button.setEnabled(True)
         self.stop_button.setEnabled(False)
@@ -7795,7 +7795,7 @@ class MainWindow(QMainWindow):
                 self._open_output_in_explorer()
             except Exception as exc:  # 打开文件夹失败不应中断其余动作
                 self.log_edit.appendPlainText(
-                    "打开资源管理器失败：%s" % exc
+                    i18n.t("打开资源管理器失败：%s") % exc
                 )
 
         # 2) 清除「输入」文件（仅清空列表，不删除磁盘原始文件）。
@@ -7804,7 +7804,7 @@ class MainWindow(QMainWindow):
                 self._on_clear_inputs()
             except Exception as exc:
                 self.log_edit.appendPlainText(
-                    "清除输入列表失败：%s" % exc
+                    i18n.t("清除输入列表失败：%s") % exc
                 )
 
         # 3) 过程结束时发出提示音。
@@ -7813,7 +7813,7 @@ class MainWindow(QMainWindow):
                 QApplication.beep()
             except Exception as exc:
                 self.log_edit.appendPlainText(
-                    "播放提示音失败：%s" % exc
+                    i18n.t("播放提示音失败：%s") % exc
                 )
 
         # 4) 转换完毕之后退出：必须最后执行。
@@ -7822,7 +7822,7 @@ class MainWindow(QMainWindow):
                 QApplication.quit()
             except Exception as exc:
                 self.log_edit.appendPlainText(
-                    "自动退出失败：%s" % exc
+                    i18n.t("自动退出失败：%s") % exc
                 )
 
     def _open_output_in_explorer(self):
@@ -7860,7 +7860,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setMaximum(total)
         self.progress_bar.setValue(processed)
         self.progress_label.setText(
-            "当前进度：%d / %d 文件" % (processed, total)
+            i18n.t("当前进度：%d / %d 文件") % (processed, total)
         )
         start = getattr(self, "_convert_start_time", None)
         elapsed = time.time() - start if start else 0.0
@@ -7868,16 +7868,16 @@ class MainWindow(QMainWindow):
             avg_per_file = elapsed / processed
             remaining = total - processed
             eta = avg_per_file * remaining
-            self.eta_label.setText("预计剩余：%s" % _format_duration(eta))
+            self.eta_label.setText(i18n.t("预计剩余：%s") % _format_duration(eta))
         else:
-            self.eta_label.setText("预计剩余：--")
+            self.eta_label.setText(i18n.t("预计剩余：--"))
 
     def _on_convert_stop(self):
         if self._convert_worker is None or not self._convert_worker.isRunning():
             return
         self._stop_requested = True
         self.stop_button.setEnabled(False)
-        self.log_edit.appendPlainText("正在停止……（当前文件处理完毕后中止）")
+        self.log_edit.appendPlainText(i18n.t("正在停止……（当前文件处理完毕后中止）"))
         self._convert_worker.request_stop()
 
     def _current_output_format(self):
@@ -8029,13 +8029,13 @@ class MainWindow(QMainWindow):
         """
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("输出文件已存在")
-        box.setText("输出文件已存在：\n%s\n\n如何处理该文件？" % out_path)
-        b_replace_all = box.addButton("全部替换", QMessageBox.AcceptRole)
+        box.setWindowTitle(i18n.t("输出文件已存在"))
+        box.setText(i18n.t("输出文件已存在：\n%s\n\n如何处理该文件？") % out_path)
+        b_replace_all = box.addButton(i18n.t("全部替换"), QMessageBox.AcceptRole)
         b_replace = box.addButton("替换", QMessageBox.AcceptRole)
         b_skip = box.addButton("跳过", QMessageBox.RejectRole)
         b_rename = box.addButton("重命名", QMessageBox.ActionRole)
-        b_cancel = box.addButton("取消全部", QMessageBox.DestructiveRole)
+        b_cancel = box.addButton(i18n.t("取消全部"), QMessageBox.DestructiveRole)
         # 清空标准按钮，避免额外 OK/Cancel 与自定义按钮叠加。
         box.setStandardButtons(QMessageBox.NoButton)
         box.exec()
@@ -8057,10 +8057,10 @@ class MainWindow(QMainWindow):
     def _refresh_environment(self):
         os_id = converter.detect_os()
         tools = converter.check_tools()
-        cjxl_state = "已找到" if tools["cjxl"] else "未找到"
-        djxl_state = "已找到" if tools["djxl"] else "未找到"
+        cjxl_state = i18n.t("已找到") if tools["cjxl"] else i18n.t("未找到")
+        djxl_state = i18n.t("已找到") if tools["djxl"] else i18n.t("未找到")
         self.log_edit.appendPlainText(
-            "检测到操作系统：%s | cjxl：%s | djxl：%s"
+            i18n.t("检测到操作系统：%s | cjxl：%s | djxl：%s")
             % (os_id, cjxl_state, djxl_state)
         )
         if tools["cjxl"]:
@@ -8068,9 +8068,9 @@ class MainWindow(QMainWindow):
             if version:
                 self.log_edit.appendPlainText(version)
         if not tools["cjxl"] or not tools["djxl"]:
-            self.statusBar().showMessage("提示：cjxl / djxl 未完全就绪")
+            self.statusBar().showMessage(i18n.t("提示：cjxl / djxl 未完全就绪"))
         else:
-            self.statusBar().showMessage("环境就绪：cjxl 与 djxl 均可用")
+            self.statusBar().showMessage(i18n.t("环境就绪：cjxl 与 djxl 均可用"))
 
 
 class CalibrateWorker(QThread):
@@ -8271,14 +8271,14 @@ class ConvertWorker(QThread):
         """
         # 自定义命令模式：统一标记为 [自定义命令]（与输出格式无关，优先级最高）。
         if self.custom_cmd:
-            return "[自定义命令]"
+            return i18n.t("[自定义命令]")
         # 输出格式非 JXL（PNG / JPEG）走解码/重建路径，不经过 cjxl 编码，
         # 不应显示 JXL 的编码标签（如 [VarDCT, q90]），否则会误导。
         out_fmt = getattr(self, "_out_fmt", "jxl")
         if out_fmt == "jpg":
-            return "[JPEG 重建]"
+            return i18n.t("[JPEG 重建]")
         if out_fmt == "png":
-            return "[PNG 重建]"
+            return i18n.t("[PNG 重建]")
         # 高级参数 -d 会覆盖基础 distance，两者取其一。以下仅 JXL 输出生效。
         dist = self.advanced.get("distance", self.distance)
         if self.lossless_jpeg:
@@ -8320,7 +8320,7 @@ class ConvertWorker(QThread):
             tmp_files.append(tmp_src)
             ok, msg = converter.decode(src, tmp_src, **self._decode_kwargs())
             if not ok:
-                return False, "djxl 解码失败：%s" % msg, ""
+                return False, i18n.t("djxl 解码失败：%s") % msg, ""
             img = Image.open(tmp_src)
         else:
             img = Image.open(src)
@@ -8333,7 +8333,7 @@ class ConvertWorker(QThread):
             img.save(tmp_png, "PNG")
             return converter.encode(tmp_png, out_path, **self._encode_kwargs())
         img.save(out_path)
-        return True, "已保存为 PNG。", ""
+        return True, i18n.t("已保存为 PNG。"), ""
 
     def _run_custom_command(self, src, out_path):
         """执行用户自定义命令（<输入>/<输出> 占位符替换为真实路径后）。
@@ -8347,9 +8347,9 @@ class ConvertWorker(QThread):
         try:
             tokens = shlex.split(cmd, posix=False)
         except ValueError as exc:
-            return False, "自定义命令解析失败：%s" % exc, ""
+            return False, i18n.t("自定义命令解析失败：%s") % exc, ""
         if not tokens:
-            return False, "自定义命令为空。", ""
+            return False, i18n.t("自定义命令为空。"), ""
         ok, msg, err = converter._run(tokens, priority=self.priority)
         return ok, msg, converter.parse_encoding_tag(err)
 
@@ -8371,7 +8371,7 @@ class ConvertWorker(QThread):
             # 输出 PNG：cjxl 只能产出 jxl，无法真正输出 png。非 jxl 输入直接由
             # Pillow 解码并保存为 png（保留 ICC 配置），避免“名不副实的假 png”。
             if not processor.AVAILABLE:
-                return False, "输出 PNG 需要 Pillow 支持（请先安装 Pillow）", ""
+                return False, i18n.t("输出 PNG 需要 Pillow 支持（请先安装 Pillow）"), ""
             try:
                 from PIL import Image
                 img = Image.open(src)
@@ -8380,10 +8380,10 @@ class ConvertWorker(QThread):
                     img.save(out_path, "PNG", icc_profile=icc)
                 else:
                     img.save(out_path, "PNG")
-                return True, "已保存为 PNG（Pillow 解码）。", ""
+                return True, i18n.t("已保存为 PNG（Pillow 解码）。"), ""
             except Exception as exc:
                 detail = str(exc).replace(chr(92) + chr(92), chr(92))
-                return False, "Pillow 解码失败：%s" % detail, ""
+                return False, i18n.t("Pillow 解码失败：%s") % detail, ""
         ok, message, tag = converter.encode(src, out_path, **self._encode_kwargs())
         if ok:
             return True, message, tag
@@ -8406,10 +8406,10 @@ class ConvertWorker(QThread):
             # the backslashes doubled ("F:\\..."). Normalize to a single
             # backslash so the path reads naturally in the status log.
             detail = str(exc).replace("\\\\", "\\")
-            return False, "cjxl 无法读取该输入格式，且 Pillow 解码失败：%s" % detail, ""
+            return False, i18n.t("cjxl 无法读取该输入格式，且 Pillow 解码失败：%s") % detail, ""
         ok2, msg2, tag2 = converter.encode(tmp_png, out_path, **self._encode_kwargs())
         if ok2:
-            return True, "通过 Pillow 兼容解码（输入格式 cjxl 不支持）后编码完成。", tag2
+            return True, i18n.t("通过 Pillow 兼容解码（输入格式 cjxl 不支持）后编码完成。"), tag2
         return False, msg2, tag2
 
     def run(self):
@@ -8436,8 +8436,8 @@ class ConvertWorker(QThread):
         try:
             self.log_signal.emit(_LOG_SEPARATOR)
             self.log_signal.emit(
-                "并发设置：核心数=%s，双队列调度（大图独占满核 / 小图并行均分）"
-                % (self.cpu_cores if not auto else "自动")
+                i18n.t("并发设置：核心数=%s，双队列调度（大图独占满核 / 小图并行均分）")
+                % (self.cpu_cores if not auto else i18n.t("自动"))
             )
             self.log_signal.emit("")
             self.log_signal.emit("开始转换：" + _format_datetime(self._stat_started))
@@ -8449,7 +8449,7 @@ class ConvertWorker(QThread):
             small, big, nt_small, pool_small = self._classify_jobs(all_indexed)
             nt_big = self._big_threads(cores)
             self.log_signal.emit(
-                "调度分类：小图 %d 张（每图 %d 线程并行）/ 大图 %d 张（每图 %d 线程）"
+                i18n.t("调度分类：小图 %d 张（每图 %d 线程并行）/ 大图 %d 张（每图 %d 线程）")
                 % (len(small), nt_small, len(big), nt_big)
             )
             self.log_signal.emit("")
@@ -8471,7 +8471,7 @@ class ConvertWorker(QThread):
                     self._run_single(indexed_job)
 
             if self._stopped:
-                self.log_signal.emit("已停止。")
+                self.log_signal.emit(i18n.t("已停止。"))
         finally:
             self.finished_signal.emit()
 
@@ -8510,7 +8510,7 @@ class ConvertWorker(QThread):
                 try:
                     res = fut.result()
                 except Exception as exc:
-                    res = (False, "处理出错：%s" % exc, 0, 0, True)
+                    res = (False, i18n.t("处理出错：%s") % exc, 0, 0, True)
                 ok, message, tag, in_size, out_size, stopped, discarded = res
                 if stopped:
                     continue
@@ -8612,7 +8612,7 @@ class ConvertWorker(QThread):
         try:
             in_size = _safe_getsize(src)
             self.status_signal.emit(
-                "正在处理 (%d/%d)：%s" % (index, self._total, os.path.basename(src))
+                i18n.t("正在处理 (%d/%d)：%s") % (index, self._total, os.path.basename(src))
             )
             tmp_files = []
             try:
@@ -8659,12 +8659,12 @@ class ConvertWorker(QThread):
                         os.remove(out_path)
                     discarded = True
                     self.log_signal.emit(
-                        "编码结果较大（%d ≥ %d 字节），已丢弃 JXL 输出，保留原文件。"
+                        i18n.t("编码结果较大（%d ≥ %d 字节），已丢弃 JXL 输出，保留原文件。")
                         % (out_size, in_size)
                     )
                 except OSError as exc:
                     self.log_signal.emit(
-                        "丢弃较大 JXL 输出失败（已保留）：%s —— %s" % (out_path, exc)
+                        i18n.t("丢弃较大 JXL 输出失败（已保留）：%s —— %s") % (out_path, exc)
                     )
             # 保持时间戳：成功且未丢弃时，把输出文件的时间属性还原为与原文件一致。
             # 任一失败都不影响转换结果（ok 保持 True），仅记日志；丢弃的输出已不存在。
@@ -8676,12 +8676,12 @@ class ConvertWorker(QThread):
                         _preserve_ctime(src, out_path)
                 except Exception as exc:
                     self.log_signal.emit(
-                        "保持时间戳失败（已忽略）：%s —— %s" % (out_path, exc)
+                        i18n.t("保持时间戳失败（已忽略）：%s —— %s") % (out_path, exc)
                     )
             return (ok, message, tag, in_size, (0 if discarded else out_size), False, discarded)
         except Exception as exc:
             stopped = self._stopped
-            return (False, "处理出错：%s" % exc, "", in_size, 0, stopped, False)
+            return (False, i18n.t("处理出错：%s") % exc, "", in_size, 0, stopped, False)
 
     def _record_result(self, index, src, ok, message, in_size, out_size, tag,
                        discarded=False):
@@ -8712,7 +8712,7 @@ class ConvertWorker(QThread):
                 )
         else:
             self._stat_err += 1
-            self.log_signal.emit("处理失败：%s" % message)
+            self.log_signal.emit(i18n.t("处理失败：%s") % message)
 
 
 class ActionParamDialog(QDialog):
@@ -8725,7 +8725,7 @@ class ActionParamDialog(QDialog):
 
     def __init__(self, action_type, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("动作参数 - %s" % action_type)
+        self.setWindowTitle(i18n.t("动作参数 - %s") % action_type)
         self.action_type = action_type
         self._controls = {}  # name -> (widget, getter)
 
@@ -8736,19 +8736,19 @@ class ActionParamDialog(QDialog):
         if action_type == "调整大小":
             w = QSpinBox()
             w.setRange(0, 100000)
-            w.setSpecialValueText("自动(按比例)")
+            w.setSpecialValueText(i18n.t("自动(按比例)"))
             h = QSpinBox()
             h.setRange(0, 100000)
-            h.setSpecialValueText("自动(按比例)")
-            form.addRow("目标宽度 (像素, 0=自动):", w)
-            form.addRow("目标高度 (像素, 0=自动):", h)
+            h.setSpecialValueText(i18n.t("自动(按比例)"))
+            form.addRow(i18n.t("目标宽度 (像素, 0=自动):"), w)
+            form.addRow(i18n.t("目标高度 (像素, 0=自动):"), h)
             self._controls["width"] = (w, lambda: w.value())
             self._controls["height"] = (h, lambda: h.value())
         elif action_type == "旋转":
             a = QSpinBox()
             a.setRange(-360, 360)
             a.setValue(90)
-            form.addRow("顺时针角度 (度):", a)
+            form.addRow(i18n.t("顺时针角度 (度):"), a)
             self._controls["angle"] = (a, lambda: a.value())
         elif action_type == "水印":
             t = QLineEdit("Sample")
@@ -8767,11 +8767,11 @@ class ActionParamDialog(QDialog):
             col = NoFlickerComboBox()
             col.addItems(["white", "black"])
             col.setCurrentText("white")
-            form.addRow("水印文字:", t)
-            form.addRow("字号:", fs)
-            form.addRow("透明度 (0-255):", op)
-            form.addRow("位置:", pos)
-            form.addRow("颜色:", col)
+            form.addRow(i18n.t("水印文字:"), t)
+            form.addRow(i18n.t("字号:"), fs)
+            form.addRow(i18n.t("透明度 (0-255):"), op)
+            form.addRow(i18n.t("位置:"), pos)
+            form.addRow(i18n.t("颜色:"), col)
             self._controls["text"] = (t, lambda: t.text())
             self._controls["font_size"] = (fs, lambda: fs.value())
             self._controls["opacity"] = (op, lambda: op.value())
@@ -8786,8 +8786,8 @@ class ActionParamDialog(QDialog):
             c.setRange(0.0, 3.0)
             c.setSingleStep(0.1)
             c.setValue(1.0)
-            form.addRow("亮度 (1.0=不变):", b)
-            form.addRow("对比度 (1.0=不变):", c)
+            form.addRow(i18n.t("亮度 (1.0=不变):"), b)
+            form.addRow(i18n.t("对比度 (1.0=不变):"), c)
             self._controls["brightness"] = (b, lambda: b.value())
             self._controls["contrast"] = (c, lambda: c.value())
         elif action_type == "锐化":
@@ -8795,14 +8795,14 @@ class ActionParamDialog(QDialog):
             f.setRange(0.0, 5.0)
             f.setSingleStep(0.1)
             f.setValue(1.5)
-            form.addRow("锐化强度 (1.0=不变):", f)
+            form.addRow(i18n.t("锐化强度 (1.0=不变):"), f)
             self._controls["factor"] = (f, lambda: f.value())
         elif action_type == "裁剪":
             for label, name in (
-                ("左边距 (像素):", "left"),
-                ("上边距 (像素):", "top"),
-                ("宽度 (像素, 0=到边界):", "width"),
-                ("高度 (像素, 0=到边界):", "height"),
+                (i18n.t("左边距 (像素):"), "left"),
+                (i18n.t("上边距 (像素):"), "top"),
+                (i18n.t("宽度 (像素, 0=到边界):"), "width"),
+                (i18n.t("高度 (像素, 0=到边界):"), "height"),
             ):
                 sp = QSpinBox()
                 sp.setRange(0, 100000)
@@ -8821,19 +8821,19 @@ class ActionParamDialog(QDialog):
             h = int(self._controls["height"][1]())
             if w == 0 and h == 0:
                 self.parent()._show_warning_centered(
-                    "参数无效", "调整大小需至少设置宽度或高度之一。")
+                    i18n.t("参数无效"), i18n.t("调整大小需至少设置宽度或高度之一。"))
                 return
         elif self.action_type == "裁剪":
             w = int(self._controls["width"][1]())
             h = int(self._controls["height"][1]())
             if w == 0 and h == 0:
                 self.parent()._show_warning_centered(
-                    "参数无效", "裁剪需至少设置宽度或高度之一。")
+                    i18n.t("参数无效"), i18n.t("裁剪需至少设置宽度或高度之一。"))
                 return
         elif self.action_type == "水印":
             if not (self._controls["text"][1]() or "").strip():
                 self.parent()._show_warning_centered(
-                    "参数无效", "水印文字不能为空。")
+                    i18n.t("参数无效"), i18n.t("水印文字不能为空。"))
                 return
         super().accept()
 

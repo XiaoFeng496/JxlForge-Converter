@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from . import i18n
+
 """纯 Python 实现的非主流图像格式支持（0 外部依赖，仅用标准库）。
 
 覆盖两类能力：
@@ -48,16 +50,16 @@ def pfm_to_ppm_bytes(path):
     with open(path, "rb") as f:
         data = f.read()
     if len(data) < 8:
-        raise ValueError("文件过小，不是 PFM")
+        raise ValueError(i18n.t("文件过小，不是 PFM"))
     nl1 = data.index(b"\n")
     magic = data[:nl1].strip()
     if magic not in (b"PF", b"Pf"):
-        raise ValueError("magic 不符，不是 PFM")
+        raise ValueError(i18n.t("magic 不符，不是 PFM"))
     channels = 3 if magic == b"PF" else 1
     nl2 = data.index(b"\n", nl1 + 1)
     wh = data[nl1 + 1:nl2].split()
     if len(wh) < 2:
-        raise ValueError("PFM 头缺少宽高")
+        raise ValueError(i18n.t("PFM 头缺少宽高"))
     width = int(wh[0])
     height_raw = int(wh[1])
     nl3 = data.index(b"\n", nl2 + 1)
@@ -65,13 +67,13 @@ def pfm_to_ppm_bytes(path):
     little_endian = scale < 0
     height = abs(height_raw)
     if width <= 0 or height <= 0:
-        raise ValueError("PFM 宽高非法")
+        raise ValueError(i18n.t("PFM 宽高非法"))
 
     count = width * height * channels
     data_start = nl3 + 1
     raw = data[data_start:data_start + count * 4]
     if len(raw) < count * 4:
-        raise ValueError("PFM 像素数据不完整")
+        raise ValueError(i18n.t("PFM 像素数据不完整"))
     floats = struct.unpack(("<" if little_endian else ">") + ("%df" % count), raw)
 
     # height>0 时 PFM 自底向上存储，翻转为自上向下以匹配 PPM。
@@ -127,14 +129,14 @@ def pam_to_ppm_bytes(path):
     with open(path, "rb") as f:
         full = f.read()
     if len(full) < 8 or not full.startswith(b"P7"):
-        raise ValueError("magic 不符，不是 PAM")
+        raise ValueError(i18n.t("magic 不符，不是 PAM"))
 
     # 头部文本以 "ENDHDR\n" 行终结，其后紧跟二进制像素数据。搜索带换行的
     # "ENDHDR\n" 既能精确定位头部边界，也避免把像素二进制里恰好出现的
     # 裸 "ENDHDR" 误判为头部结束。
     marker = full.find(b"ENDHDR\n")
     if marker < 0:
-        raise ValueError("PAM 缺少 ENDHDR")
+        raise ValueError(i18n.t("PAM 缺少 ENDHDR"))
     header = full[:marker].decode("ascii", "ignore")
     fields = {}
     for line in header.split("\n"):
@@ -147,23 +149,23 @@ def pam_to_ppm_bytes(path):
         depth = int(fields["DEPTH"])
         maxval = int(fields["MAXVAL"])
     except (KeyError, ValueError):
-        raise ValueError("PAM 头字段缺失或非法")
+        raise ValueError(i18n.t("PAM 头字段缺失或非法"))
     if width <= 0 or height <= 0 or depth <= 0:
-        raise ValueError("PAM 尺寸非法")
+        raise ValueError(i18n.t("PAM 尺寸非法"))
     tupltype = fields.get("TUPLTYPE", "RGB")
     if maxval <= 0:
-        raise ValueError("PAM MAXVAL 非法")
+        raise ValueError(i18n.t("PAM MAXVAL 非法"))
 
     sb = 1 if maxval <= 255 else (2 if maxval <= 65535 else None)
     if sb is None:
-        raise ValueError("不支持的 PAM MAXVAL（>65535）")
+        raise ValueError(i18n.t("不支持的 PAM MAXVAL（>65535）"))
 
     # 数据即 "ENDHDR\n" 之后的全部内容（含像素二进制，不再跳过任何字节）。
     i = marker + len(b"ENDHDR\n")
     data = full[i:]
     expected = width * height * depth * sb
     if len(data) < expected:
-        raise ValueError("PAM 像素数据不完整")
+        raise ValueError(i18n.t("PAM 像素数据不完整"))
 
     target = _pam_colortype(tupltype, depth)
     out = bytearray()
@@ -209,17 +211,17 @@ def pgx_to_ppm_bytes(path):
     nl = full.index(b"\n")
     tokens = full[:nl].decode("ascii", "ignore").split()
     if len(tokens) < 6 or tokens[0] != "PG":
-        raise ValueError("magic 不符，不是 PGX")
+        raise ValueError(i18n.t("magic 不符，不是 PGX"))
     endian = tokens[1].upper()
     sign = tokens[2].upper()
     prec = int(tokens[3])
     width = int(tokens[4])
     height = int(tokens[5])
     if width <= 0 or height <= 0 or prec <= 0:
-        raise ValueError("PGX 头参数非法")
+        raise ValueError(i18n.t("PGX 头参数非法"))
     sb = (prec + 7) // 8
     if sb not in (1, 2):
-        raise ValueError("不支持的 PGX 精度（>16 位）")
+        raise ValueError(i18n.t("不支持的 PGX 精度（>16 位）"))
 
     ec = "<" if endian == "LM" else ">"
     if sb == 1:
@@ -229,7 +231,7 @@ def pgx_to_ppm_bytes(path):
     n = width * height
     raw = full[nl + 1:nl + 1 + n * sb]
     if len(raw) < n * sb:
-        raise ValueError("PGX 像素数据不完整")
+        raise ValueError(i18n.t("PGX 像素数据不完整"))
     vals = struct.unpack(ec + fmt[1:] * n, raw)
 
     mn = min(vals)
@@ -295,7 +297,7 @@ def parse_exr_header(path):
     with open(path, "rb") as f:
         head = f.read(8)
     if len(head) < 8 or head[:4] != _EXR_MAGIC:
-        raise ValueError("magic 不符，不是 EXR")
+        raise ValueError(i18n.t("magic 不符，不是 EXR"))
 
     with open(path, "rb") as f:
         data = f.read()
@@ -351,7 +353,7 @@ def parse_exr_header(path):
         elif name == "channels" and typ == "chlist":
             meta["channels"] = _parse_exr_chlist(val)
         elif name == "compression" and size >= 1:
-            meta["compression"] = _COMPRESSION_NAMES.get(val[0], "未知(%d)" % val[0])
+            meta["compression"] = _COMPRESSION_NAMES.get(val[0], i18n.t("未知(%d)") % val[0])
         elif name == "pixelAspectRatio" and typ == "float" and size >= 4:
             meta["pixelAspectRatio"] = struct.unpack("<f", val[:4])[0]
         elif name == "lineOrder" and size >= 1:
@@ -361,32 +363,32 @@ def parse_exr_header(path):
             meta["tiles"] = {"x": xt, "y": yt, "mode": mode}
 
     if meta["width"] <= 0 or meta["height"] <= 0:
-        raise ValueError("EXR 头部缺少有效的 dataWindow")
+        raise ValueError(i18n.t("EXR 头部缺少有效的 dataWindow"))
     return meta
 
 
 def exr_metadata_text(meta):
     """把 EXR 元数据字典渲染为可展示的多行中文文本。"""
     lines = []
-    lines.append("格式：OpenEXR（浮点 HDR）")
-    lines.append("文件名：%s" % (meta.get("filename") or ""))
+    lines.append(i18n.t("格式：OpenEXR（浮点 HDR）"))
+    lines.append(i18n.t("文件名：%s") % (meta.get("filename") or ""))
     w = meta.get("width") or 0
     h = meta.get("height") or 0
-    lines.append("尺寸：%d x %d" % (w, h) if w and h else "尺寸：未知")
+    lines.append(i18n.t("尺寸：%d x %d") % (w, h) if w and h else i18n.t("尺寸：未知"))
     ch = meta.get("channels") or []
-    ch_str = "、".join("%s(%s)" % (c["name"], c["type"]) for c in ch) or "未知"
-    lines.append("通道：%s" % ch_str)
-    lines.append("压缩：%s" % (meta.get("compression") or "未知"))
-    lines.append("像素宽高比：%.4f" % (meta.get("pixelAspectRatio") or 1.0))
+    ch_str = "、".join("%s(%s)" % (c["name"], c["type"]) for c in ch) or i18n.t("未知")
+    lines.append(i18n.t("通道：%s") % ch_str)
+    lines.append(i18n.t("压缩：%s") % (meta.get("compression") or i18n.t("未知")))
+    lines.append(i18n.t("像素宽高比：%.4f") % (meta.get("pixelAspectRatio") or 1.0))
     lo = meta.get("lineOrder") or ""
     if lo:
-        lines.append("行序：%s" % lo)
+        lines.append(i18n.t("行序：%s") % lo)
     t = meta.get("tiles")
     if t:
-        lines.append("分块：%d x %d" % (t["x"], t["y"]))
+        lines.append(i18n.t("分块：%d x %d") % (t["x"], t["y"]))
     if meta.get("multipart"):
-        lines.append("多部件：是")
-    lines.append("文件大小：%s" % _fmt_size(meta.get("filesize") or 0))
+        lines.append(i18n.t("多部件：是"))
+    lines.append(i18n.t("文件大小：%s") % _fmt_size(meta.get("filesize") or 0))
     lines.append("")
-    lines.append("说明：EXR 为浮点 HDR 格式，本工具仅解析头部元数据，不渲染像素缩略图。")
+    lines.append(i18n.t("说明：EXR 为浮点 HDR 格式，本工具仅解析头部元数据，不渲染像素缩略图。"))
     return "\n".join(lines)
