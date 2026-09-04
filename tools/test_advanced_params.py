@@ -401,8 +401,12 @@ from PySide6.QtGui import QPalette
 check("输出页已包进 QScrollArea", isinstance(w.output_scroll, QScrollArea))
 check("滚动区 widgetResizable=True（内容短则填满、长则滚动）",
       w.output_scroll.widgetResizable() is True)
-check("关闭横向滚动条",
-      w.output_scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff)
+# 横向滚动条：原为 AlwaysOff，但英文译文比中文长 30~60%，默认 880 宽的窗口下
+# 输出页内容固有宽度需求达 829px（可视宽仅约 844，余量 15px），一旦再窄就右侧
+# 被直接截断且无法滚动查看。故改为 AsNeeded：正常宽度不出现（观感不变），
+# 只有真的放不下时才出现，用作永不截断的兜底。
+check("横向滚动条按需出现（超宽可滚动、不截断；正常宽度不出现）",
+      w.output_scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAsNeeded)
 check("滚动区无边框（融入标签页）",
       w.output_scroll.frameShape() == QFrame.NoFrame)
 # 输出页（滚动区/视口/内容容器/分组框）必须全部透明，直接透出 QTabWidget

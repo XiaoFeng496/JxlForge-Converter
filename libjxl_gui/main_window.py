@@ -3226,7 +3226,11 @@ class MainWindow(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # 横向滚动条改为「按需出现」：原先 AlwaysOff 会让超宽内容的右侧被
+        # 直接截断且无法滚动查看。英文译文比中文长 30~60%，在默认 880 宽的
+        # 窗口下极易超宽。AsNeeded 保证正常宽度下不出现滚动条（观感不变），
+        # 只有真的放不下时才出现，用作永不截断的兜底。
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setAutoFillBackground(False)
         scroll.viewport().setAutoFillBackground(False)
         self.output_scroll = scroll
@@ -3267,8 +3271,13 @@ class MainWindow(QMainWindow):
         enc_layout = QVBoxLayout(enc_group)
 
         # 编码模式：有损 / 无损 / JPG 无损重编码（互斥单选）。
-        # effort（--effort，1-9，默认 7）放在模式右侧，三种模式通用，
-        # 给下方高级参数预留垂直空间。
+        #
+        # 注意：effort（--effort，1-9，默认 7）原本放在本行右侧，但英文译文
+        # 比中文长 30~60%，三个单选（尤其 "JPG lossless re-encode
+        # (--lossless_jpeg=1)"）与 effort 标签挤在同一行时，整行需要 811px，
+        # 而默认窗口仅 880（可视宽约 810~830），超出部分因输出页关闭了横向
+        # 滚动条而被直接截断。故把 effort 下移到质量行右侧：两行各自变窄，
+        # 整页宽度需求由 max(两行) 决定，显著下降。
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel(i18n.t("编码模式：")))
         self.lossy_radio = QRadioButton(i18n.t("有损"))
@@ -3283,15 +3292,11 @@ class MainWindow(QMainWindow):
         mode_row.addWidget(self.lossless_radio)
         mode_row.addWidget(self.lossless_jpeg_radio)
         mode_row.addStretch(1)
-        mode_row.addWidget(QLabel(i18n.t("速度/质量权衡 (--effort)：")))
-        self.effort_combo = NoFlickerComboBox()
-        self.effort_combo.addItems([str(i) for i in range(1, 10)])
-        self.effort_combo.setCurrentText("7")
-        mode_row.addWidget(self.effort_combo)
         enc_layout.addLayout(mode_row)
 
         # 质量滑块（--quality，0-100，默认 90）：仅「有损」模式可用。
         # 右侧用 QSpinBox 显示数值，支持键盘输入与鼠标上下箭头微调。
+        # effort 与本行同行（见上方 mode_row 注释：为压低整页宽度需求而下移）。
         qual_row = QHBoxLayout()
         qual_row.addWidget(QLabel(i18n.t("质量 (--quality)：")))
         self.quality_slider = QSlider(Qt.Horizontal)
@@ -3304,6 +3309,12 @@ class MainWindow(QMainWindow):
         self.quality_spin.valueChanged.connect(self.quality_slider.setValue)
         qual_row.addWidget(self.quality_slider, stretch=1)
         qual_row.addWidget(self.quality_spin)
+        qual_row.addSpacing(16)
+        qual_row.addWidget(QLabel(i18n.t("速度/质量权衡 (--effort)：")))
+        self.effort_combo = NoFlickerComboBox()
+        self.effort_combo.addItems([str(i) for i in range(1, 10)])
+        self.effort_combo.setCurrentText("7")
+        qual_row.addWidget(self.effort_combo)
         enc_layout.addLayout(qual_row)
 
         # ---- 高级参数（可折叠分组，默认收起；基础参数一律不动）----
@@ -4045,7 +4056,11 @@ class MainWindow(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # 横向滚动条改为「按需出现」：原先 AlwaysOff 会让超宽内容的右侧被
+        # 直接截断且无法滚动查看。英文译文比中文长 30~60%，在默认 880 宽的
+        # 窗口下极易超宽。AsNeeded 保证正常宽度下不出现滚动条（观感不变），
+        # 只有真的放不下时才出现，用作永不截断的兜底。
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setAutoFillBackground(False)
         scroll.viewport().setAutoFillBackground(False)
         inner = QWidget()
