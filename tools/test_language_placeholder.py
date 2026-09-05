@@ -181,6 +181,32 @@ def test_language_persists_on_change():
     print("PASS language_persists_on_change")
 
 
+def test_follow_system_persists_on_change():
+    r"""选择「跟随系统」哨兵项也必须写入 appearance/language。
+
+    回归：此前保存处理器用 _LANGUAGE_ORDER（仅真实语言）做白名单，
+    follow_system 不在其中被直接 return，导致该选项永远落不了盘、重启回退。
+    修复后守卫改用 _LANGUAGE_COMBO_ORDER（含 follow_system / zh_TW 哨兵）。
+    """
+    app, _ = _bootstrap()
+    from libjxl_gui.main_window import MainWindow
+    w = MainWindow()
+    combo = w.language_combo
+    # 跟随系统是默认选中项（index 0），直接 setCurrentIndex(0) 不会触发
+    # currentIndexChanged（索引没变）。模拟真实用户：先从已选的 English 切到
+    # 跟随系统（索引变化才会发信号、走保存链路）。
+    combo.setCurrentIndex(combo.findData("en_US"))
+    combo.setCurrentIndex(combo.findData("follow_system"))
+    settings = QSettings()
+    settings.beginGroup("appearance")
+    stored = settings.value("language")
+    settings.endGroup()
+    assert stored == "follow_system", \
+        "选择「跟随系统」后应写入 appearance/language=follow_system，实际=%r" % (stored,)
+    w.close()
+    print("PASS follow_system_persists_on_change")
+
+
 def test_language_applied_on_next_launch():
     r"""重启路径：__main__._apply_persisted_language() 要在构造窗口前
     把持久化的语言装进 i18n，否则界面仍是中文。"""
@@ -250,6 +276,7 @@ def main():
         test_grid_positions_in_常规,
         test_language_items_and_default,
         test_language_persists_on_change,
+        test_follow_system_persists_on_change,
         test_language_applied_on_next_launch,
         test_invalid_language_falls_back,
     ]

@@ -141,8 +141,8 @@ def resolve_language(pref):
 
     - ``"follow_system"``（跟随系统，默认选中）：启动 / 下次启动时按系统 UI
       语言选；系统语言命中已有语言就用它，否则回落 ``en_US``。
-    - ``"zh_TW"``（繁體中文，仅占位）：翻译尚未实现，选中后回落简体中文
-      （源码即译文，界面仍完整可读）。
+    - ``"zh_TW"``（繁體中文）：已从 i18n/zh_TW.json 收录真实繁体译文，选中即加载；
+      仅当该 json 缺失（未实现）时才走下方兜底回落简体中文。
 
     真实代码（默认 zh_CN 或在 available_languages() 里）原样返回。
     """
@@ -150,7 +150,8 @@ def resolve_language(pref):
         return pref
     if pref == "follow_system":
         return _detect_system_language()
-    # 占位 / 未知 → 简体中文（源码原文），避免空字典让界面半中半英
+    # 未知（既非真实已收录语言、也非哨兵项）→ 简体中文（源码原文），
+    # 避免空字典让界面半中半英。
     return DEFAULT_LANGUAGE
 
 

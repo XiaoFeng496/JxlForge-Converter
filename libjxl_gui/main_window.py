@@ -172,6 +172,10 @@ _PREVIEW_OOM_CAP = 8192
 # 无关，小图解码只要几毫秒却仍会完整跳变一次，故大图小图都闪）。
 # 只有解码耗时超过此阈值（真·大图）才切到加载态，此时跳变一次是合理反馈。
 _PREVIEW_LOADING_HINT_DELAY = 400
+# 动作项（ActionItemWidget）行尾三个紧凑按钮的最大宽度（px）。
+# 用固定值而非 sizeHint 自适应：自适应会让按钮按内容撑到 ~80px 过大；
+# 固定值保持紧凑。英文简写 Up/Down/Del 在此宽度内可完整显示。
+_ACTION_BTN_MAX_WIDTH = 50
 _DECODE_TEMP_DIR = None
 
 # 缩略图像素缓存（path, px) -> QImage 与悬停信息缓存 path -> str 都可能在
@@ -1512,13 +1516,15 @@ class ActionItemWidget(QWidget):
             self.summary_label.setText(self._summary_text())
         top_row.addWidget(self.summary_label, stretch=1)
         # 三个紧凑按钮（与标题同行，不另起一行）
-        # 用户要求：高度用默认（QPushButton 标准高度），宽度刚好显示文字。
-        # 设 setMaximumWidth 让内容决定宽度（不再设 fixed/minimum 强制拉宽）。
+        # 用户要求：高度用默认（QPushButton 标准高度），宽度紧凑。
+        # 最大宽度用固定常量 _ACTION_BTN_MAX_WIDTH（不按 sizeHint 自适应，否则按钮过大）；
+        # 英文「Move up / Move down / Remove」在紧凑面板里会被截断，已简化为
+        # 「Up / Down / Del」，在该固定宽度内可完整显示。
         self.up_button = QPushButton(i18n.t("上移"))
         self.down_button = QPushButton(i18n.t("下移"))
         self.remove_button = QPushButton(i18n.t("移除"))
         for b in (self.up_button, self.down_button, self.remove_button):
-            b.setMaximumWidth(50)
+            b.setMaximumWidth(_ACTION_BTN_MAX_WIDTH)
             top_row.addWidget(b)
         root.addLayout(top_row)
         # 第 2 行：inline 参数（可折叠）
@@ -1620,7 +1626,7 @@ class ActionItemWidget(QWidget):
             widgets["height"] = h
             algo = NoFlickerComboBox()
             for key, lab in processor.RESIZE_ALGORITHMS:
-                algo.addItem(lab, userData=key)
+                algo.addItem(i18n.t(lab), userData=key)
             cur = p.get("algorithm", "LANCZOS")
             idx = next((i for i, (k, _) in enumerate(processor.RESIZE_ALGORITHMS)
                         if k == cur), 0)
@@ -1963,21 +1969,19 @@ _QT_COLOR_SCHEMES = {
 # i18n.language_order() 以保住 test_i18n_add_language 的「不写死清单」契约）：
 #   - "follow_system"（跟随系统，默认选中）：启动 / 切语言时按系统 UI 语言选，
 #     系统语言不在已有语言里则回落 English。
-#   - "zh_TW"（繁體中文，仅占位）：翻译尚未实现，选中后回落简体中文（源码原文）。
+#   - "zh_TW"（繁體中文）：已实现翻译；下拉固定显示自称名，不随界面语言翻译。
 _LANGUAGE_DEFAULT = "follow_system"
 _LANGUAGE_ORDER = tuple(i18n.language_order())
-# 繁體中文(zh_TW) 仅占位、尚未实现，固定置于「简体中文」下方：
-# 在 _LANGUAGE_ORDER 中紧随 zh_CN 插入；若 zh_CN 不在清单（极端情况）则兜底追加到末尾。
-_combo = ["follow_system"]
-_placed_tw = False
-for _code in _LANGUAGE_ORDER:
-    _combo.append(_code)
-    if _code == "zh_CN":
-        _combo.append("zh_TW")
-        _placed_tw = True
-if not _placed_tw:
-    _combo.append("zh_TW")
-_LANGUAGE_COMBO_ORDER = tuple(_combo)
+# 繁體中文(zh_TW) 固定置于「简体中文」下方（不论它是否已实现、是否在
+# _LANGUAGE_ORDER 里都只出现一次）：先从真实语言清单移除 zh_TW，再插到 zh_CN 之后。
+_real = list(_LANGUAGE_ORDER)
+if "zh_TW" in _real:
+    _real.remove("zh_TW")
+try:
+    _real.insert(_real.index("zh_CN") + 1, "zh_TW")
+except ValueError:
+    _real.append("zh_TW")
+_LANGUAGE_COMBO_ORDER = ("follow_system",) + tuple(_real)
 _LANGUAGE_LABELS = {
     "follow_system": "跟随系统",
     "zh_TW": "繁體中文",
@@ -3211,18 +3215,16 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.fit_on_source_change_check)
 
         splitter.addWidget(right)
-        # Default ratio: left (action controls + ordered list) takes 4 parts and
-        # right (preview) takes 5 parts — i.e. a 4:5 split. setStretchFactor only
-        # distributes *extra* space beyond each widget's size hint, so the initial
-        # split is driven by the widgets' minimum sizes; use a deferred setSizes
-        # once the splitter has a real width to force the 4:5 start.
-        splitter.setStretchFactor(0, 4)
-        splitter.setStretchFactor(1, 5)
+        # 默认左右 1:1 均分。setStretchFactor 只在各 widget 的 size hint 之外
+        # 分配「额外空间」，初始分割由 widget 的最小尺寸主导；故用延后的
+        # setSizes 在 splitter 拿到真实宽度后强制 1:1 起步。
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
         splitter.setChildrenCollapsible(False)
 
         def _init_action_splitter():
             total = splitter.width()
-            left = total * 4 // 9
+            left = total // 2
             splitter.setSizes([left, total - left])
         QTimer.singleShot(0, _init_action_splitter)
 
@@ -4231,8 +4233,8 @@ class MainWindow(QMainWindow):
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         _label_row(theme_grid, i18n.t("控件样式"), self.theme_combo, style_tip,
                    row=0, col=1)
-        # 语言（占位项：只提供选项，界面语言切换功能尚未实现）
-        # 放在左列第二行（原「控件样式」位置），右列与「主题」同排的是控件样式。
+        # 语言（跟随系统 / 简体中文 / 繁體中文 / English）：选中后重启程序生效，
+        # 界面文本在窗口构建时取定（实时刷新成本高且易漏）。
         lang_tip = (
             i18n.t("选择界面显示语言。\n"
             "切换后需重启程序生效：界面文本是在窗口构建时就取定的，实时刷新"
@@ -4243,7 +4245,14 @@ class MainWindow(QMainWindow):
         )
         self.language_combo = NoFlickerComboBox()
         for key in _LANGUAGE_COMBO_ORDER:
-            self.language_combo.addItem(_LANGUAGE_LABELS[key], key)
+            label = _LANGUAGE_LABELS[key]
+            # 只有「跟随系统」是功能描述，随界面语言翻译；
+            # 真实语言项（含已实现翻译的繁體中文）固定显示自称名
+            # （如 English / 简体中文 / 繁體中文），否则英文界面会出现
+            # "Traditional Chinese" 之类让人认不出的译文。
+            if key == "follow_system":
+                label = i18n.t(label)
+            self.language_combo.addItem(label, key)
         self._set_combo_min_width(self.language_combo, cap=True)
         # 回显「保存的偏好」，而非当前已加载的有效语言：默认（从未保存过）回退
         # 到 follow_system；若保存的是 follow_system，界面仍显示「跟随系统」，
@@ -7413,7 +7422,7 @@ class MainWindow(QMainWindow):
         构造窗口之前统一应用。
         """
         code = self.language_combo.currentData()
-        if code not in _LANGUAGE_ORDER:
+        if code not in _LANGUAGE_COMBO_ORDER:
             return
         settings = QSettings()
         settings.beginGroup("appearance")
