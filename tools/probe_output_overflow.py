@@ -5,11 +5,9 @@
 ~800），所以「可视宽」不可信。可靠的对比指标是 **内容固有宽度需求**
 inner.sizeHint().width() / minimumSizeHint().width()——它与窗口宽度无关。
 
-输出页的 QScrollArea 关闭了水平滚动条（ScrollBarAlwaysOff），内容一旦
-超出可视宽度就只能被截断。所以要修的是「把内容固有宽度需求降下来」，
-并给出兜底（允许横向滚动）。
-
-本脚本按「顶层行」分解宽度贡献，定位真正的瓶颈行。
+输出页的 QScrollArea 曾设为 ScrollBarAlwaysOff，内容一旦超出可视宽度就只能
+被截断（已改为 ScrollBarAsNeeded 兜底）。本脚本按「顶层行」分解宽度贡献，
+定位真正的瓶颈行，并验证窄窗口下出现的是滚动条而非截断。
 """
 import os
 import sys
@@ -143,6 +141,15 @@ print("=" * 74)
 
 # --- 兜底验证：窗口调窄时，出现的是横向滚动条（可滚动）而非截断 ---
 w = make("en_US")
+# ⚠️ 必须先切到输出页：未激活的标签页布局是陈旧的，量出来的 viewport 宽度
+# 恒定不变（曾因此得到「可视宽 626」的假数据）。
+_tw = w.findChild(QTabWidget)
+for i in range(_tw.count()):
+    if _tw.tabText(i) in ("Output", "输出"):
+        _tw.setCurrentIndex(i)
+        break
+for _ in range(30):
+    app.processEvents()
 print("\n--- 不同窗口宽度下的兜底检查（en_US）---")
 for width in (880, 820, 760, 700, 640, 560):
     w.setFixedSize(width, 640)

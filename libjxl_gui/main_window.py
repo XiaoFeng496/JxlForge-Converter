@@ -3065,11 +3065,11 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left)
 
         toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel(i18n.t("动作类型：")))
-        # 动作类型选择不再用下拉框：改为「添加动作▶」点击后弹出下拉列表，
-        # 在列表里点某一项即添加该动作。这样工具栏只剩「添加动作▶ / 清空」
-        # 两个按钮，省掉下拉框占用的宽度（英文译文比中文长，原下拉是动作页
-        # 向右挤压的来源之一），同时少一次「先选类型、再点添加」的操作。
+        # 动作类型选择不用下拉框：点「添加动作 ▶」弹出下拉列表，在列表里点
+        # 某一项即添加该动作。工具栏只剩「添加动作 ▶ / 清空」两个按钮，省掉
+        # 下拉框占用的宽度（英文译文比中文长，原下拉是动作页向右挤压的来源
+        # 之一），同时少一次「先选类型、再点添加」的操作。
+        # 按钮文案与 ► 之间留一个空格，避免文字与三角贴死。
         #
         # 菜单是持久对象（而非点击时临时构造）：与 view_menu 同构，便于直接
         # 取 actions() 检查，也避免每次点击重建。
@@ -3084,7 +3084,7 @@ class MainWindow(QMainWindow):
             _act.triggered.connect(
                 lambda _checked=False, _a=_aid: self._add_action_by_id(_a)
             )
-        self.add_action_button = QPushButton(i18n.t("添加动作") + "\u25b6")
+        self.add_action_button = QPushButton(i18n.t("添加动作") + " \u25b6")
         self.clear_action_button = QPushButton(i18n.t("清空"))
         toolbar.addWidget(self.add_action_button)
         toolbar.addWidget(self.clear_action_button)
@@ -3110,9 +3110,14 @@ class MainWindow(QMainWindow):
         right_layout.addLayout(src_row)
 
         # Preview toolbar: zoom in / out, 1:1, fit-to-window, toggle original.
-        # The buttons use an Ignored horizontal policy so they shrink (instead
-        # of overflowing / clipping) when the panel is narrow (e.g. at the
-        # default 6x3 window width).
+        #
+        # 横向策略用 Preferred 而非 Ignored：Ignored 会让 5 个按钮【均分】宽度，
+        # 于是任何超过均分值的按钮都被裁切——即使整行还有富余空间（实测 en_US
+        # 下需求 478 / 可用 568，却因均分成 105 而把 Zoom out 与 Original 各裁掉
+        # 5px）。Preferred 让按钮先按 sizeHint 取到需要的宽度，剩余的富余空间
+        # 再均摊，观感仍是填满整行，但不会裁切。
+        # 面板变窄时 Preferred 同样会收缩（实测窗口 620 仍不溢出），不引入
+        # 溢出风险。
         pbar = QHBoxLayout()
         self.zoom_in_button = QPushButton(i18n.t("放大"))
         self.zoom_out_button = QPushButton(i18n.t("缩小"))
@@ -3123,8 +3128,15 @@ class MainWindow(QMainWindow):
             self.zoom_in_button, self.zoom_out_button, self.zoom_actual_button,
             self.zoom_fit_button, self.show_original_button,
         ):
-            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
             pbar.addWidget(b)
+        # 英文译文比中文长，窄面板下按钮文字会被裁切，故这两个按钮用了缩短文案
+        # （Fit / Original），被压缩掉的含义由 tooltip 承载：
+        # - 适应窗口 → Fit：缩放语义，与 1:1 并列，无歧义
+        # - 显示原图 → Original：它是「按住预览、松开恢复」，不是切换开关；
+        #   缩短后丢掉了这个动词感，靠 tooltip 补回
+        self.zoom_fit_button.setToolTip(i18n.t("缩放到适应窗口"))
+        self.show_original_button.setToolTip(i18n.t("按住显示原图，松开回到处理后的结果"))
         right_layout.addLayout(pbar)
 
         self.preview_view = PreviewScroll(self)
@@ -3282,18 +3294,19 @@ class MainWindow(QMainWindow):
         enc_layout = QVBoxLayout(enc_group)
 
         # 编码模式：有损 / 无损 / JPG 无损重编码（互斥单选）。
+        # effort（--effort，1-9，默认 7）三种模式通用，放在本行右侧。
         #
-        # 注意：effort（--effort，1-9，默认 7）原本放在本行右侧，但英文译文
-        # 比中文长 30~60%，三个单选（尤其 "JPG lossless re-encode
-        # (--lossless_jpeg=1)"）与 effort 标签挤在同一行时，整行需要 811px，
-        # 而默认窗口仅 880（可视宽约 810~830），超出部分因输出页关闭了横向
-        # 滚动条而被直接截断。故把 effort 下移到质量行右侧：两行各自变窄，
-        # 整页宽度需求由 max(两行) 决定，显著下降。
+        # 宽度：JPG 单选不再把「--lossless_jpeg=1」写进按钮文字（该标志原样
+        # 传给 cjxl，用户无需看到），改为鼠标悬停时的 tooltip。英文译文比中文
+        # 长 30~60%，去掉这 20 个字符后本行才能容纳 effort。
+        # 兜底见下方 QScrollArea：横向滚动条为 AsNeeded，真放不下时可滚动查看。
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel(i18n.t("编码模式：")))
         self.lossy_radio = QRadioButton(i18n.t("有损"))
         self.lossless_radio = QRadioButton(i18n.t("无损"))
-        self.lossless_jpeg_radio = QRadioButton(i18n.t("JPG 无损重编码 (--lossless_jpeg=1)"))
+        self.lossless_jpeg_radio = QRadioButton(i18n.t("JPG 无损重编码"))
+        # 命令行标志保持字面（与 COMMAND_TEMPLATE 同理），不进字典、不翻译。
+        self.lossless_jpeg_radio.setToolTip("--lossless_jpeg=1")
         self.lossy_radio.setChecked(True)
         self.encode_mode_group = QButtonGroup(self)
         self.encode_mode_group.addButton(self.lossy_radio)
@@ -3303,11 +3316,15 @@ class MainWindow(QMainWindow):
         mode_row.addWidget(self.lossless_radio)
         mode_row.addWidget(self.lossless_jpeg_radio)
         mode_row.addStretch(1)
+        mode_row.addWidget(QLabel(i18n.t("速度/质量权衡 (--effort)：")))
+        self.effort_combo = NoFlickerComboBox()
+        self.effort_combo.addItems([str(i) for i in range(1, 10)])
+        self.effort_combo.setCurrentText("7")
+        mode_row.addWidget(self.effort_combo)
         enc_layout.addLayout(mode_row)
 
         # 质量滑块（--quality，0-100，默认 90）：仅「有损」模式可用。
         # 右侧用 QSpinBox 显示数值，支持键盘输入与鼠标上下箭头微调。
-        # effort 与本行同行（见上方 mode_row 注释：为压低整页宽度需求而下移）。
         qual_row = QHBoxLayout()
         qual_row.addWidget(QLabel(i18n.t("质量 (--quality)：")))
         self.quality_slider = QSlider(Qt.Horizontal)
@@ -3320,12 +3337,6 @@ class MainWindow(QMainWindow):
         self.quality_spin.valueChanged.connect(self.quality_slider.setValue)
         qual_row.addWidget(self.quality_slider, stretch=1)
         qual_row.addWidget(self.quality_spin)
-        qual_row.addSpacing(16)
-        qual_row.addWidget(QLabel(i18n.t("速度/质量权衡 (--effort)：")))
-        self.effort_combo = NoFlickerComboBox()
-        self.effort_combo.addItems([str(i) for i in range(1, 10)])
-        self.effort_combo.setCurrentText("7")
-        qual_row.addWidget(self.effort_combo)
         enc_layout.addLayout(qual_row)
 
         # ---- 高级参数（可折叠分组，默认收起；基础参数一律不动）----
@@ -4472,12 +4483,14 @@ class MainWindow(QMainWindow):
             # 把该状态的记录值同步到通用键，使显示与兜底都与当前状态一致。
             calibrate.write_floor_px(per, scheme=scheme, ac=ac, mode=mode)
             mp = per / 1_000_000.0
+            # 状态栏只给结论（默认窗口宽度放不下长句，末尾会被截掉），
+            # 完整说明 + 重校准建议写到状态页日志里。
             self.statusBar().showMessage(
-                i18n.t("电源状态已切换，已自动套用该状态下的校准阈值（约 %.1f MP），如需更精确可重新校准")
+                i18n.t("电源状态已切换，已自动套用记录阈值（约 %.1f MP）")
                 % mp)
             self.log_edit.appendPlainText(
                 i18n.t("电源状态发生变化（计划=%s，供电=%s，模式=%s）：检测到该状态下已记录的阈值，"
-                "已自动套用（约 %.1f MP）。")
+                "已自动套用（约 %.1f MP）；如需更精确可重新校准。")
                 % (scheme or i18n.t("未知"), ac or i18n.t("未知"), mode or i18n.t("未知"), mp))
         else:
             self.statusBar().showMessage(i18n.t("电源状态发生变化，建议重新校准大图阈值"))
