@@ -3128,7 +3128,7 @@ class MainWindow(QMainWindow):
             self.zoom_in_button, self.zoom_out_button, self.zoom_actual_button,
             self.zoom_fit_button, self.show_original_button,
         ):
-            b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             pbar.addWidget(b)
         # 英文译文比中文长，窄面板下按钮文字会被裁切，故这两个按钮用了缩短文案
         # （Fit / Original），被压缩掉的含义由 tooltip 承载：
@@ -3792,7 +3792,7 @@ class MainWindow(QMainWindow):
         self.custom_cmd_check.toggled.connect(self._on_custom_cmd_toggled)
         cmd_row.addWidget(self.custom_cmd_check)
         self.cmd_edit = QLineEdit()
-        self.cmd_edit.setPlaceholderText("cjxl <输入> <输出> -e 7 ...")
+        self.cmd_edit.setPlaceholderText(i18n.t("cjxl <输入> <输出> -e 7 ..."))
         mono = self.cmd_edit.font()
         mono.setFamily("Consolas")
         self.cmd_edit.setFont(mono)
@@ -3870,7 +3870,7 @@ class MainWindow(QMainWindow):
         # 无需等待放入 JXL 文件。
         fmt = self.format_combo.currentText().lower()
         if "jpg" in fmt:
-            self.cmd_edit.setText("djxl <输入> <输出>")
+            self.cmd_edit.setText(i18n.t("djxl <输入> <输出>"))
             return
         mode = self._current_encode_mode()
         effort = int(self.effort_combo.currentText())
@@ -3895,8 +3895,11 @@ class MainWindow(QMainWindow):
         elif quality is not None and self.input_files:
             if any(converter._is_jpeg(p) for p in self.input_files):
                 lj_flag = 0
+        lang = i18n.current_language()
+        inp_tok = "<input>" if lang == "en_US" else "<输入>"
+        out_tok = "<output>" if lang == "en_US" else "<输出>"
         args = converter.build_args(
-            "<输入>", "<输出>", effort=effort, distance=distance,
+            inp_tok, out_tok, effort=effort, distance=distance,
             quality=quality, lossless_jpeg=lj_flag, **adv,
         )
         self.cmd_edit.setText(" ".join(args))
@@ -7543,7 +7546,9 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(i18n.t("错误：自定义命令为空"))
                 self.log_edit.appendPlainText(i18n.t("错误：自定义命令已勾选但内容为空。"))
                 return
-            if "<输入>" not in raw or "<输出>" not in raw:
+            has_in = "<输入>" in raw or "<input>" in raw
+            has_out = "<输出>" in raw or "<output>" in raw
+            if not has_in or not has_out:
                 self._show_warning_centered(
                     i18n.t("自定义命令格式"),
                     i18n.t("自定义命令必须同时包含 <输入> 和 <输出> 占位符"
@@ -7796,7 +7801,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(i18n.t("转换已停止"))
             self._stop_requested = False
         else:
-            log("转换完成：" + _format_datetime(now))
+            log(i18n.t("转换完成：") + _format_datetime(now))
             self.statusBar().showMessage(
                 i18n.t("转换完成：%d 个文件") % worker._stat_ok
             )
@@ -8405,7 +8410,7 @@ class ConvertWorker(QThread):
         """
         cmd = (self.custom_cmd or "").replace("<输入>", src).replace(
             "<输出>", out_path
-        )
+        ).replace("<input>", src).replace("<output>", out_path)
         try:
             tokens = shlex.split(cmd, posix=False)
         except ValueError as exc:
@@ -8502,7 +8507,7 @@ class ConvertWorker(QThread):
                 % (self.cpu_cores if not auto else i18n.t("自动"))
             )
             self.log_signal.emit("")
-            self.log_signal.emit("开始转换：" + _format_datetime(self._stat_started))
+            self.log_signal.emit(i18n.t("开始转换：") + _format_datetime(self._stat_started))
             self.log_signal.emit("")
             if total == 0:
                 return
