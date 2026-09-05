@@ -3066,15 +3066,26 @@ class MainWindow(QMainWindow):
 
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel(i18n.t("动作类型：")))
-        self.action_combo = NoFlickerComboBox()
-        # 显示名走 t()，userData 存原始中文 ID —— ID 与显示名分离后，
-        # 切英文界面时下拉显示 "Resize"，而 action dict 里仍是 "调整大小"，
-        # processor.apply_actions 那 40 处字面量判断和已有配置都不受影响。
+        # 动作类型选择不再用下拉框：改为「添加动作▶」点击后弹出下拉列表，
+        # 在列表里点某一项即添加该动作。这样工具栏只剩「添加动作▶ / 清空」
+        # 两个按钮，省掉下拉框占用的宽度（英文译文比中文长，原下拉是动作页
+        # 向右挤压的来源之一），同时少一次「先选类型、再点添加」的操作。
+        #
+        # 菜单是持久对象（而非点击时临时构造）：与 view_menu 同构，便于直接
+        # 取 actions() 检查，也避免每次点击重建。
+        #
+        # 菜单项显示译文 t(_aid)、userData 存原始中文 ID —— 与阶段 6 的
+        # ID/显示名分离约定一致：英文界面下显示 "Resize"，而 action dict
+        # 里仍存 "调整大小"，processor.apply_actions 的字面量判断不受影响。
+        self.add_action_menu = QMenu(self)
         for _aid in processor.ACTION_TYPES:
-            self.action_combo.addItem(i18n.t(_aid), _aid)
-        self.add_action_button = QPushButton(i18n.t("添加动作"))
+            _act = self.add_action_menu.addAction(i18n.t(_aid))
+            _act.setData(_aid)
+            _act.triggered.connect(
+                lambda _checked=False, _a=_aid: self._add_action_by_id(_a)
+            )
+        self.add_action_button = QPushButton(i18n.t("添加动作") + "\u25b6")
         self.clear_action_button = QPushButton(i18n.t("清空"))
-        toolbar.addWidget(self.action_combo)
         toolbar.addWidget(self.add_action_button)
         toolbar.addWidget(self.clear_action_button)
         toolbar.addStretch(1)
@@ -3201,7 +3212,7 @@ class MainWindow(QMainWindow):
         self.show_original_button.pressed.connect(self._preview_show_original)
         self.show_original_button.released.connect(self._preview_show_processed)
 
-        self.add_action_button.clicked.connect(self._on_add_action)
+        self.add_action_button.clicked.connect(self._open_add_action_menu)
         self.clear_action_button.clicked.connect(self._on_clear_actions)
         # ⚠️ currentIndexChanged 会带 index(int) 实参；_render_action_preview
         # 的 fit 参数会把它接住 —— 切到 index=0（向上切到第一项）时
@@ -6308,8 +6319,8 @@ class MainWindow(QMainWindow):
     def _add_action_item(self, action, render_preview=True):
         """根据动作字典在列表末尾追加一个动作项。
 
-        供「手动添加动作」(``_on_add_action``) 与「启动恢复已保存动作列表」
-        (``_load_actions_setting``) 共用。
+        供「点菜单项添加动作」(``_add_action_by_id``) 与「启动恢复已保存动作
+        列表」(``_load_actions_setting``) 共用。
         """
         return self._insert_action_item(None, action, render_preview)
 
@@ -6360,15 +6371,32 @@ class MainWindow(QMainWindow):
                 lambda: self._render_action_preview(fit=False))
         self._param_change_timer.start(250)
 
-    def _on_add_action(self):
-        """按当前下拉选中的类型，以默认参数直接追加一个动作项（不再弹参数对话框）。
+    def _open_add_action_menu(self):
+        """点「添加动作▶」时弹出动作类型下拉列表（在按钮左下角对齐展开）。
+
+        菜单项在 ``_build_actions_tab`` 里已构建好（显示译文、userData 存中文
+        ID），点某一项即触发 ``_add_action_by_id`` 添加对应动作。
+
+        ⚠️ 用 ``menu.popup()`` 而非 ``QPushButton.setMenu()``：后者会把按钮
+        渲染成带分离箭头的样式，且弹出位置不可控；手动定位与项目既有的
+        ``_open_folder_menu`` 一致。
+        ⚠️ 同样不要用 ``menu.exec()``：它会进入模态事件循环并阻塞调用者
+        （自动化脚本 / 泄漏扫描器一旦调到该方法就会挂死）。popup() 是非
+        阻塞的，功能等价——用户点菜单项照样触发下面的 _add_action_by_id。
+        """
+        btn = self.add_action_button
+        self.add_action_menu.popup(btn.mapToGlobal(QPoint(0, btn.height())))
+
+    def _add_action_by_id(self, name):
+        """按给定的动作类型（**中文 ID**）以默认参数追加一个动作项。
 
         参数改为 inline 暴露在列表项上：用户可即时调整任意参数，无需切换
         弹窗（旧 ActionParamDialog 已不再被 UI 调用，仅留作历史代码）。
+
+        ⚠️ ``name`` 必须是中文 ID（菜单项的 userData），不能是显示译文：
+        英文界面下菜单显示 "Resize"，但 action dict 必须存 "调整大小"，
+        否则 ``processor.apply_actions`` 的 40 处字面量判断会失效。
         """
-        # 取 userData（原始中文 ID）而不是显示文本：英文界面下显示的是 "Resize"，
-        # 但 action dict 必须存 "调整大小"，否则 apply_actions 判断失效。
-        name = self.action_combo.currentData() or self.action_combo.currentText()
         defaults = dict(processor.DEFAULT_PARAMS.get(name, {}))
         action = {"type": name, "params": defaults, "enabled": True}
         self._add_action_item(action)

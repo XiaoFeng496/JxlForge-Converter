@@ -21,7 +21,12 @@ def check(name, cond):
 
 # Module-level wiring.
 check("ActionParamDialog exists", hasattr(mw, "ActionParamDialog"))
-check("MainWindow._on_add_action", hasattr(mw.MainWindow, "_on_add_action"))
+# 动作类型下拉框已移除：「添加动作▶」点击弹菜单（_open_add_action_menu），
+# 点菜单项走 _add_action_by_id 添加动作（原 _on_add_action）。
+check("MainWindow._open_add_action_menu",
+      hasattr(mw.MainWindow, "_open_add_action_menu"))
+check("MainWindow._add_action_by_id",
+      hasattr(mw.MainWindow, "_add_action_by_id"))
 check("MainWindow._collect_actions", hasattr(mw.MainWindow, "_collect_actions"))
 check("MainWindow._action_summary", hasattr(mw.MainWindow, "_action_summary"))
 # 动作预览在 Phase 4 异步重构中由 _process_with_actions 更名为

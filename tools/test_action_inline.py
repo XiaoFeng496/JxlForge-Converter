@@ -59,11 +59,11 @@ def widget_at(row):
     return win.action_list.itemWidget(win.action_list.item(row))
 
 
-# --- 1) action_combo 含全部 9 个类型 -----------------------------------
-check("动作下拉框含规格化/曝光/阴影高光",
-      all(t in [win.action_combo.itemText(i)
-                for i in range(win.action_combo.count())]
-          for t in ("规格化", "曝光", "阴影/高光")))
+# --- 1) 添加动作菜单含全部 9 个类型 -----------------------------------
+# 动作类型下拉框已移除，改为「添加动作▶」点击弹出的 add_action_menu。
+_action_texts = [a.text() for a in win.add_action_menu.actions()]
+check("添加动作菜单含规格化/曝光/阴影高光",
+      all(t in _action_texts for t in ("规格化", "曝光", "阴影/高光")))
 
 
 # --- 2) 调整大小 inline：width/height/algorithm 三控件 -----------------
@@ -157,9 +157,11 @@ check("改 EV 后 action 数据已更新", get_action(idx)["params"]["ev"] == 1.
 
 
 # --- 4) 默认参数来自 processor.DEFAULT_PARAMS（添加时不弹窗） ---------
-# 模拟选「规格化」点「添加」
-win.action_combo.setCurrentText("规格化")
-win._on_add_action()
+# 模拟在「添加动作▶」下拉里点「规格化」：触发对应菜单项（等价于用户点击）。
+# ⚠️ 用 QAction.trigger() 而非 add_action_button.click()：后者会 exec() 一个
+# 模态菜单而阻塞；trigger() 同步走完「点菜单项 → 添加动作」的完整链路。
+_action_ids = {a.data(): a for a in win.add_action_menu.actions()}
+_action_ids["规格化"].trigger()
 last = get_action(win.action_list.count() - 1)
 check("添加规格化后默认 cutoff=0", last["params"]["cutoff"] == 0)
 check("添加规格化后 enabled=True", last["enabled"] is True)

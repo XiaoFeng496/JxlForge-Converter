@@ -102,16 +102,18 @@ i18n.set_language("en_US")
 print("\n=== 英文界面：显示译文，取值中文 ===")
 w = fresh_window()
 
-# --- 动作类型下拉 ---
-check("动作类型下拉项数正确",
-      w.action_combo.count() == len(processor.ACTION_TYPES))
+# --- 添加动作菜单（原「动作类型」下拉框已移除，改为「添加动作▶」弹出菜单） ---
+# 菜单项与旧下拉同构：text = 译文，data = 原始中文 ID。
+_acts = list(w.add_action_menu.actions())
+check("添加动作菜单项数正确",
+      len(_acts) == len(processor.ACTION_TYPES))
 check("动作类型显示为英文",
-      w.action_combo.itemText(0) == "Resize",
-      "got=%r" % w.action_combo.itemText(0))
+      _acts[0].text() == "Resize",
+      "got=%r" % _acts[0].text())
 check("动作类型 userData 是中文 ID",
-      w.action_combo.itemData(0) == "调整大小",
-      "got=%r" % w.action_combo.itemData(0))
-_ids = [w.action_combo.itemData(i) for i in range(w.action_combo.count())]
+      _acts[0].data() == "调整大小",
+      "got=%r" % _acts[0].data())
+_ids = [a.data() for a in _acts]
 check("全部动作类型 userData 与 ACTION_TYPES 一致",
       _ids == list(processor.ACTION_TYPES), str(_ids))
 
@@ -150,9 +152,10 @@ check("摘要（旋转）类型名已翻译", _sum2.startswith("Rotate"), "got=%
 # 2. 英文界面下添加动作：存进 action dict 的必须是中文 ID
 # ----------------------------------------------------------------------
 print("\n=== 英文界面下添加动作 ===")
-w.action_combo.setCurrentIndex(0)          # 显示 "Resize"
 _before = len(w._all_action_data())
-w.add_action_button.click()
+# ⚠️ 用 QAction.trigger() 而非 add_action_button.click()：后者会 exec() 一个
+# 模态菜单而阻塞。trigger() 同步走完「点菜单项 → 添加动作」的完整链路。
+w.add_action_menu.actions()[0].trigger()      # 显示 "Resize"
 QApplication.instance().processEvents()
 _added = w._all_action_data()
 check("添加后动作数 +1", len(_added) == _before + 1,
@@ -234,8 +237,8 @@ print("\n=== 切回中文 ===")
 i18n.set_language("zh_CN")
 w3 = fresh_window()
 check("中文界面动作类型显示中文",
-      w3.action_combo.itemText(0) == "调整大小",
-      "got=%r" % w3.action_combo.itemText(0))
+      w3.add_action_menu.actions()[0].text() == "调整大小",
+      "got=%r" % w3.add_action_menu.actions()[0].text())
 check("中文界面冲突策略显示中文",
       w3.on_exist_combo.itemText(0) == "替换",
       "got=%r" % w3.on_exist_combo.itemText(0))

@@ -194,10 +194,12 @@ def test_language_applied_on_next_launch():
             "i18n 当前语言应为 en_US，实际=%r" % i18n.current_language()
         # 新窗口的界面文本必须是英文，且内部 ID 仍是中文
         w = MainWindow()
-        assert w.action_combo.itemText(0) == "Resize", \
-            "重启后动作类型应为英文，实际=%r" % w.action_combo.itemText(0)
-        assert w.action_combo.itemData(0) == "调整大小", \
-            "内部 ID 必须是中文，实际=%r" % w.action_combo.itemData(0)
+        # 动作类型下拉框已改为「添加动作▶」弹出的 add_action_menu；
+        # 菜单项 text = 译文，data = 原始中文 ID。
+        assert w.add_action_menu.actions()[0].text() == "Resize", \
+            "重启后动作类型应为英文，实际=%r" % w.add_action_menu.actions()[0].text()
+        assert w.add_action_menu.actions()[0].data() == "调整大小", \
+            "内部 ID 必须是中文，实际=%r" % w.add_action_menu.actions()[0].data()
         # 设置页的语言下拉要回显当前语言，而不是复位成默认
         assert w.language_combo.currentData() == "en_US", \
             "语言下拉应回显 en_US，实际=%r" % w.language_combo.currentData()

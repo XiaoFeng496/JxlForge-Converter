@@ -173,9 +173,18 @@ def scan_tree(out, note=""):
 
 
 def collect_dynamic_menus(w, out):
-    """主动构建动态菜单：这类 QMenu 平时不存在，不触发就扫不到。"""
+    """主动构建动态菜单：这类 QMenu 平时不存在，不触发就扫不到。
+
+    ⚠️ 只调用**构建器**（返回 QMenu 的方法），绝不能调用"打开器"。
+    靠 ``_menu`` 后缀猜语义很脆弱：``_open_add_action_menu`` 这类方法名字
+    也以 _menu 结尾，但它是「弹出菜单」的动作方法，一旦被执行就会进入
+    模态事件循环把扫描器挂死（本项目既有 ``_open_folder_menu`` 用的是非
+    阻塞的 popup() 才侥幸没事）。故显式排除 ``_open`` 前缀。
+    """
     for name in sorted(dir(w.__class__)):
         if not name.endswith("_menu"):
+            continue
+        if name.startswith("_open"):     # 打开器（会弹菜单），不是构建器
             continue
         fn = getattr(w, name, None)
         if not callable(fn):
