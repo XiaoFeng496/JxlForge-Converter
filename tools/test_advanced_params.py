@@ -579,7 +579,7 @@ check("radio 仍保持 Inactive==Active（同源保护不被破坏）",
 # ---------------------------------------------------------------------------
 _container_check = w_cc2._adv_widgets["container"][0]
 check("JXL 容器复选框悬停提示说明保留元数据",
-      _container_check.toolTip() == "启用可保留元数据（如 Exif、XMP、ICC 颜色配置等）")
+      _container_check.toolTip() == "--container：启用可保留元数据（如 Exif、XMP、ICC 颜色配置等）。")
 
 
 print()

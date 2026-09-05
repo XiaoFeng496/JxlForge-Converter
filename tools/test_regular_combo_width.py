@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
-r"""回归测试：切到「原生」后，「常规」区的下拉要按新样式重算最小宽度。
+r"""回归测试：「常规」区下拉在切到原生后**不随原生样式变宽**（页面不向右膨胀）。
 
-背景（bug，仅影响「常规」区）：下拉的 minimumWidth 是构建时按当时样式量出来的。
-Windows 原生样式的箭头按钮与边框内边距比 Fusion 宽，同一个最小宽度留给文字的空间
-更少；全局 _apply_theme 只重算它自己那份名单（控件样式 / CPU 优先级 / CPU 核心 /
-effort），「主题」与「语言」不在其中，于是仍背着 Fusion 量出的偏小下限——窗口收到
-最窄时布局按这个偏小值压缩，文字被裁切。
+背景（设计取舍，2026-09-05 由用户定夺）：下拉的 minimumWidth 是构建时按当时样式
+量出的。Windows 原生样式的箭头按钮与边框内边距比 Fusion 宽，同一个最小宽度留给
+文字的空间更少——若按原生重新量宽（老做法），下拉框会**随原生样式变宽**把设置页
+顶向右（"页面向右膨胀"），且全局 _apply_theme 只重算它自己那份名单（控件样式 /
+CPU 优先级 / CPU 核心 / effort），「主题」与「语言」不在其中。
 
-复现路径（重要）：启动时的持久化主题若是「原生」，_init_theme 在 UI 构建前就已生效，
-下拉按原生度量定宽，不会裁；只有"启动为 原生（无闪烁）/Fusion → 会话内切到原生"
-这条路径才会触发。
+新做法（`_set_combo_min_width(..., cap=True)`）：构建时把 max-width 也钉成量出的
+宽度，下拉框锁定在建構(Fusion)尺寸，切到原生后**不会变宽**——闭合框在原生下可能
+轻微裁切文字，但弹出列表仍按最宽项完整展开，且页面不再向右膨胀。这是用户要的取舍
+（"缩到合适大小" 优先于 "原生下不裁切"）。
 
 覆盖：
-- 会话内切到「原生」时，「主题」与「语言」被重新定宽（用探针记录，与平台样式差无关）。
-- 切回 Fusion 后同样重算。
-- 定宽结果始终满足 minimumWidth == sizeHint().width() + 8。
+- 会话内切到「原生」时，「主题」与「语言」被重新钉宽（max-width 重新钉到 min-width）。
+- 切回 Fusion / 原生（无闪烁）后同样重新钉。
+- 多次切换后这三个「常规」下拉始终 pinned（maximumWidth == minimumWidth），
+  即不会随样式变宽把页面顶出去。
 
 注：每个用例跑在独立的临时 ini 目录，避免污染真实
 %APPDATA%\libjxl\libjxl-gui.ini。
@@ -46,16 +48,19 @@ def _new_window():
     return MainWindow()
 
 
-def _install_spy(w):
-    """Wrap _set_combo_min_width so we can see which combos get re-measured."""
+def _install_pin_spy(w):
+    """Wrap setMaximumWidth on the two re-pinned combos so we can see which
+    combos get re-pinned when the theme switches."""
     recorded = []
-    original = w._set_combo_min_width
+    for name in ("color_scheme_combo", "language_combo"):
+        combo = getattr(w, name)
+        original = combo.setMaximumWidth
 
-    def spy(combo):
-        recorded.append(combo)
-        return original(combo)
+        def spy(width, _orig=original, _name=name):
+            recorded.append(_name)
+            return _orig(width)
 
-    w._set_combo_min_width = spy
+        combo.setMaximumWidth = spy
     return recorded
 
 
@@ -64,35 +69,44 @@ def _switch_theme(w, theme):
     w.theme_combo.setCurrentIndex(w.theme_combo.findData(theme))
 
 
-def test_regular_combos_remeasured_when_switching_to_native():
+def test_regular_combos_repinned_when_switching_to_native():
     app, _ = _bootstrap()
     w = _new_window()
-    recorded = _install_spy(w)
+    recorded = _install_pin_spy(w)
     _switch_theme(w, "native")
     missed = [n for n in ("color_scheme_combo", "language_combo")
-              if getattr(w, n, None) not in recorded]
+              if n not in recorded]
+    # 钉宽后 max-width 必须等于 min-width：原生下才不会随样式变宽顶出页面。
+    unpinned = [n for n in ("color_scheme_combo", "language_combo")
+                if getattr(w, n).maximumWidth() != getattr(w, n).minimumWidth()]
     w.close()
     assert not missed, \
-        "切到原生后这些「常规」下拉没被重新定宽，窗口收窄时文字会被裁：%r" % (missed,)
-    print("PASS regular_combos_remeasured_when_switching_to_native")
+        "切到原生后这些「常规」下拉没被重新钉宽：%r" % (missed,)
+    assert not unpinned, \
+        "切到原生后这些「常规」下拉未钉宽（max≠min），原生下会顶宽页面：%r" % (unpinned,)
+    print("PASS regular_combos_repinned_when_switching_to_native")
 
 
-def test_regular_combos_remeasured_when_switching_back():
+def test_regular_combos_repinned_when_switching_back():
     app, _ = _bootstrap()
     w = _new_window()
     # 启动时默认就是「原生（无闪烁）」，直接切回不会产生信号，必须先切到原生。
     _switch_theme(w, "native")
-    recorded = _install_spy(w)
+    recorded = _install_pin_spy(w)
     _switch_theme(w, "native_noflicker")
     missed = [n for n in ("color_scheme_combo", "language_combo")
-              if getattr(w, n, None) not in recorded]
+              if n not in recorded]
+    unpinned = [n for n in ("color_scheme_combo", "language_combo")
+                if getattr(w, n).maximumWidth() != getattr(w, n).minimumWidth()]
     w.close()
     assert not missed, \
-        "切回原生（无闪烁）后这些「常规」下拉没被重新定宽：%r" % (missed,)
-    print("PASS regular_combos_remeasured_when_switching_back")
+        "切回原生（无闪烁）后这些「常规」下拉没被重新钉宽：%r" % (missed,)
+    assert not unpinned, \
+        "切回原生（无闪烁）后这些「常规」下拉未钉宽（max≠min）：%r" % (unpinned,)
+    print("PASS regular_combos_repinned_when_switching_back")
 
 
-def test_min_width_matches_size_hint_after_switches():
+def test_combos_stay_pinned_after_switches():
     app, _ = _bootstrap()
     from libjxl_gui.main_window import MainWindow
     w = MainWindow()
@@ -101,18 +115,18 @@ def test_min_width_matches_size_hint_after_switches():
     stale = []
     for name in ("color_scheme_combo", "theme_combo", "language_combo"):
         combo = getattr(w, name)
-        if combo.minimumWidth() != combo.sizeHint().width() + 8:
-            stale.append((name, combo.minimumWidth(), combo.sizeHint().width()))
+        if combo.maximumWidth() != combo.minimumWidth():
+            stale.append((name, combo.maximumWidth(), combo.minimumWidth()))
     w.close()
-    assert not stale, "这些「常规」下拉的最小宽度不是按当前样式量的：%r" % (stale,)
-    print("PASS min_width_matches_size_hint_after_switches")
+    assert not stale, "这些「常规」下拉未钉宽（max≠min），原生下会顶宽页面：%r" % (stale,)
+    print("PASS combos_stay_pinned_after_switches")
 
 
 def main():
     tests = [
-        test_regular_combos_remeasured_when_switching_to_native,
-        test_regular_combos_remeasured_when_switching_back,
-        test_min_width_matches_size_hint_after_switches,
+        test_regular_combos_repinned_when_switching_to_native,
+        test_regular_combos_repinned_when_switching_back,
+        test_combos_stay_pinned_after_switches,
     ]
     passed = 0
     failed = 0

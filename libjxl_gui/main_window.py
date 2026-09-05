@@ -2383,17 +2383,21 @@ _ADVANCED_SCHEMA = [
     # 质量精细（仅「有损」模式有意义）
     {"key": "distance", "flag": "-d", "label": "Butteraugli 距离 (-d)",
      "kind": "double", "default": 1.0, "min": 0.0, "max": 25.0, "step": 0.1,
-     "group": "质量精细", "modes": ("lossy",)},
+     "group": "质量精细", "modes": ("lossy",),
+     "tip": "-d：Butteraugli 距离，控制有损质量；值越小越接近原图，0.0 即无损。"},
     {"key": "progressive", "flag": "--progressive", "label": "渐进式解码 (--progressive)",
      "kind": "switch", "default": False,
-     "group": "质量精细", "modes": ("lossy",)},
-    {"key": "faster_decoding", "flag": "--faster_decoding", "label": "加速解码档位 (--faster_decoding, 0–4)",
+     "group": "质量精细", "modes": ("lossy",),
+     "tip": "--progressive：允许先显示模糊整体、再逐步变清晰（渐进式解码）。"},
+    {"key": "faster_decoding", "flag": "--faster_decoding", "label": "加速解码档位 (--faster_decoding)",
      "kind": "int", "default": 0, "min": 0, "max": 4,
-     "group": "质量精细", "modes": ("lossy",)},
+     "group": "质量精细", "modes": ("lossy",),
+     "tip": "--faster_decoding 0–4：档位越高解码越快，文件体积略增。"},
     # 编码策略（全部模式可用）
     {"key": "modular", "flag": "--modular", "label": "Modular 模式 (--modular)",
      "kind": "bool_value", "default": False, "value": 1,
-     "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg")},
+     "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg"),
+     "tip": "--modular：改用 Modular 模式编码，适合线条图 / 截图 / 调色板图。"},
     # 取值区间 -1..逻辑核心数：-1/0 是 libjxl 的特殊档位（见 _NUM_THREADS_TIP），
     # 上限按机器读取。default 取 -1（机器自动决定），与 cjxl 不传该参数时的默认
     # 行为保持一致；不写死正整数，免得在核心数更少/更多的机器上口径不一致。
@@ -2403,26 +2407,31 @@ _ADVANCED_SCHEMA = [
      "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg")},
     {"key": "brotli_effort", "flag": "--brotli_effort", "label": "Brotli 压缩强度 (--brotli_effort)",
      "kind": "int", "default": 9, "min": 0, "max": 11,
-     "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg")},
+     "group": "编码策略", "modes": ("lossy", "lossless", "lossless_jpeg"),
+     "tip": "--brotli_effort 0–11：压缩强度，越高文件越小、编码越慢。"},
     # 保真合成（有损 / 无损可用；JPG 无损重编码会绕过，故置灰）
     {"key": "epf", "flag": "--epf", "label": "边缘滤波强度 (--epf)",
      "kind": "int", "default": 3, "min": 0, "max": 3,
-     "group": "保真合成", "modes": ("lossy", "lossless")},
+     "group": "保真合成", "modes": ("lossy", "lossless"),
+     "tip": "--epf 0–3：边缘保持滤波强度，越低越锐利。"},
     {"key": "noise", "flag": "--noise", "label": "噪声合成 (--noise)",
      "kind": "int", "default": 0, "min": 0, "max": 16,
-     "group": "保真合成", "modes": ("lossy", "lossless")},
+     "group": "保真合成", "modes": ("lossy", "lossless"),
+     "tip": "--noise 0–16：合成胶片噪点，数值越大噪点越强。"},
     {"key": "resampling", "flag": "--resampling", "label": "色度重采样 (--resampling)",
      "kind": "choice", "default": -1,
      "choices": [(-1, "-1 默认"), (1, "1 八倍"), (2, "2 四倍"), (4, "4 两倍"), (8, "8 无")],
-     "group": "保真合成", "modes": ("lossy", "lossless")},
+     "group": "保真合成", "modes": ("lossy", "lossless"),
+     "tip": "--resampling：色度通道下采样倍率，1/2/4/8 对应 8/4/2/1 倍。"},
     # 容器输出（全部模式可用）
     {"key": "container", "flag": "--container", "label": "JXL 容器 (--container)",
      "kind": "bool_value", "default": False, "value": 1,
-     "tip": "启用可保留元数据（如 Exif、XMP、ICC 颜色配置等）",
+     "tip": "--container：启用可保留元数据（如 Exif、XMP、ICC 颜色配置等）。",
      "group": "容器输出", "modes": ("lossy", "lossless", "lossless_jpeg")},
     {"key": "codestream_level", "flag": "--codestream_level", "label": "码流等级 (--codestream_level)",
      "kind": "int", "default": 5, "min": 0, "max": 10,
-     "group": "容器输出", "modes": ("lossy", "lossless", "lossless_jpeg")},
+     "group": "容器输出", "modes": ("lossy", "lossless", "lossless_jpeg"),
+     "tip": "--codestream_level 0–10：码流兼容等级，越高支持越新特性。"},
 ]
 
 
@@ -3180,13 +3189,21 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.fit_on_source_change_check)
 
         splitter.addWidget(right)
-        # Default ratio: the preview area takes 4/7 of the width (left 3 /
-        # right 4). QSplitter already allows *continuous* (stepless) dragging of
-        # the divider to any proportion; setChildrenCollapsible(False) just
-        # guarantees neither panel can be dragged all the way to zero.
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 4)
+        # Default ratio: left (action controls + ordered list) takes 4 parts and
+        # right (preview) takes 5 parts — i.e. a 4:5 split. setStretchFactor only
+        # distributes *extra* space beyond each widget's size hint, so the initial
+        # split is driven by the widgets' minimum sizes; use a deferred setSizes
+        # once the splitter has a real width to force the 4:5 start.
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 5)
         splitter.setChildrenCollapsible(False)
+
+        def _init_action_splitter():
+            total = splitter.width()
+            left = total * 4 // 9
+            splitter.setSizes([left, total - left])
+        QTimer.singleShot(0, _init_action_splitter)
+
         layout.addWidget(splitter, stretch=1)
 
         # Preview state (toggled by the 显示原图 button) and initial visibility:
@@ -4164,7 +4181,7 @@ class MainWindow(QMainWindow):
         self.color_scheme_combo = NoFlickerComboBox()
         for key in _COLOR_SCHEME_ORDER:
             self.color_scheme_combo.addItem(i18n.t(_COLOR_SCHEME_LABELS[key]), key)
-        self._set_combo_min_width(self.color_scheme_combo)
+        self._set_combo_min_width(self.color_scheme_combo, cap=True)
         self._color_scheme_loading = True
         self.color_scheme_combo.setCurrentIndex(
             self.color_scheme_combo.findData(app_color_scheme())
@@ -4185,7 +4202,7 @@ class MainWindow(QMainWindow):
         self.theme_combo = NoFlickerComboBox()
         for key in _THEME_ORDER:
             self.theme_combo.addItem(i18n.t(_THEME_LABELS[key]), key)
-        self._set_combo_min_width(self.theme_combo)
+        self._set_combo_min_width(self.theme_combo, cap=True)
         self._theme_loading = True
         self.theme_combo.setCurrentIndex(self.theme_combo.findData(app_theme()))
         self._theme_loading = False
@@ -4205,7 +4222,7 @@ class MainWindow(QMainWindow):
         self.language_combo = NoFlickerComboBox()
         for key in _LANGUAGE_ORDER:
             self.language_combo.addItem(_LANGUAGE_LABELS[key], key)
-        self._set_combo_min_width(self.language_combo)
+        self._set_combo_min_width(self.language_combo, cap=True)
         # 回显当前语言：启动入口 __main__.run() 会在构造窗口前按持久化值
         # 调 i18n.set_language()，这里只是把结果显示出来。
         _lang_idx = self.language_combo.findData(i18n.current_language())
@@ -4226,8 +4243,24 @@ class MainWindow(QMainWindow):
         # 优先级 / CPU 核心 / effort），「主题」与「语言」不在其中，故在本区补一次。
         # 挂在 theme_combo 上、晚于 _on_theme_changed 连接，触发时样式已切换完毕。
         def _remeasure_regular_combos(_index):
+            # 切到「原生」后，Windows 原生样式的箭头/边框更宽，若不限制宽度，
+            # 下拉框会随原生样式变宽把页面顶向右。这里保持 AdjustToContents 让
+            # 闭合框随当前项文字收缩，同时把 maximumWidth 按「当前样式下最长项」
+            # 重新量一遍，作为不顶宽页面的上限；弹出列表仍按最宽项完整展开。
             for combo in (self.color_scheme_combo, self.language_combo):
-                self._set_combo_min_width(combo)
+                old_idx = combo.currentIndex()
+                longest_idx = 0
+                longest_len = 0
+                for i in range(combo.count()):
+                    text_len = len(combo.itemText(i))
+                    if text_len > longest_len:
+                        longest_len = text_len
+                        longest_idx = i
+                combo.setCurrentIndex(longest_idx)
+                combo.updateGeometry()
+                cap = combo.sizeHint().width() + 8
+                combo.setMaximumWidth(cap)
+                combo.setCurrentIndex(old_idx)
 
         self.theme_combo.currentIndexChanged.connect(_remeasure_regular_combos)
         grid.addWidget(theme_group, 0, 0)
@@ -7295,13 +7328,28 @@ class MainWindow(QMainWindow):
         for cb in self.findChildren(NoFlickerComboBox):
             cb._apply_fusion_style()
 
-    def _set_combo_min_width(self, combo):
+    def _set_combo_min_width(self, combo, cap=False):
         """Set the combo's minimum width to fit its widest item under the
         current style. This is needed because the native Windows style's arrow
         button and frame padding are wider than Fusion's, so a width measured
-        for Fusion will truncate text when the user switches to native."""
+        for Fusion will truncate text when the user switches to native.
+
+        When ``cap`` is True the measured width is applied as the combo's
+        *maximum* width and ``QComboBox.AdjustToContents`` is enabled. This lets
+        the closed box shrink to the currently selected item instead of staying
+        as wide as the longest item, while still preventing the combo from
+        growing beyond the measured width and pushing the surrounding page
+        wider ("页面向右膨胀"). The dropdown popup still auto-expands to the
+        widest item, so the full option text remains readable on click.
+        Used for the settings "常规" section combos, whose width would otherwise
+        dominate the settings page under English + native.
+        """
         combo.updateGeometry()
-        combo.setMinimumWidth(combo.sizeHint().width() + 8)
+        w = combo.sizeHint().width() + 8
+        combo.setMinimumWidth(w)
+        if cap:
+            combo.setMaximumWidth(w)
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
 
     def _apply_theme_to_folder_menu(self):
         """The custom-folder history popup always renders with the Fusion
