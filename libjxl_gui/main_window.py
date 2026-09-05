@@ -1958,9 +1958,31 @@ _QT_COLOR_SCHEMES = {
 # 就会自动出现在下拉里，显示名取该文件里的 _language_name 元信息键。
 # 语言名用自称名（English / 日本語）而非当前语言的译文，否则英文界面上
 # 会显示成 "Japanese"，反而认不出来。
-_LANGUAGE_DEFAULT = i18n.DEFAULT_LANGUAGE
+# 下拉在「已收录语言」基础上，额外包含两类哨兵项（不参与 i18n/ 目录派生，
+# 故单独放在 _LANGUAGE_COMBO_ORDER 里，_LANGUAGE_ORDER 仍严格等于
+# i18n.language_order() 以保住 test_i18n_add_language 的「不写死清单」契约）：
+#   - "follow_system"（跟随系统，默认选中）：启动 / 切语言时按系统 UI 语言选，
+#     系统语言不在已有语言里则回落 English。
+#   - "zh_TW"（繁體中文，仅占位）：翻译尚未实现，选中后回落简体中文（源码原文）。
+_LANGUAGE_DEFAULT = "follow_system"
 _LANGUAGE_ORDER = tuple(i18n.language_order())
-_LANGUAGE_LABELS = {code: i18n.language_name(code) for code in _LANGUAGE_ORDER}
+# 繁體中文(zh_TW) 仅占位、尚未实现，固定置于「简体中文」下方：
+# 在 _LANGUAGE_ORDER 中紧随 zh_CN 插入；若 zh_CN 不在清单（极端情况）则兜底追加到末尾。
+_combo = ["follow_system"]
+_placed_tw = False
+for _code in _LANGUAGE_ORDER:
+    _combo.append(_code)
+    if _code == "zh_CN":
+        _combo.append("zh_TW")
+        _placed_tw = True
+if not _placed_tw:
+    _combo.append("zh_TW")
+_LANGUAGE_COMBO_ORDER = tuple(_combo)
+_LANGUAGE_LABELS = {
+    "follow_system": "跟随系统",
+    "zh_TW": "繁體中文",
+}
+_LANGUAGE_LABELS.update({code: i18n.language_name(code) for code in _LANGUAGE_ORDER})
 
 
 def app_color_scheme():
@@ -4220,16 +4242,19 @@ class MainWindow(QMainWindow):
             "其余界面文本会随翻译推进逐步补全，未收录的暂时保持中文。")
         )
         self.language_combo = NoFlickerComboBox()
-        for key in _LANGUAGE_ORDER:
+        for key in _LANGUAGE_COMBO_ORDER:
             self.language_combo.addItem(_LANGUAGE_LABELS[key], key)
         self._set_combo_min_width(self.language_combo, cap=True)
-        # 回显当前语言：启动入口 __main__.run() 会在构造窗口前按持久化值
-        # 调 i18n.set_language()，这里只是把结果显示出来。
-        _lang_idx = self.language_combo.findData(i18n.current_language())
-        self.language_combo.setCurrentIndex(
-            _lang_idx if _lang_idx >= 0
-            else self.language_combo.findData(_LANGUAGE_DEFAULT)
-        )
+        # 回显「保存的偏好」，而非当前已加载的有效语言：默认（从未保存过）回退
+        # 到 follow_system；若保存的是 follow_system，界面仍显示「跟随系统」，
+        # 实际生效语言由 __main__ 在下次启动时解析（随系统 / 回落 English）。
+        _settings = QSettings()
+        _settings.beginGroup("appearance")
+        _pref = _settings.value("language", _LANGUAGE_DEFAULT)
+        _settings.endGroup()
+        if _pref not in _LANGUAGE_COMBO_ORDER:
+            _pref = _LANGUAGE_DEFAULT
+        self.language_combo.setCurrentIndex(self.language_combo.findData(_pref))
         # 立即持久化 + 提示重启。语言本身要等下次启动才由 __main__ 应用。
         self.language_combo.currentIndexChanged.connect(
             self._on_language_combo_changed)

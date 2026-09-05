@@ -133,6 +133,43 @@ def t(text):
     return _dict.get(text, text)
 
 
+def resolve_language(pref):
+    """把语言「偏好」（可能含哨兵）解析成可加载的有效语言代码。
+
+    下拉里除了真实收录的语言（zh_CN / en_US / 以后丢进 i18n/ 的 json），
+    还有两类哨兵项：
+
+    - ``"follow_system"``（跟随系统，默认选中）：启动 / 下次启动时按系统 UI
+      语言选；系统语言命中已有语言就用它，否则回落 ``en_US``。
+    - ``"zh_TW"``（繁體中文，仅占位）：翻译尚未实现，选中后回落简体中文
+      （源码即译文，界面仍完整可读）。
+
+    真实代码（默认 zh_CN 或在 available_languages() 里）原样返回。
+    """
+    if pref == DEFAULT_LANGUAGE or pref in available_languages():
+        return pref
+    if pref == "follow_system":
+        return _detect_system_language()
+    # 占位 / 未知 → 简体中文（源码原文），避免空字典让界面半中半英
+    return DEFAULT_LANGUAGE
+
+
+def _detect_system_language():
+    """探测系统 UI 语言，映射到本项目已有语言；找不到则回落 English。"""
+    try:
+        from PySide6.QtCore import QLocale
+        name = QLocale.system().name()   # e.g. "en_US" / "zh_CN" / "zh_TW"
+    except Exception:
+        name = ""
+    candidates = [name]
+    if "_" in name:
+        candidates.append(name.split("_", 1)[0])
+    for c in candidates:
+        if c in available_languages() or c == DEFAULT_LANGUAGE:
+            return c
+    return "en_US"
+
+
 def has_translation(text):
     """当前语言的字典里有没有这条译文（用于自检 / 覆盖率统计）。"""
     return text in _dict

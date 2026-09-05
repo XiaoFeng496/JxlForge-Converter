@@ -24,3 +24,8 @@ venv/
 .venv/
 env/
 ENV/
+
+# ===== i18n 流水线草稿目录（extract/classify/coverage/wrap/apply 的中间产物，
+#        由脚本运行时生成；已归档到 F:\Agent工作空间\杂物\libjxl_GUI杂物，
+#        复活也不会再被跟踪） =====
+tools/i18n_work/

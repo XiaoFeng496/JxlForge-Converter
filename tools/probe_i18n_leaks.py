@@ -72,8 +72,9 @@ for _ in range(40):
     app.processEvents()
 
 # ---- 允许名单 ----
-# 语言下拉里显示的是「自称名」（endonym），刻意保留中文，不算泄漏
-ALLOW_EXACT = {"简体中文", "English"}
+# 语言下拉里显示的是「自称名」（endonym），刻意保留中文，不算泄漏。
+# 含新增的哨兵项：跟随系统（默认选中）、繁體中文（仅占位，尚未实现翻译）。
+ALLOW_EXACT = {"简体中文", "English", "跟随系统", "繁體中文"}
 # COMMAND_TEMPLATE 占位符必须保持字面（用户要照着复制到命令行），不算泄漏
 ALLOW_SUBSTR = ("<输入>", "<输出>")
 

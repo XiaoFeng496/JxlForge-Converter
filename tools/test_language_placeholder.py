@@ -143,14 +143,23 @@ def test_grid_positions_in_常规():
 
 def test_language_items_and_default():
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from libjxl_gui.main_window import MainWindow, _LANGUAGE_COMBO_ORDER, _LANGUAGE_DEFAULT
     w = MainWindow()
     combo = w.language_combo
     items = [(combo.itemText(i), combo.itemData(i)) for i in range(combo.count())]
-    assert items == [("简体中文", "zh_CN"), ("English", "en_US")], \
-        "语言项应为 简体中文/zh_CN + English/en_US，实际=%r" % (items,)
-    assert combo.currentData() == "zh_CN", \
-        "默认应选中简体中文，实际=%r" % combo.currentData()
+    assert items == [
+        ("跟随系统", "follow_system"),
+        ("简体中文", "zh_CN"),
+        ("繁體中文", "zh_TW"),
+        ("English", "en_US"),
+    ], "语言项应为 跟随系统/follow_system + 简体中文/zh_CN + 繁體中文/zh_TW + English/en_US，实际=%r" % (items,)
+    # 默认未保存过偏好时回退到 follow_system（跟随系统）
+    assert combo.currentData() == _LANGUAGE_DEFAULT, \
+        "默认应选中跟随系统(follow_system)，实际=%r" % combo.currentData()
+    # 顺序须与下拉顺序定义一致
+    assert [combo.itemData(i) for i in range(combo.count())] == list(_LANGUAGE_COMBO_ORDER), \
+        "下拉顺序须等于 _LANGUAGE_COMBO_ORDER，实际=%r" % [
+            combo.itemData(i) for i in range(combo.count())]
     w.close()
     print("PASS language_items_and_default")
 
@@ -210,7 +219,12 @@ def test_language_applied_on_next_launch():
 
 
 def test_invalid_language_falls_back():
-    r"""ini 被写坏（语言代码不在白名单）时回退到默认，不能让启动崩掉。"""
+    r"""ini 被写坏（语言代码不在清单）时回退到有效语言，不能让启动崩掉。
+
+    非法代码 → 回落默认偏好 follow_system → 解析成系统语言（本机是 zh_CN 或
+    en_US 之一）。这里只断言「回落到一个可加载的已有语言」，不写死具体值，
+    以免在英文系统上误报。
+    """
     app, _ = _bootstrap()
     from libjxl_gui import i18n
     from libjxl_gui.__main__ import _apply_persisted_language
@@ -222,7 +236,8 @@ def test_invalid_language_falls_back():
     s.sync()
     try:
         code = _apply_persisted_language()
-        assert code == "zh_CN", "非法语言应回退 zh_CN，实际=%r" % (code,)
+        assert code in ("zh_CN", "en_US"), \
+            "非法语言应回退到已有语言(zh_CN/en_US)，实际=%r" % (code,)
         print("PASS invalid_language_falls_back")
     finally:
         i18n.set_language("zh_CN")

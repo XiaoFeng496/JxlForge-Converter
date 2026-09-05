@@ -7,7 +7,7 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from . import i18n
-from .main_window import MainWindow, _LANGUAGE_DEFAULT, _LANGUAGE_ORDER
+from .main_window import MainWindow, _LANGUAGE_DEFAULT, _LANGUAGE_COMBO_ORDER
 
 
 def _apply_persisted_language():
@@ -18,16 +18,19 @@ def _apply_persisted_language():
     这也是本项目选择「切语言重启生效」的原因——实时刷新所有控件既容易漏，
     又要额外缓存原文。
 
-    Returns the language code actually in use.
+    偏好可能含哨兵（"follow_system" / "zh_TW" 占位），先用 i18n.resolve_language()
+    解析成可加载的有效代码（随系统选 / 非已有语言回落 English / 占位回落中文），
+    再 set_language。返回解析后的有效代码。
     """
     settings = QSettings()
     settings.beginGroup("appearance")
     code = settings.value("language", _LANGUAGE_DEFAULT)
     settings.endGroup()
-    if code not in _LANGUAGE_ORDER:
+    if code not in _LANGUAGE_COMBO_ORDER:
         code = _LANGUAGE_DEFAULT
-    i18n.set_language(code)
-    return code
+    effective = i18n.resolve_language(code)
+    i18n.set_language(effective)
+    return effective
 
 
 def run():
