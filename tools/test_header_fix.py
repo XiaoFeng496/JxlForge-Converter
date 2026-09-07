@@ -289,6 +289,12 @@ def main():
     # the real desktop the frame is positive and the minimum is >= 6*122 x 3*154.
     # Position is kept because centre=False.
     before_pos = (w3.x(), w3.y())
+    # The fit measures the thumbnail viewport, which only has a real size once
+    # the window is shown and laid out. Without show() the viewport is 0x0 on the
+    # real desktop, so _fit_window_to_grid takes its retry branch and never
+    # resizes/pins anything — the minimum stays 0 and this assertion fails.
+    w3.show()
+    app.processEvents()
     w3._on_fit_window()
     MIN_W = 6 * 122 - 40
     MIN_H = 3 * 154 - 40

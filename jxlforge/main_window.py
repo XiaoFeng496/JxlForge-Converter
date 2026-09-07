@@ -3027,6 +3027,13 @@ class MainWindow(QMainWindow):
         # resize() (client size) first, then move() (frame position) — never
         # setGeometry(), whose mixed coordinate spaces caused the drift.
         self.resize(w, h)
+        # Pin the window's MINIMUM size to exactly the 6x3 target so the user
+        # cannot shrink it smaller than the grid (which would clip columns and
+        # defeat the "一键 6×3 排版" intent). This is what the
+        # `max(self.minimumWidth(), …)` floor at the top of this method assumes
+        # is already in place on subsequent fits; without it the floor was
+        # always 0 and the minimum was never pinned.
+        self.setMinimumSize(w, h)
         self.move(x, y)
 
     # ------------------------------------------------------------------
