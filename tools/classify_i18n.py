@@ -243,11 +243,19 @@ class StructureAnalyzer:
                 # 前半是界面标签，后半是内部参数名 → 前半可翻。
                 # （曾漏掉这个方向，把「宽」「高」误判成不翻。）
                 self.roles[self._key(head)] = "PAIR_LABEL"
-            elif len(elts) >= 2 and ex.has_cjk(head.value):
-                # 三元组以上且首项含中文（如 ("name","文件名",True,200,...)）
-                # 首项是内部 ID，第二项才是显示名
-                if len(elts) > 2:
-                    self.roles[self._key(head)] = "ID_MEMBER"
+            elif (len(elts) > 2 and ex.has_cjk(head.value)
+                    and isinstance(second.value, str)
+                    and second.value and not ex.has_cjk(second.value)):
+                # 三元组以上、首项中文、次项是**英文** ID
+                # （如 ("中文ID", "english_id", ...)）：首项参与程序判断，不翻。
+                #
+                # ⚠️ 旧写法只看「首项中文 + 三项以上」就判 ID，会把**纯显示名列表**
+                # 的首项误伤：no_flicker_combo 的演示数据
+                # ``["原生", "原生（无闪烁）", "Fusion"]`` 三项全是显示名，
+                # 首项「原生」却被钉成 ID，再经「一处不翻则整条不翻」拖累
+                # main_window 里 _THEME_LABELS 的同名显示名。
+                # 所以这里要求次项确实是英文 ID 才判首项不翻。
+                self.roles[self._key(head)] = "ID_MEMBER"
 
     def _scan_dict_keys(self):
         """标记中文当 dict key 的位置，如 GRID_SIZES = {"缩略图": QSize(...)}。"""
@@ -484,7 +492,14 @@ def _has_han(text):
 
 
 def _looks_like_id(text):
-    """短且无标点、无空格的中文字串更像内部 ID（“右下”“缩略图”）。"""
+    """短且无标点、无空格、且不含汉字的串才像内部 ID（英文短词如 "auto"）。
+
+    含汉字的中文串（"文件名""质量精细"）是界面显示名，内部用英文 ID 配对，
+    翻译安全，不能当成 ID 跳过 —— 否则 ``_ADVANCED_SCHEMA`` / ``TABLE_COLUMNS``
+    等常量表里的分组名 / 列名会被一律判成不翻。
+    """
+    if _has_han(text):
+        return False
     if len(text) > _IDISH_MAXLEN:
         return False
     if any(ch in text for ch in " ，。、；：（）()%/：:"):

@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QGridLayout, QSpinBox, QDoubleSpinBox, QLineEdit, QComboBox,
+    QApplication, QGridLayout, QSpinBox, QDoubleSpinBox, QLineEdit,
 )
 
 app = QApplication.instance() or QApplication(sys.argv)
@@ -101,10 +101,12 @@ widgets = [grid.itemAtPosition(r, 1).widget()
            for r in range(grid.rowCount())]
 check("3 行 label 顺序正确：宽/高/算法",
       labels == ["宽", "高", "算法"])
-check("3 行 widget 类型正确：QSpinBox/QSpinBox/NoFlickerComboBox",
+check("3 行 widget 类型正确：QSpinBox/QSpinBox/下拉框(NoFlickerComboBox)",
       type(widgets[0]).__name__ == "QSpinBox"
       and type(widgets[1]).__name__ == "QSpinBox"
-      and type(widgets[2]).__name__ == "NoFlickerComboBox")
+      # NoFlickerComboBox 现为可切换代理（QWidget 子类），不再是 QComboBox，
+      # 按类名/基类判型都会漏；用代理类本身判型，兼容原生与自绘两种实现。
+      and isinstance(widgets[2], mw.NoFlickerComboBox))
 
 # 改宽 → 写回 dict
 w._param_widgets["width"].setValue(1024)

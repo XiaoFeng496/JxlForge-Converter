@@ -31,9 +31,9 @@ from PySide6.QtWidgets import QApplication, QGroupBox, QLabel
 # 这里钉死绝对坐标是有意为之：它同时充当"布局锁"，排布被意外打乱时会报警。
 # 唯一维护点：移动/增删控件后改这张表即可，用例体不用动。
 _EXPECTED_GRID_POSITIONS = {
-    "color_scheme_combo": (0, 0),  # 主题
-    "theme_combo": (0, 1),         # 控件样式（主题右侧）
-    "language_combo": (1, 0),      # 语言（左列第二行）
+    "color_scheme_combo": (0, 0),  # 主题（首行左列）
+    "theme_combo": (1, 0),         # 控件样式（第二行，跨两列 colspan=2）
+    "language_combo": (0, 1),      # 语言（首行右列）
 }
 
 
