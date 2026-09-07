@@ -22,12 +22,12 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QSettings
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui-test-prests")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter-test-prests")
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_prests_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
-from libjxl_gui.main_window import (
+from jxlforge.main_window import (
     MainWindow,
     ConvertWorker,
     _preserve_mtime,
@@ -162,7 +162,7 @@ check("_preserve_ctime：创建时间参数==src.st_ctime",
       _calls.get("settime", (None, None, None))[0] == st.st_ctime)
 
 # 7) _process_job 集成：成功转换后自动保持修改时间
-import libjxl_gui.main_window as mw
+import jxlforge.main_window as mw
 
 src3 = os.path.join(tmpd, "pj_src.png")
 open(src3, "w").close()

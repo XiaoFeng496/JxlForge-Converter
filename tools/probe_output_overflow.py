@@ -22,16 +22,16 @@ from PySide6.QtCore import QSettings, QCoreApplication
 from PySide6.QtWidgets import QApplication, QTabWidget, QScrollArea
 from PySide6.QtGui import QFontDatabase, QFont
 
-from libjxl_gui import i18n
-from libjxl_gui.main_window import MainWindow
+from jxlforge import i18n
+from jxlforge.main_window import MainWindow
 
 
 def make(lang):
     tmp = tempfile.mkdtemp(prefix="libjxl_probe_out_")
     QSettings.setDefaultFormat(QSettings.IniFormat)
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tmp)
-    QCoreApplication.setOrganizationName("libjxl")
-    QCoreApplication.setApplicationName("libjxl-gui")
+    QCoreApplication.setOrganizationName("JxlForge")
+    QCoreApplication.setApplicationName("JxlForge-Converter")
     s = QSettings()
     s.beginGroup("appearance")
     s.setValue("language", lang)

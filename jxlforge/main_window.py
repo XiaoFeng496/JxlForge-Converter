@@ -149,9 +149,9 @@ from . import converter, processor, formats
 # read that instead:
 #   * JXL  → 临时 PNG（djxl，已可用）
 #   * AVIF → 临时 PNG（Pillow，已可用）
-#   * PFM / PAM / PGX → 临时 PPM（libjxl_gui.formats 纯 Python 解码，0 新依赖）
+#   * PFM / PAM / PGX → 临时 PPM（jxlforge.formats 纯 Python 解码，0 新依赖）
 # EXR 是浮点 HDR 格式，Qt/Pillow 均不原生支持且本机无 OpenEXR；它只解析头部
-# 元数据用于预览展示，不做像素渲染（见 libjxl_gui.formats.parse_exr_header）。
+# 元数据用于预览展示，不做像素渲染（见 jxlforge.formats.parse_exr_header）。
 # 解码出的临时文件按源路径缓存，重复缩略图 / 预览不再重复解码。
 # ----------------------------------------------------------------------
 _DECODE_TO_TEMP_EXTS = {".jxl", ".avif", ".pfm", ".pam", ".pgx"}
@@ -194,7 +194,7 @@ _DIMS_CACHE_LOCK = threading.Lock()
 def _decode_temp_dir():
     global _DECODE_TEMP_DIR
     if _DECODE_TEMP_DIR is None:
-        _DECODE_TEMP_DIR = tempfile.mkdtemp(prefix="libjxl_gui_decode_")
+        _DECODE_TEMP_DIR = tempfile.mkdtemp(prefix="jxlforge_decode_")
         atexit.register(_decode_cleanup_temp_dir)
     return _DECODE_TEMP_DIR
 
@@ -210,7 +210,7 @@ def _decode_to_temp_file(path):
     """Decode *path* to a temporary file Qt can load, returning that path.
 
     JXL 解码为临时 PNG（djxl）；AVIF 解码为临时 PNG（Pillow）；
-    PFM / PAM / PGX 由 :mod:`libjxl_gui.formats` 纯 Python 解码为临时 PPM。
+    PFM / PAM / PGX 由 :mod:`jxlforge.formats` 纯 Python 解码为临时 PPM。
     EXR 不在此处处理（只解析头部元数据，见 :func:`formats.parse_exr_header`）。
     返回临时文件路径表示成功，``None`` 表示解码失败。
     """
@@ -1627,7 +1627,7 @@ class ActionItemWidget(QWidget):
 
     def _summary_text(self):
         """用 MainWindow._action_summary 派生摘要文本（保留作为类型指示）。"""
-        from libjxl_gui import main_window as _mw
+        from jxlforge import main_window as _mw
         try:
             return _mw.MainWindow._action_summary(None, self.action)
         except Exception:
@@ -2015,7 +2015,7 @@ _QT_COLOR_SCHEMES = {
     "dark": Qt.ColorScheme.Dark,
 }
 
-# 界面语言。**加语言不需要改这里**：丢一个 <code>.json 进 libjxl_gui/i18n/
+# 界面语言。**加语言不需要改这里**：丢一个 <code>.json 进 jxlforge/i18n/
 # 就会自动出现在下拉里，显示名取该文件里的 _language_name 元信息键。
 # 语言名用自称名（English / 日本語）而非当前语言的译文，否则英文界面上
 # 会显示成 "Japanese"，反而认不出来。
@@ -2556,7 +2556,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(i18n.t("JXL 转换器"))
+        # 品牌名不参与翻译：任何语言下都显示同一个名字，因此不走 i18n.t()。
+        self.setWindowTitle("JxlForge Converter")
         self.resize(880, 640)
 
         # Windows animates menus into view (slide / fade). That entrance effect
@@ -6728,7 +6729,7 @@ class MainWindow(QMainWindow):
         def run(self):
             try:
                 from PIL import Image
-                from libjxl_gui import processor
+                from jxlforge import processor
                 loadable = _display_path(self.path)
                 if loadable is None:
                     raise RuntimeError(

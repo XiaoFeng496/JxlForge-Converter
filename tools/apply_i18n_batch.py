@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""把 tools/i18n_work/batch_NN.json 合并进 libjxl_gui/i18n/<lang>.json。
+"""把 tools/i18n_work/batch_NN.json 合并进 jxlforge/i18n/<lang>.json。
 
 为什么要分批：翻译 421 条是 token 消耗大头，中途被限流中断很正常。
 每批一个独立文件，合并是幂等的——重跑只会覆盖同名键，不会丢进度。
@@ -28,7 +28,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
 WORK = os.path.join(HERE, "i18n_work")
-I18N_DIR = os.path.join(REPO_ROOT, "libjxl_gui", "i18n")
+I18N_DIR = os.path.join(REPO_ROOT, "jxlforge", "i18n")
 
 sys.path.insert(0, HERE)
 sys.path.insert(0, REPO_ROOT)

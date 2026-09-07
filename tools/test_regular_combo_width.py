@@ -19,7 +19,7 @@ CPU 优先级 / CPU 核心 / effort），「主题」与「语言」不在其中
   即不会随样式变宽把页面顶出去。
 
 注：每个用例跑在独立的临时 ini 目录，避免污染真实
-%APPDATA%\libjxl\libjxl-gui.ini。
+%APPDATA%\JxlForge\JxlForge-Converter.ini。
 """
 import os
 import sys
@@ -33,18 +33,18 @@ from PySide6.QtWidgets import QApplication
 
 def _bootstrap():
     r"""Each test runs in a brand-new isolated ini directory so QSettings never
-    touches the real ``%APPDATA%\libjxl\libjxl-gui.ini``."""
+    touches the real ``%APPDATA%\JxlForge\JxlForge-Converter.ini``."""
     QSettings.setDefaultFormat(QSettings.IniFormat)
-    tmp = tempfile.mkdtemp(prefix="libjxl_gui_regular_width_")
+    tmp = tempfile.mkdtemp(prefix="jxlforge_regular_width_")
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tmp)
-    QCoreApplication.setOrganizationName("libjxl")
-    QCoreApplication.setApplicationName("libjxl-gui")
+    QCoreApplication.setOrganizationName("JxlForge")
+    QCoreApplication.setApplicationName("JxlForge-Converter")
     app = QApplication.instance() or QApplication(["-platform", "offscreen"])
     return app, tmp
 
 
 def _new_window():
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     return MainWindow()
 
 
@@ -108,7 +108,7 @@ def test_regular_combos_repinned_when_switching_back():
 
 def test_combos_stay_pinned_after_switches():
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     for theme in ("native", "fusion", "native_noflicker", "native"):
         w.theme_combo.setCurrentIndex(w.theme_combo.findData(theme))

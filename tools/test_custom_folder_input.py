@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-from libjxl_gui.main_window import MainWindow
+from jxlforge.main_window import MainWindow
 
 
 def fresh_window():
@@ -79,7 +79,7 @@ def main():
           os.path.dirname(out3) == os.path.dirname(src3))
 
     # --- 场景4：手动输入新路径进入文件夹历史 -----------------------------
-    import libjxl_gui.converter as _converter
+    import jxlforge.converter as _converter
     _converter.check_tools = lambda: {"cjxl": True, "djxl": True}
 
     w4 = fresh_window()

@@ -2,9 +2,9 @@
 r"""清除 libjxl GUI 早期版本写入 Windows 注册表的持久化数据。
 
 早期版本使用 QSettings 的原生格式（Windows 注册表）保存设置，
-键路径为：HKEY_CURRENT_USER\Software\libjxl\libjxl-gui
+键路径为：HKEY_CURRENT_USER\Software\JxlForge\JxlForge-Converter
 
-新版已改用 .ini 文件（见 libjxl_gui/__main__.py 中的
+新版已改用 .ini 文件（见 jxlforge/__main__.py 中的
 QSettings.setDefaultFormat(QSettings.IniFormat)），本脚本仅用于
 一次性清理迁移后遗留在注册表中的旧数据，不影响新版的 .ini 文件。
 
@@ -23,12 +23,12 @@ except ImportError:
 
 
 ORG = "libjxl"
-APP = "libjxl-gui"
+APP = "JxlForge-Converter"
 
 # 同时检查 32 位与 64 位视图，覆盖不同 Python 位数运行过旧版的情况。
 TARGETS = [
-    (winreg.HKEY_CURRENT_USER, r"Software\libjxl\libjxl-gui"),
-    (winreg.HKEY_CURRENT_USER, r"Software\Wow6432Node\libjxl\libjxl-gui"),
+    (winreg.HKEY_CURRENT_USER, r"Software\JxlForge\JxlForge-Converter"),
+    (winreg.HKEY_CURRENT_USER, r"Software\Wow6432Node\JxlForge\JxlForge-Converter"),
 ]
 
 

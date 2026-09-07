@@ -19,14 +19,14 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QCoreApplication, QSettings, QTimer
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui-test-jpg")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter-test-jpg")
 # 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini。
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_jpg_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
-from libjxl_gui import converter as conv_mod
-from libjxl_gui.main_window import MainWindow
+from jxlforge import converter as conv_mod
+from jxlforge.main_window import MainWindow
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

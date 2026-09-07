@@ -7,7 +7,7 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_HERE)
 sys.path.insert(0, _REPO)
-from libjxl_gui import processor
+from jxlforge import processor
 from PIL import Image
 
 passed = 0

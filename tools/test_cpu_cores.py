@@ -24,24 +24,24 @@ _encode_kwargs 的映射与 _resolve_concurrency 的分发逻辑。
 from PySide6.QtWidgets import QApplication, QCheckBox, QSpinBox
 from PySide6.QtCore import QCoreApplication, QSettings
 
-# 隔离 QSettings：写入临时目录，避免污染真实 ini（%APPDATA%\libjxl\libjxl-gui.ini）
+# 隔离 QSettings：写入临时目录，避免污染真实 ini（%APPDATA%\JxlForge\JxlForge-Converter.ini）
 # 也被共享 QSettings 状态反向污染导致偶发失败。须在首个 QSettings() 使用前置好。
 QSettings.setDefaultFormat(QSettings.IniFormat)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter")
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
 # 必须在线程创建前确保有 QApplication 实例。
 _app = QApplication.instance() or QApplication(sys.argv)
 
-from libjxl_gui.main_window import (
+from jxlforge.main_window import (
     MainWindow,
     ConvertWorker,
     _ADVANCED_SCHEMA,
     _LOGICAL_CORES,
 )
-from libjxl_gui import converter
+from jxlforge import converter
 
 failures = []
 

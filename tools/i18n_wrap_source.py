@@ -23,7 +23,7 @@
 ----
     python tools/i18n_wrap_source.py            # 默认 dry-run，打印统计与改动预览
     python tools/i18n_wrap_source.py --apply    # 真正改写源文件
-    python tools/i18n_wrap_source.py --apply --files libjxl_gui/main_window.py
+    python tools/i18n_wrap_source.py --apply --files jxlforge/main_window.py
 """
 import ast
 import json
@@ -32,7 +32,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-PKG = os.path.join(ROOT, "libjxl_gui")
+PKG = os.path.join(ROOT, "jxlforge")
 
 SKIP_FORMAT_ATTRS = {"format", "format_map"}
 

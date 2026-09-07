@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-from libjxl_gui.main_window import get_image_dims, _display_path
+from jxlforge.main_window import get_image_dims, _display_path
 from PIL import Image
 
 results = []

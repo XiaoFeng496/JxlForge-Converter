@@ -20,12 +20,12 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QSettings
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui-test-preserve-structure")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter-test-preserve-structure")
 _tmp_settings = tempfile.mkdtemp()
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings)
 
-from libjxl_gui.main_window import MainWindow  # noqa: E402
+from jxlforge.main_window import MainWindow  # noqa: E402
 
 app = QApplication.instance() or QApplication(sys.argv)
 w = MainWindow()

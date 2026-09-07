@@ -18,8 +18,8 @@ from PySide6.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-import libjxl_gui.converter as conv_mod
-from libjxl_gui.main_window import ConvertWorker
+import jxlforge.converter as conv_mod
+from jxlforge.main_window import ConvertWorker
 
 
 results = []

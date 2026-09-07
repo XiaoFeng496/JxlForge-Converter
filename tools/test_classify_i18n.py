@@ -118,7 +118,7 @@ def main():
     import json as _json  # noqa: E402
     import os as _os  # noqa: E402
     _en_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
-                             "libjxl_gui", "i18n", "en_US.json")
+                             "jxlforge", "i18n", "en_US.json")
     _en = _json.load(open(_en_path, encoding="utf-8"))
     missing = [t for t in MUST_TRANSLATE_ERRORS if t not in by_text]
     check("报错文案样本都还在清单里", not missing, str(missing))
@@ -135,7 +135,7 @@ def main():
     # --- 4b. i18n 基础设施自身的文本必须排除 ---
     # 「简体中文」是语言自称名，永远不该翻。留在清单里会让覆盖率永久卡在 99.x%。
     infra = [e for e in entries
-             if any(o["file"] == "libjxl_gui/i18n.py" for o in e["occurrences"])]
+             if any(o["file"] == "jxlforge/i18n.py" for o in e["occurrences"])]
     check("i18n 基础设施的文本已被排除", not infra,
           str([e["text"] for e in infra][:3]))
 

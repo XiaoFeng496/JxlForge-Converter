@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-libjxl GUI - 项目环境安装脚本
+JxlForge Converter - 项目环境安装脚本
 
 功能:
   1. 检测当前操作系统 (Windows / macOS / Linux / 其他)

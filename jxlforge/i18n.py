@@ -16,7 +16,7 @@
 
 用法::
 
-    from libjxl_gui.i18n import t
+    from jxlforge.i18n import t
 
     QLabel(t("设置"))
     combo.addItem(t(action_id), action_id)   # 显示译文，userData 存原 ID

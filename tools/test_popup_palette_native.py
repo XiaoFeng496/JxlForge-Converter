@@ -58,10 +58,10 @@ _SENTINEL = QColor(255, 0, 0)
 
 def _bootstrap():
     QSettings.setDefaultFormat(QSettings.IniFormat)
-    tmp = tempfile.mkdtemp(prefix="libjxl_gui_popup_palette_")
+    tmp = tempfile.mkdtemp(prefix="jxlforge_popup_palette_")
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tmp)
-    QCoreApplication.setOrganizationName("libjxl")
-    QCoreApplication.setApplicationName("libjxl-gui")
+    QCoreApplication.setOrganizationName("JxlForge")
+    QCoreApplication.setApplicationName("JxlForge-Converter")
     app = QApplication.instance() or QApplication(["-platform", "offscreen"])
     return app, tmp
 
@@ -78,7 +78,7 @@ def _diff_roles(pal_a, pal_b):
 
 def _new_combo(theme):
     """Build a NoFlickerComboBox fully applied under ``theme``."""
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
     mw.set_app_theme(theme)
     combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
@@ -97,7 +97,7 @@ def test_view_palette_pinned_under_every_theme():
     popup 不走 QComboBox.view()，其配色由原型仓测试单独覆盖——不属于本测试范围。
     """
     _bootstrap()
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
     for theme in ("native_noflicker", "native", "fusion"):
         combo = _new_combo(theme)
         diff = _diff_roles(combo.view().palette(), QApplication.palette())
@@ -110,7 +110,7 @@ def test_view_palette_pinned_under_every_theme():
 def test_theme_switch_keeps_view_palette_in_sync():
     """主题来回切（native -> noflicker -> native -> fusion）后仍保持同步。"""
     _bootstrap()
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
     mw.set_app_theme("native")
     combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
@@ -128,7 +128,7 @@ def test_theme_switch_keeps_view_palette_in_sync():
 def test_color_scheme_switch_refreshes_combo_palettes():
     """切深浅色必须走 _refresh_combo_styles()，否则弹窗颜色不跟着变。"""
     _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     win = MainWindow()
     calls = []
     orig = win._refresh_combo_styles
@@ -153,7 +153,7 @@ def test_color_scheme_switch_refreshes_combo_palettes():
 def test_palette_change_event_refreshes_combo_palettes():
     """系统深浅色切换（PaletteChange）也必须刷新弹窗配色。"""
     _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     win = MainWindow()
     calls = []
     orig = win._refresh_combo_styles
@@ -175,7 +175,7 @@ def test_palette_change_event_refreshes_combo_palettes():
 def test_refresh_combo_styles_picks_up_new_app_palette():
     """_refresh_combo_styles 的实际效果：app palette 一变，每个弹窗都要跟上。"""
     _bootstrap()
-    from libjxl_gui.main_window import MainWindow, NativeNoFlickerComboBox
+    from jxlforge.main_window import MainWindow, NativeNoFlickerComboBox
     win = MainWindow()
     # 本测试针对原生实现（NativeNoFlickerComboBox）；默认主题已是
     # 原生（NoFlicker框）→ 代理实例化的是自绘原型，需显式切回。
@@ -208,7 +208,7 @@ def test_refresh_combo_styles_picks_up_new_app_palette():
 def test_popup_container_style_follows_theme_both_ways():
     """容器样式是双向的：noflicker 加 frameless+QSS，切回原生必须还原干净。"""
     _bootstrap()
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
 
     combo = _new_combo("native_noflicker")
     container = combo._popup_container
@@ -236,7 +236,7 @@ def test_popup_container_style_follows_theme_both_ways():
 def test_theme_switch_refreshes_container_without_opening_popup():
     """主题切换时，即使从没打开过的下拉也要被刷新（容器构造后即存在）。"""
     _bootstrap()
-    from libjxl_gui.main_window import MainWindow, NativeNoFlickerComboBox
+    from jxlforge.main_window import MainWindow, NativeNoFlickerComboBox
     win = MainWindow()
     mw_set = win._apply_theme
     mw_set("native")
@@ -292,7 +292,7 @@ def test_view_qss_has_border_under_fusion_theme():
 def test_view_qss_follows_theme_switch_both_ways():
     """边框必须跟着主题来回切，不能只在构造时定一次。"""
     _bootstrap()
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
     mw.set_app_theme("native")
     combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
@@ -320,7 +320,7 @@ def test_show_popup_never_calls_setWindowFlags():
     这是「setWindowFlags vs overrideWindowFlags」这条铁律的执行点。
     """
     _bootstrap()
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
 
     mw.set_app_theme("native")
     combo = mw.NativeNoFlickerComboBox()
@@ -355,7 +355,7 @@ def test_show_popup_never_calls_setWindowFlags():
 def test_show_popup_applies_flags_once_when_they_are_stale():
     """反例：flags 确实落后时，showPopup 必须补上（且只改一次）。"""
     _bootstrap()
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
 
     mw.set_app_theme("native")
     combo = mw.NativeNoFlickerComboBox()
@@ -392,7 +392,7 @@ def test_detached_view_is_never_treated_as_container():
     当成容器去设 flags / QSS。
     """
     _bootstrap()
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
     mw.set_app_theme("native")
     combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
@@ -416,7 +416,7 @@ def test_resnap_propagates_to_viewport_and_container():
     style polish 结果，画面不变。
     """
     _bootstrap()
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
     # 也建一个 MainWindow，因为 ``_popup_container`` 只有在 ``showPopup()``
     # 时被 ``_popup_container_widget`` 缓存，而本测试想直接 verify 容器
     # 同步路径，所以用 showPopup 触发一次。
@@ -460,7 +460,7 @@ def test_color_scheme_change_propagates_after_popup_already_exists():
     切换送达 view + viewport + container，三层关键角色全部同步。
     """
     _bootstrap()
-    from libjxl_gui import main_window as mw
+    from jxlforge import main_window as mw
     # 模拟容器已被前一次 showPopup 创建、且 curated 的 _popup_container 引用。
     win = mw.MainWindow()
     # 默认主题已是原生（NoFlicker框）→ 代理实例化的是自绘原型；

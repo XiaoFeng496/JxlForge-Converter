@@ -24,8 +24,8 @@ from PySide6.QtGui import QImageReader
 
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-from libjxl_gui.main_window import get_image_dims, IMAGE_EXTENSIONS
-from libjxl_gui import formats
+from jxlforge.main_window import get_image_dims, IMAGE_EXTENSIONS
+from jxlforge import formats
 
 results = []
 
@@ -83,7 +83,7 @@ with open(pgx2, "wb") as f:
 check("PGX s16 -> P5 2x2", formats.pgx_to_ppm_bytes(pgx2).startswith(b"P5\n2 2\n255\n"))
 
 # --- 7. decoded PPM is loadable by QImageReader (integration) ---------------
-from libjxl_gui.main_window import _display_path
+from jxlforge.main_window import _display_path
 for src, exp in [(pfm_g, (4, 3)), (pam, (2, 2)), (pgx, (4, 3))]:
     # 走真实管线：_display_path 解码为临时 PPM，QImageReader 读取
     dp = _display_path(src)

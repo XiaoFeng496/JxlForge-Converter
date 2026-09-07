@@ -20,12 +20,12 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QSettings
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui-test-delorig")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter-test-delorig")
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_delorig_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
-from libjxl_gui.main_window import (
+from jxlforge.main_window import (
     MainWindow,
     ConvertWorker,
     _move_to_recycle_bin,

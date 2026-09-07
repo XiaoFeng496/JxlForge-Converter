@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import sys
 
-from libjxl_gui import converter as conv_mod
+from jxlforge import converter as conv_mod
 
 # Capture the argv that _run() would hand to subprocess.Popen, instead of
 # actually spawning cjxl.

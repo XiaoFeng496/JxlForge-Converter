@@ -18,13 +18,13 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QSettings
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui-test-onexist")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter-test-onexist")
 # 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini。
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_onexist_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
-from libjxl_gui.main_window import MainWindow
+from jxlforge.main_window import MainWindow
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

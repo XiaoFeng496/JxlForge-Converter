@@ -26,10 +26,10 @@ _app = QApplication.instance() or QApplication(sys.argv)
 QSettings.setDefaultFormat(QSettings.IniFormat)
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_actions_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
-QCoreApplication.setOrganizationName("libjxl_gui_test_actions")
-QCoreApplication.setApplicationName("libjxl_gui_test_actions")
+QCoreApplication.setOrganizationName("jxlforge_test_actions")
+QCoreApplication.setApplicationName("jxlforge_test_actions")
 
-from libjxl_gui.main_window import MainWindow
+from jxlforge.main_window import MainWindow
 
 failures = []
 total = 0

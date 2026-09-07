@@ -2,7 +2,7 @@
 """清除 libjxl GUI 持久化在 .ini 文件里的窗口几何，用于测试首启 6x3 排版。
 
 程序在关闭时会把窗口大小/位置存进 QSettings 的 `geometry` 键
-（见 libjxl_gui/main_window.py 的 _save_geometry / _load_geometry）。
+（见 jxlforge/main_window.py 的 _save_geometry / _load_geometry）。
 只要该键存在，下次启动就恢复旧尺寸、跳过 6x3 自适应；
 删掉它之后，程序会重新按 6x3 网格计算并居中窗口。
 
@@ -20,7 +20,7 @@ import shutil
 from datetime import datetime
 
 ORG = "libjxl"
-APP = "libjxl-gui"
+APP = "JxlForge-Converter"
 
 # Qt IniFormat 默认路径：%APPDATA%/<org>/<app>.ini（Roaming）
 APPDATA = os.environ.get("APPDATA") or os.path.expanduser("~/.config")

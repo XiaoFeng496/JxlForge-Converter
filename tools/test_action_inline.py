@@ -31,8 +31,8 @@ from PySide6.QtWidgets import (
 
 app = QApplication.instance() or QApplication(sys.argv)
 
-from libjxl_gui import main_window as mw
-from libjxl_gui import processor
+from jxlforge import main_window as mw
+from jxlforge import processor
 
 passed = 0
 failures = []

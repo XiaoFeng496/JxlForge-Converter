@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
-from libjxl_gui.main_window import MainWindow
+from jxlforge.main_window import MainWindow
 
 failures = []
 

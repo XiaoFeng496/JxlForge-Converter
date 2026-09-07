@@ -30,7 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
 sys.path.insert(0, REPO_ROOT)
 
-from libjxl_gui import i18n  # noqa: E402
+from jxlforge import i18n  # noqa: E402
 
 PY = sys.executable
 _failures = []
@@ -59,7 +59,7 @@ ROOT = sys.argv[1]
 CODE = sys.argv[2]
 sys.path.insert(0, ROOT)
 
-from libjxl_gui import i18n
+from jxlforge import i18n
 
 path = os.path.join(i18n._I18N_DIR, "%s.json" % CODE)
 try:
@@ -79,7 +79,7 @@ try:
     print("SELFNAME %s" % i18n.language_name(CODE))
 
     # ---- 2. 下拉层：main_window 派生出的清单里要有它 ----
-    from libjxl_gui.main_window import _LANGUAGE_ORDER, _LANGUAGE_LABELS
+    from jxlforge.main_window import _LANGUAGE_ORDER, _LANGUAGE_LABELS
     print("IN_COMBO_ORDER %s" % (CODE in _LANGUAGE_ORDER))
     print("COMBO_LABEL %s" % _LANGUAGE_LABELS.get(CODE, "<缺失>"))
 
@@ -166,7 +166,7 @@ def main():
           "闸门可能硬编码了语言代码")
 
     # --- 6. main_window 不再硬编码语言清单 ---
-    src = _read(os.path.join(REPO_ROOT, "libjxl_gui", "main_window.py"))
+    src = _read(os.path.join(REPO_ROOT, "jxlforge", "main_window.py"))
     check("main_window 从 i18n 派生语言清单",
           "_LANGUAGE_ORDER = tuple(i18n.language_order())" in src,
           "可能又写回了硬编码列表")

@@ -13,7 +13,7 @@ from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from libjxl_gui.main_window import InputListWidget
+from jxlforge.main_window import InputListWidget
 
 
 class DummyMainWindow:

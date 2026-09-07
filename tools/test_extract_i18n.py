@@ -32,7 +32,7 @@ def test_all_coordinates_roundtrip():
     这是阶段 3「按坐标整块替换成 t(...)」的地基：坐标错一位就是静默写坏代码。
     """
     targets = []
-    pkg = os.path.join(REPO_ROOT, "libjxl_gui")
+    pkg = os.path.join(REPO_ROOT, "jxlforge")
     for name in sorted(os.listdir(pkg)):
         if name.endswith(".py"):
             targets.append(os.path.join(pkg, name))

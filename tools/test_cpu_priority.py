@@ -17,8 +17,8 @@ from PySide6.QtWidgets import QApplication
 # Make sure a QApplication exists before importing the main window module.
 _app = QApplication.instance() or QApplication(sys.argv)
 
-from libjxl_gui import converter as conv_mod
-from libjxl_gui.main_window import MainWindow, ConvertWorker
+from jxlforge import converter as conv_mod
+from jxlforge.main_window import MainWindow, ConvertWorker
 
 failures = []
 

@@ -181,7 +181,7 @@ def run_calibration(progress_cb=None, log_cb=None, effort=7, runs=3, max_mp=64):
 def _settings():
     """统一的 QSettings 句柄（与应用内 QSettings() 指向同一 ini 文件）。"""
     from PySide6.QtCore import QSettings
-    return QSettings(QSettings.IniFormat, QSettings.UserScope, "libjxl", "libjxl-gui")
+    return QSettings(QSettings.IniFormat, QSettings.UserScope, "JxlForge", "JxlForge-Converter")
 
 
 def floor_key_for_state(state):

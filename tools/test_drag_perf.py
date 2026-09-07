@@ -17,7 +17,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from PySide6.QtWidgets import QApplication, QListWidget
-from libjxl_gui import main_window as mw
+from jxlforge import main_window as mw
 
 # Build a headless QApplication once.
 app = QApplication.instance() or QApplication(sys.argv[:1])

@@ -25,15 +25,15 @@ _app = QApplication.instance() or QApplication(sys.argv)
 QSettings.setDefaultFormat(QSettings.IniFormat)
 # Mirror __main__.run() so QSettings (used for persistence) has a stable,
 # writable location — otherwise the round-trip fails under a default name.
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter")
 # 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini
-# （%APPDATA%\libjxl\libjxl-gui.ini），否则测试残留值会让 GUI 下次启动异常。
+# （%APPDATA%\JxlForge\JxlForge-Converter.ini），否则测试残留值会让 GUI 下次启动异常。
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
-from libjxl_gui import converter as conv_mod
-from libjxl_gui.main_window import MainWindow
+from jxlforge import converter as conv_mod
+from jxlforge.main_window import MainWindow
 
 
 def fresh_window():

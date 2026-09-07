@@ -19,7 +19,7 @@ QSettings.setDefaultFormat(QSettings.IniFormat)
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp))
 
 sys.path.insert(0, r"F:\Agent工作空间\libjxl_GUI")
-import libjxl_gui.main_window as mw
+import jxlforge.main_window as mw
 
 app = QApplication.instance() or QApplication([])
 

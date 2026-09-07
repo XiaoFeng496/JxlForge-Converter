@@ -22,19 +22,19 @@ from PySide6.QtWidgets import QApplication, QGroupBox, QLabel
 
 def _bootstrap():
     r"""Each test runs in a brand-new isolated ini directory so QSettings never
-    touches the real ``%APPDATA%\libjxl\libjxl-gui.ini``."""
+    touches the real ``%APPDATA%\JxlForge\JxlForge-Converter.ini``."""
     QSettings.setDefaultFormat(QSettings.IniFormat)
-    tmp = tempfile.mkdtemp(prefix="libjxl_gui_color_scheme_")
+    tmp = tempfile.mkdtemp(prefix="jxlforge_color_scheme_")
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tmp)
-    QCoreApplication.setOrganizationName("libjxl")
-    QCoreApplication.setApplicationName("libjxl-gui")
+    QCoreApplication.setOrganizationName("JxlForge")
+    QCoreApplication.setApplicationName("JxlForge-Converter")
     app = QApplication.instance() or QApplication(["-platform", "offscreen"])
     return app, tmp
 
 
 def test_region_renamed_to_常规():
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     titles = [g.title() for g in w.findChildren(QGroupBox)]
     assert "常规" in titles, f"应存在「常规」分组，实际={titles}"
@@ -73,7 +73,7 @@ def _row_label_of(combo):
 
 def test_label_renamed_to_控件样式():
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     label = _row_label_of(w.theme_combo)
     assert label is not None and label.text() == "控件样式", \
@@ -88,7 +88,7 @@ def test_label_renamed_to_控件样式():
 
 def test_color_scheme_combo_defaults():
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow, _COLOR_SCHEME_ORDER, _COLOR_SCHEME_LABELS
+    from jxlforge.main_window import MainWindow, _COLOR_SCHEME_ORDER, _COLOR_SCHEME_LABELS
     w = MainWindow()
     keys = [w.color_scheme_combo.itemData(i) for i in range(w.color_scheme_combo.count())]
     assert keys == list(_COLOR_SCHEME_ORDER), \
@@ -105,7 +105,7 @@ def test_color_scheme_combo_defaults():
 def test_persist_and_restore():
     app, tmp = _bootstrap()
     # 第一次启动：默认 follow_system → 切到 light → 关闭
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w1 = MainWindow()
     idx = w1.color_scheme_combo.findData("light")
     w1.color_scheme_combo.setCurrentIndex(idx)
@@ -129,7 +129,7 @@ def test_persist_and_restore():
 def test_persist_independent_of_theme():
     """颜色方案与控件样式互相独立：切换其中一个不应影响另一个的持久化键。"""
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     # 默认值：theme=原生（NoFlicker框），color_scheme=follow_system
     assert w.theme_combo.currentData() == "native_noflicker_proto"
@@ -158,7 +158,7 @@ def test_invalid_persisted_value_falls_back_to_default():
     s.setValue("color_scheme", "garbage_value")
     s.endGroup()
     s.sync()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     assert w.color_scheme_combo.currentData() == "follow_system", \
         f"坏值应回退到 跟随系统，实际={w.color_scheme_combo.currentData()}"
@@ -168,7 +168,7 @@ def test_invalid_persisted_value_falls_back_to_default():
 
 def test_app_color_scheme_module_helpers():
     """模块级 set_app_color_scheme / app_color_scheme 必须正确映射。"""
-    from libjxl_gui.main_window import (
+    from jxlforge.main_window import (
         app_color_scheme, set_app_color_scheme,
         _COLOR_SCHEME_ORDER, _COLOR_SCHEME_LABELS,
     )

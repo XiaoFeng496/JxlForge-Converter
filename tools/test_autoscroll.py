@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from libjxl_gui.main_window import (
+from jxlforge.main_window import (
     InputListWidget,
     AUTO_SCROLL_INTERVAL,
     AUTO_SCROLL_MARGIN,

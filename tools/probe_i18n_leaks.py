@@ -39,12 +39,12 @@ from PySide6.QtGui import QFontDatabase, QFont
 QSettings.setDefaultFormat(QSettings.IniFormat)
 _tmp = tempfile.mkdtemp(prefix="libjxl_probe_leak_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter")
 
-from libjxl_gui import i18n
-from libjxl_gui.__main__ import _apply_persisted_language
-from libjxl_gui.main_window import MainWindow, VIEW_MODES
+from jxlforge import i18n
+from jxlforge.__main__ import _apply_persisted_language
+from jxlforge.main_window import MainWindow, VIEW_MODES
 
 # ---- 字体（offscreen 默认 0 字体，载入系统字体只为控件能正常建文本） ----
 app = QApplication.instance() or QApplication(["-platform", "offscreen"])

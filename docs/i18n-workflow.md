@@ -26,7 +26,7 @@ python tools/check_i18n_coverage.py --min 80    # 低于 80% 退出码 1
 
 ## 二、加一门新语言：一步
 
-往 `libjxl_gui/i18n/` 丢一个 `<代码>.json`：
+往 `jxlforge/i18n/` 丢一个 `<代码>.json`：
 
 ```json
 {
@@ -69,7 +69,7 @@ python tools/run_tests.py
 
 ## 四、改了源码之后
 
-⚠️ **改完 `libjxl_gui/*.py` 必须重跑抽取**：
+⚠️ **改完 `jxlforge/*.py` 必须重跑抽取**：
 
 ```
 python tools/check_i18n_coverage.py     # 它会自动重跑，不用手动
@@ -130,8 +130,8 @@ combo.addItem(i18n.t(action_id), action_id)   # 显示译文，userData 存原 I
 | `tools/classify_i18n.py` | 阶段 1：自动分级（翻 / 不翻 + 置信度），生成复核页 |
 | `tools/check_i18n_coverage.py` | **日常用这个**：覆盖率闸门 |
 | `tools/run_tests.py` | 批量跑测试 |
-| `libjxl_gui/i18n.py` | 运行时：`t()` / `set_language()` |
-| `libjxl_gui/i18n/*.json` | 各语言字典 |
+| `jxlforge/i18n.py` | 运行时：`t()` / `set_language()` |
+| `jxlforge/i18n/*.json` | 各语言字典 |
 | `tools/i18n_work/review.html` | 分级复核页（可筛选 / 改判，理由写成人话） |
 
 产物在 `tools/i18n_work/`：`strings_raw.json`（抽取）、

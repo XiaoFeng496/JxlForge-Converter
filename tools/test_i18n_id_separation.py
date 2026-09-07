@@ -26,22 +26,22 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
-sys.path.insert(0, REPO_ROOT)      # 导入 libjxl_gui
+sys.path.insert(0, REPO_ROOT)      # 导入 jxlforge
 sys.path.insert(0, HERE)           # 导入 tools/ 下的分级脚本
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QSettings
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui-test-i18n")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter-test-i18n")
 # 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini。
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_i18n_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
-from libjxl_gui import i18n
-from libjxl_gui import processor
-from libjxl_gui.main_window import MainWindow, VIEW_MODES
+from jxlforge import i18n
+from jxlforge import processor
+from jxlforge.main_window import MainWindow, VIEW_MODES
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

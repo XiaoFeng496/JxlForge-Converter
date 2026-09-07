@@ -17,8 +17,8 @@ for p in (_HERE, r"F:\Agent工作空间\libjxl_GUI"):
 
 from PySide6.QtWidgets import QApplication, QComboBox, QWidget  # noqa: E402
 
-from libjxl_gui import combo_switch  # noqa: E402
-from libjxl_gui import no_flicker_combo as A  # noqa: E402
+from jxlforge import combo_switch  # noqa: E402
+from jxlforge import no_flicker_combo as A  # noqa: E402
 
 app = QApplication([])
 

@@ -42,9 +42,9 @@ if ROOT not in sys.path:
 
 from PySide6.QtWidgets import QApplication, QComboBox  # noqa: E402
 
-import libjxl_gui.main_window as mw  # noqa: E402
-from libjxl_gui import combo_switch as cs  # noqa: E402
-from libjxl_gui import no_flicker_combo as nfc  # noqa: E402
+import jxlforge.main_window as mw  # noqa: E402
+from jxlforge import combo_switch as cs  # noqa: E402
+from jxlforge import no_flicker_combo as nfc  # noqa: E402
 
 app = QApplication([])
 

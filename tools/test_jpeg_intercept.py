@@ -25,12 +25,12 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication
 
 # 用独立的应用命名空间隔离 QSettings，避免污染真实用户配置。
-QCoreApplication.setOrganizationName("libjxl_gui_test")
-QCoreApplication.setApplicationName("libjxl_gui_test")
+QCoreApplication.setOrganizationName("jxlforge_test")
+QCoreApplication.setApplicationName("jxlforge_test")
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-from libjxl_gui import converter as conv
-from libjxl_gui.main_window import MainWindow, _jpeg_recon_action
+from jxlforge import converter as conv
+from jxlforge.main_window import MainWindow, _jpeg_recon_action
 from PIL import Image
 
 failures = []

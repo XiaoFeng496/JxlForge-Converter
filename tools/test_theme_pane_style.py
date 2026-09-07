@@ -32,15 +32,15 @@ _app = QApplication.instance() or QApplication(sys.argv)
 # Mirror __main__.run(): persist to a .ini file (not the registry) so running
 # these tests doesn't write into the user's Windows registry.
 QSettings.setDefaultFormat(QSettings.IniFormat)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter")
 # 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini
-# （%APPDATA%\libjxl\libjxl-gui.ini）与受保护的 big_image_floor_px。
+# （%APPDATA%\JxlForge\JxlForge-Converter.ini）与受保护的 big_image_floor_px。
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_pane_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
-import libjxl_gui.main_window as mw
-from libjxl_gui.main_window import (
+import jxlforge.main_window as mw
+from jxlforge.main_window import (
     MainWindow, DEFAULT_THEME, _THEME_ORDER, _THEME_LABELS,
     FUSION_DARK_WINDOW_BG, FUSION_DARK_TAB_PANE_BG, FUSION_DARK_TAB_PANE_BORDER,
 )

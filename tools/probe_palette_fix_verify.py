@@ -26,7 +26,7 @@ QSettings.setDefaultFormat(QSettings.IniFormat)
 app = QApplication(sys.argv[:1])
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from libjxl_gui import main_window as mw  # noqa: E402
+from jxlforge import main_window as mw  # noqa: E402
 
 failures = []
 

@@ -5,9 +5,9 @@ r"""阶段 0：抽取产品代码中的中文字符串字面量，产出清单�
 下写清单文件。
 
 用法：
-    python tools/extract_i18n.py                 # 扫描 libjxl_gui/ 并写清单
+    python tools/extract_i18n.py                 # 扫描 jxlforge/ 并写清单
     python tools/extract_i18n.py --stats         # 只打印统计，不写文件
-    python tools/extract_i18n.py --roots libjxl_gui libjxl_gui/main_window.py
+    python tools/extract_i18n.py --roots jxlforge jxlforge/main_window.py
 
 产出字段（每条记录）：
     file/lineno/col_offset/end_lineno/end_col_offset  阶段 3 精确回填用
@@ -423,8 +423,8 @@ def verify_coordinates(records, repo_root):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="抽取中文字符串清单（只读）")
-    parser.add_argument("--roots", nargs="*", default=["libjxl_gui"],
-                        help="要扫描的文件或目录，默认 libjxl_gui")
+    parser.add_argument("--roots", nargs="*", default=["jxlforge"],
+                        help="要扫描的文件或目录，默认 jxlforge")
     parser.add_argument("--out", default=None,
                         help="输出 JSON 路径，默认 tools/i18n_work/strings_raw.json")
     parser.add_argument("--stats", action="store_true",

@@ -19,11 +19,11 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtGui import QKeyEvent
 
-QCoreApplication.setOrganizationName("libjxl_gui_test_esc")
-QCoreApplication.setApplicationName("libjxl_gui_test_esc")
+QCoreApplication.setOrganizationName("jxlforge_test_esc")
+QCoreApplication.setApplicationName("jxlforge_test_esc")
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-from libjxl_gui.main_window import MainWindow
+from jxlforge.main_window import MainWindow
 
 failures = []
 

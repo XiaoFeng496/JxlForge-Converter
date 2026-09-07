@@ -33,15 +33,15 @@ _app = QApplication.instance() or QApplication(sys.argv)
 # these tests doesn't write into the user's Windows registry.
 QSettings.setDefaultFormat(QSettings.IniFormat)
 # Mirror __main__.run() so QSettings has a stable, writable location.
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter")
 # 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini
-# （%APPDATA%\libjxl\libjxl-gui.ini），否则测试残留值会让 GUI 下次启动异常。
+# （%APPDATA%\JxlForge\JxlForge-Converter.ini），否则测试残留值会让 GUI 下次启动异常。
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
-from libjxl_gui import converter as conv_mod
-from libjxl_gui.main_window import (
+from jxlforge import converter as conv_mod
+from jxlforge.main_window import (
     MainWindow, GRID_SIZES, FIT_EXTRA_H, FIT_EXTRA_H_NATIVE, _fit_extra_h)
 
 
@@ -352,7 +352,7 @@ class _FakeVP:
 
 
 win.input_list.viewport = lambda: _FakeVP()
-import libjxl_gui.main_window as _mw10
+import jxlforge.main_window as _mw10
 _fit10_saved = _mw10._APP_THEME
 _mw10._APP_THEME = "native_noflicker"
 # 本组断言基于基准 FIT_EXTRA_H 常量；fit 逻辑本身与主题无关，但默认主题
@@ -544,7 +544,7 @@ clear_output_settings()
 # 主题下输出页由 Windows 原生风格绘制，GroupBox/复选框等高控件渲染更高，需比
 # 基准 FIT_EXTRA_H 再多 FIT_EXTRA_H_NATIVE(6)px，否则会冒出滚动条；
 # 原生（Fusion框）/Fusion 沿用基准值。
-import libjxl_gui.main_window as _mw
+import jxlforge.main_window as _mw
 _fit_saved_theme = _mw._APP_THEME
 try:
     _mw._APP_THEME = "native"

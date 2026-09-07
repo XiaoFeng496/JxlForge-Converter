@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-from libjxl_gui.main_window import ConvertWorker
+from jxlforge.main_window import ConvertWorker
 
 failures = []
 

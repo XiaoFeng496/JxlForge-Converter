@@ -29,7 +29,7 @@ _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 _TMP = tempfile.mkdtemp()
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _TMP)
 
-from libjxl_gui.main_window import (  # noqa: E402
+from jxlforge.main_window import (  # noqa: E402
     ConvertWorker,
     read_big_image_floor_px,
     estimate_floor_px,

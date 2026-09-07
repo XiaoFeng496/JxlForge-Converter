@@ -19,7 +19,7 @@ os.environ.setdefault("XDG_CONFIG_HOME", tempfile.mkdtemp())
 os.environ.setdefault("APPDATA", tempfile.mkdtemp())
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from libjxl_gui import main_window as mw_mod
+from jxlforge import main_window as mw_mod
 
 app = QApplication.instance() or QApplication([])
 

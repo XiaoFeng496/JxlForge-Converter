@@ -2,7 +2,7 @@
 """offscreen 冒烟：构造窗口 + API + 键盘转发 + 尺寸同步。
 
 迁自原型仓（XiaoFeng496/libjxl_GUI_prototypes）的 ``test_custom_combo_menu.py``，
-被测对象改指主项目真源 ``libjxl_gui.no_flicker_combo``。原型仓已降为实验/存档区，
+被测对象改指主项目真源 ``jxlforge.no_flicker_combo``。原型仓已降为实验/存档区，
 **改 combo 逻辑请改主项目，并在这里跑回归**，不要再改原型仓那份。
 """
 import ctypes
@@ -20,7 +20,7 @@ from PySide6.QtGui import (QColor, QImage, QKeyEvent, QMouseEvent, QPalette,
 from PySide6.QtWidgets import (QApplication, QComboBox, QGraphicsDropShadowEffect,
                                QStyle, QStyleFactory)
 
-from libjxl_gui import no_flicker_combo as m
+from jxlforge import no_flicker_combo as m
 
 app = QApplication([])
 

@@ -23,12 +23,12 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QSettings
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui-test-discard")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter-test-discard")
 _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_discard_")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 
-from libjxl_gui.main_window import MainWindow, ConvertWorker
+from jxlforge.main_window import MainWindow, ConvertWorker
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -99,7 +99,7 @@ check("worker.discard_if_larger 透传=True", wk.discard_if_larger is True)
 wk2 = ConvertWorker([], [], discard_if_larger=False)
 check("worker.discard_if_larger 透传=False", wk2.discard_if_larger is False)
 
-import libjxl_gui.main_window as mw
+import jxlforge.main_window as mw
 
 tmpd = tempfile.mkdtemp(prefix="libjxl_discard_")
 

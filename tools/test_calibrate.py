@@ -23,17 +23,17 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 # Isolate QSettings BEFORE importing the modules under test. Mirror the real
 # app's identity (org/app + IniFormat) so QSettings() and calibrate.write_floor_px
-# (which uses the explicit "libjxl"/"libjxl-gui" identity) resolve to the same
+# (which uses the explicit "JxlForge"/"JxlForge-Converter" identity) resolve to the same
 # temp file instead of two different locations.
 _TMP = tempfile.mkdtemp()
 QSettings.setDefaultFormat(QSettings.IniFormat)
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
-_app.setOrganizationName("libjxl")
-_app.setApplicationName("libjxl-gui")
+_app.setOrganizationName("JxlForge")
+_app.setApplicationName("JxlForge-Converter")
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _TMP)
 
-from libjxl_gui import calibrate  # noqa: E402
-from libjxl_gui.main_window import CalibrateWorker  # noqa: E402
+from jxlforge import calibrate  # noqa: E402
+from jxlforge.main_window import CalibrateWorker  # noqa: E402
 
 results = []
 
@@ -180,7 +180,7 @@ check("after clear: cpu signature gone",
 
 
 # --- 6. power helpers -----------------------------------------------------
-from libjxl_gui import power as _pw  # noqa: E402
+from jxlforge import power as _pw  # noqa: E402
 check("cpu_signature non-empty", bool(_pw.cpu_signature()))
 _scheme = _pw.get_active_power_scheme()
 check("get_active_power_scheme returns GUID or None",

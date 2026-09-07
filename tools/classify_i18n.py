@@ -109,7 +109,7 @@ UI_CONTEXTS = {
 # 是有意为之——英文界面上仍应显示「简体中文」，译成 "Simplified Chinese"
 # 反而让中文用户认不出来。不排除的话它会永远躺在「未翻译」里，
 # 把覆盖率永久卡在 99.x%。
-I18N_INFRA_FILES = {"libjxl_gui/i18n.py"}
+I18N_INFRA_FILES = {"jxlforge/i18n.py"}
 
 # (5) 异常类名：raise 出来的消息是给开发者看的，不进 UI。
 EXCEPTION_CONTEXTS = {"ValueError", "RuntimeError", "TypeError", "KeyError",

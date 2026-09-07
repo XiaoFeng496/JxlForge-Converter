@@ -18,11 +18,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QCoreApplication
 
-QCoreApplication.setOrganizationName("libjxl_gui_test")
-QCoreApplication.setApplicationName("libjxl_gui_test")
+QCoreApplication.setOrganizationName("jxlforge_test")
+QCoreApplication.setApplicationName("jxlforge_test")
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-from libjxl_gui.main_window import MainWindow
+from jxlforge.main_window import MainWindow
 
 failures = []
 

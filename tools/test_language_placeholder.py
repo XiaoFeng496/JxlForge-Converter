@@ -14,7 +14,7 @@ r"""回归测试：设置页「常规」区新增的「语言」下拉（占位�
 而不是「切换后立刻变英文」。
 
 注：每个用例跑在独立的临时 ini 目录，避免污染真实
-%APPDATA%\libjxl\libjxl-gui.ini。
+%APPDATA%\JxlForge\JxlForge-Converter.ini。
 
 ⚠️ 调整「常规」区内部排布后，只需同步修改下面的 _EXPECTED_GRID_POSITIONS。
 """
@@ -39,12 +39,12 @@ _EXPECTED_GRID_POSITIONS = {
 
 def _bootstrap():
     r"""Each test runs in a brand-new isolated ini directory so QSettings never
-    touches the real ``%APPDATA%\libjxl\libjxl-gui.ini``."""
+    touches the real ``%APPDATA%\JxlForge\JxlForge-Converter.ini``."""
     QSettings.setDefaultFormat(QSettings.IniFormat)
-    tmp = tempfile.mkdtemp(prefix="libjxl_gui_language_")
+    tmp = tempfile.mkdtemp(prefix="jxlforge_language_")
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tmp)
-    QCoreApplication.setOrganizationName("libjxl")
-    QCoreApplication.setApplicationName("libjxl-gui")
+    QCoreApplication.setOrganizationName("JxlForge")
+    QCoreApplication.setApplicationName("JxlForge-Converter")
     app = QApplication.instance() or QApplication(["-platform", "offscreen"])
     return app, tmp
 
@@ -101,7 +101,7 @@ def _grid_position_of(combo):
 
 def test_language_combo_exists_in_常规():
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     combo = getattr(w, "language_combo", None)
     assert combo is not None, "主窗口应暴露 language_combo"
@@ -116,7 +116,7 @@ def test_language_combo_exists_in_常规():
 
 def test_language_row_label():
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     label = _row_label_of(w.language_combo)
     assert label is not None and label.text() == "语言", \
@@ -129,7 +129,7 @@ def test_grid_positions_in_常规():
     r"""「常规」内部双列的落位，对照文件顶部的 _EXPECTED_GRID_POSITIONS
     逐项核对（改排布时只改那张表）。"""
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     for attr, expected in sorted(_EXPECTED_GRID_POSITIONS.items()):
         combo = getattr(w, attr, None)
@@ -143,7 +143,7 @@ def test_grid_positions_in_常规():
 
 def test_language_items_and_default():
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow, _LANGUAGE_COMBO_ORDER, _LANGUAGE_DEFAULT
+    from jxlforge.main_window import MainWindow, _LANGUAGE_COMBO_ORDER, _LANGUAGE_DEFAULT
     w = MainWindow()
     combo = w.language_combo
     items = [(combo.itemText(i), combo.itemData(i)) for i in range(combo.count())]
@@ -167,7 +167,7 @@ def test_language_items_and_default():
 def test_language_persists_on_change():
     r"""选择语言后应立即写入 appearance/language（切换本身重启后生效）。"""
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     combo = w.language_combo
     combo.setCurrentIndex(combo.findData("en_US"))
@@ -189,7 +189,7 @@ def test_follow_system_persists_on_change():
     修复后守卫改用 _LANGUAGE_COMBO_ORDER（含 follow_system / zh_TW 哨兵）。
     """
     app, _ = _bootstrap()
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge.main_window import MainWindow
     w = MainWindow()
     combo = w.language_combo
     # 跟随系统是默认选中项（index 0），直接 setCurrentIndex(0) 不会触发
@@ -211,9 +211,9 @@ def test_language_applied_on_next_launch():
     r"""重启路径：__main__._apply_persisted_language() 要在构造窗口前
     把持久化的语言装进 i18n，否则界面仍是中文。"""
     app, _ = _bootstrap()
-    from libjxl_gui import i18n
-    from libjxl_gui.__main__ import _apply_persisted_language
-    from libjxl_gui.main_window import MainWindow
+    from jxlforge import i18n
+    from jxlforge.__main__ import _apply_persisted_language
+    from jxlforge.main_window import MainWindow
 
     # 先模拟「用户在设置页选了 English」
     s = QSettings()
@@ -252,8 +252,8 @@ def test_invalid_language_falls_back():
     以免在英文系统上误报。
     """
     app, _ = _bootstrap()
-    from libjxl_gui import i18n
-    from libjxl_gui.__main__ import _apply_persisted_language
+    from jxlforge import i18n
+    from jxlforge.__main__ import _apply_persisted_language
 
     s = QSettings()
     s.beginGroup("appearance")

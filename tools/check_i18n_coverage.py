@@ -45,7 +45,7 @@ import classify_i18n as cl  # noqa: E402
 import extract_i18n as ex  # noqa: E402
 
 sys.path.insert(0, REPO_ROOT)
-from libjxl_gui import i18n  # noqa: E402
+from jxlforge import i18n  # noqa: E402
 
 TRANSLATE, SKIP = cl.TRANSLATE, cl.SKIP
 REPORT_JSON = os.path.join(HERE, "i18n_work", "coverage.json")

@@ -14,8 +14,8 @@ from PySide6.QtWidgets import QApplication
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tempfile.mkdtemp())
-QCoreApplication.setOrganizationName("libjxl")
-QCoreApplication.setApplicationName("libjxl-gui")
+QCoreApplication.setOrganizationName("JxlForge")
+QCoreApplication.setApplicationName("JxlForge-Converter")
 
 _s = QSettings()
 _s.beginGroup("appearance")
@@ -23,10 +23,10 @@ _s.setValue("language", "en_US")
 _s.endGroup()
 _s.sync()
 
-from libjxl_gui import i18n
+from jxlforge import i18n
 i18n.set_language("en_US")
 
-from libjxl_gui.main_window import MainWindow
+from jxlforge.main_window import MainWindow
 from PySide6.QtGui import QFontMetrics
 
 

@@ -33,8 +33,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QSettings  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from libjxl_gui import i18n  # noqa: E402
-from libjxl_gui import main_window as mw  # noqa: E402
+from jxlforge import i18n  # noqa: E402
+from jxlforge import main_window as mw  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -53,7 +53,7 @@ def check(label_, cond, detail=""):
 def _isolate_qsettings():
     """测试期间把 QSettings 重定向到临时目录，结束后还原（不影响真实 ini）。"""
     import tempfile
-    tmp = tempfile.mkdtemp(prefix="libjxl-gui-test-lang-")
+    tmp = tempfile.mkdtemp(prefix="JxlForge-Converter-test-lang-")
     QSettings.setDefaultFormat(QSettings.IniFormat)
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tmp)
     return tmp

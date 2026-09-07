@@ -17,7 +17,7 @@
 
 可随时重跑以获得适配新硬件/新 effort 的更精确值（注：此处「值」指地板像素数）。
 
-本脚本复用 libjxl_gui.calibrate 的核心逻辑，与应用内「一键校准」按钮同一真源。
+本脚本复用 jxlforge.calibrate 的核心逻辑，与应用内「一键校准」按钮同一真源。
 """
 import os
 import sys
@@ -27,13 +27,13 @@ import argparse
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from libjxl_gui.calibrate import (  # noqa: E402
+from jxlforge.calibrate import (  # noqa: E402
     BIG_IMAGE_TARGET_SPEEDUP,
     run_calibration,
     write_floor_px,
     write_cpu_signature,
 )
-from libjxl_gui.power import (  # noqa: E402
+from jxlforge.power import (  # noqa: E402
     cpu_signature,
     get_power_state,
 )

@@ -4,7 +4,7 @@ the actions tab is intrinsically wider."""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from PySide6.QtWidgets import QApplication
-from libjxl_gui import main_window as mw
+from jxlforge import main_window as mw
 
 app = QApplication([])
 window = mw.MainWindow()

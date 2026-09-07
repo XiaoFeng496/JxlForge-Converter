@@ -25,9 +25,9 @@ from PySide6.QtTest import QTest
 
 app = QApplication(sys.argv)
 
-from libjxl_gui import converter
-import libjxl_gui.main_window as mw
-from libjxl_gui.main_window import MainWindow
+from jxlforge import converter
+import jxlforge.main_window as mw
+from jxlforge.main_window import MainWindow
 
 failures = []
 

@@ -21,7 +21,7 @@ import tempfile
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication, QTableWidget
 
-from libjxl_gui.main_window import MainWindow, TABLE_COLUMNS
+from jxlforge.main_window import MainWindow, TABLE_COLUMNS
 
 
 def main():
@@ -30,10 +30,10 @@ def main():
     # Mirror __main__.run(): persist to a .ini file (not the registry) so the
     # test doesn't write into the user's Windows registry.
     QSettings.setDefaultFormat(QSettings.IniFormat)
-    app.setOrganizationName("libjxl")
-    app.setApplicationName("libjxl-gui")
+    app.setOrganizationName("JxlForge")
+    app.setApplicationName("JxlForge-Converter")
     # 隔离 QSettings：测试全程写入临时目录，避免污染真实 ini
-    # （%APPDATA%\libjxl\libjxl-gui.ini），否则测试残留值会让 GUI 下次启动异常。
+    # （%APPDATA%\JxlForge\JxlForge-Converter.ini），否则测试残留值会让 GUI 下次启动异常。
     _tmp_settings_dir = tempfile.mkdtemp(prefix="libjxl_test_")
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_settings_dir)
 

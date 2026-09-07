@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 
 app = QApplication.instance() or QApplication(sys.argv)
 
-from libjxl_gui.main_window import PreviewScroll
+from jxlforge.main_window import PreviewScroll
 
 passed = 0
 failures = []

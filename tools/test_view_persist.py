@@ -17,10 +17,10 @@ from PySide6.QtCore import QCoreApplication, QSettings
 from PySide6.QtWidgets import QApplication
 
 # 隔离：使用独立的组织/应用名，避免读写真实配置。
-QCoreApplication.setOrganizationName("libjxl_gui_test")
+QCoreApplication.setOrganizationName("jxlforge_test")
 QCoreApplication.setApplicationName("view_persist")
 
-from libjxl_gui.main_window import MainWindow, VIEW_MODES
+from jxlforge.main_window import MainWindow, VIEW_MODES
 
 
 def check(label, cond):

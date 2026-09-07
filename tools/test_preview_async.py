@@ -29,8 +29,8 @@ from PySide6.QtWidgets import QApplication
 
 app = QApplication(sys.argv)
 
-import libjxl_gui.main_window as mw
-from libjxl_gui.main_window import _PreviewLoader
+import jxlforge.main_window as mw
+from jxlforge.main_window import _PreviewLoader
 
 failures = []
 

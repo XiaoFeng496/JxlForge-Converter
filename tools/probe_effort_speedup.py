@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """诊断：验证 cjxl 校准时 effort 7→4 的 speedup-分辨率曲线是否基本不变。
 
-复用 libjxl_gui.calibrate 的 make_photo_mp / bench（与真实校准同一测量方法），
+复用 jxlforge.calibrate 的 make_photo_mp / bench（与真实校准同一测量方法），
 对若干 MP 档位分别测量：
   T1   : --num_threads=1
   Tfull: --num_threads=逻辑核心数
@@ -17,7 +17,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from libjxl_gui.calibrate import (  # noqa: E402
+from jxlforge.calibrate import (  # noqa: E402
     BIG_IMAGE_TARGET_SPEEDUP,
     bench,
     make_photo_mp,

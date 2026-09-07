@@ -17,11 +17,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication
 
-QCoreApplication.setOrganizationName("libjxl_gui_test")
-QCoreApplication.setApplicationName("libjxl_gui_test")
+QCoreApplication.setOrganizationName("jxlforge_test")
+QCoreApplication.setApplicationName("jxlforge_test")
 _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 
-from libjxl_gui.main_window import MainWindow
+from jxlforge.main_window import MainWindow
 
 failures = []
 
@@ -36,7 +36,7 @@ def main():
     w = MainWindow()
 
     # 强制回到已知初始态：避免被其他测试脚本共享同一 QSettings
-    # (organization/app = "libjxl_gui_test") 持久化到磁盘的勾选态污染。
+    # (organization/app = "jxlforge_test") 持久化到磁盘的勾选态污染。
     # 本测试只验证锁定/解锁逻辑，不依赖任何持久化偏好。
     w.custom_cmd_check.blockSignals(True)
     w.custom_cmd_check.setChecked(False)

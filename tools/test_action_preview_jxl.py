@@ -35,7 +35,7 @@ def pump(ms=5000):
         QApplication.processEvents()
         time.sleep(0.005)
 
-from libjxl_gui import main_window as mw
+from jxlforge import main_window as mw
 
 passed = 0
 failures = []

@@ -28,8 +28,8 @@ from PySide6.QtGui import QPixmap, QImage
 app = QApplication(sys.argv)
 
 from PIL import Image
-import libjxl_gui.main_window as mw
-from libjxl_gui.main_window import MainWindow
+import jxlforge.main_window as mw
+from jxlforge.main_window import MainWindow
 
 failures = []
 
