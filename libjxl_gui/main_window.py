@@ -625,16 +625,16 @@ FIT_EXTRA_H = 21                         # extra viewport height (px) added when
                                          # fitting the 6x3 grid, so the output page
                                          # (the tallest tab) shows in full without
                                          # clipping; even 1px less and it clips.
-                                         # Baseline measured under 原生（无闪烁） / Fusion.
+                                         # Baseline measured under 原生（Fusion框） / Fusion.
 FIT_EXTRA_H_NATIVE = 6                   # native-theme bonus for FIT_EXTRA_H (px). Under the
-                                         # pure "native" theme (not 原生（无闪烁）) the output
+                                         # pure "native" theme (not 原生（NoFlicker框）) the output
                                          # page's GroupBox/checkbox controls render taller
                                          # (Windows native drawing), so 6 more px of viewport
                                          # height are needed to avoid a scrollbar on 一键 6×3.
 ROOT_MARGIN_LTR = 9                      # root layout left / top / right contents
                                          # margin (px); identical across themes.
 ROOT_MARGIN_BOTTOM_NATIVE = 2            # root layout bottom contents margin (px)
-                                         # under the native / 原生（无闪烁） themes.
+                                         # under the native / 原生（NoFlicker框） themes.
 ROOT_MARGIN_BOTTOM_FUSION = 3            # root layout bottom contents margin (px)
                                          # under Fusion; 1px larger than native to
                                          # compensate for Fusion's tighter frame.
@@ -645,7 +645,7 @@ def _root_bottom_margin():
 
     Fusion draws its frame ~1px tighter than the native themes, so under Fusion
     the bottom margin is 1px larger to keep the same visual gap above the bottom
-    button bar. The native themes (原生 / 原生（无闪烁）) use the smaller value.
+    button bar. The native themes (原生 / 原生（NoFlicker框）) use the smaller value.
     """
     return ROOT_MARGIN_BOTTOM_FUSION if _APP_THEME == "fusion" else ROOT_MARGIN_BOTTOM_NATIVE
 
@@ -653,7 +653,7 @@ def _root_bottom_margin():
 def _fit_extra_h():
     """Extra viewport height (px) for the 6x3 fit, theme-dependent.
 
-    Baseline FIT_EXTRA_H (21) is the clearance measured under 原生（无闪烁） /
+    Baseline FIT_EXTRA_H (21) is the clearance measured under 原生（Fusion框） /
     Fusion. Under the pure "native" theme, Windows-native control drawing makes
     the output page (the tallest tab) render ~6px taller, so we add
     FIT_EXTRA_H_NATIVE (6) to keep 一键 6×3 from popping a scrollbar.
@@ -1912,11 +1912,12 @@ def _fusion_style():
 #   "fusion"           - the entire application uses the Fusion style.
 # Default is "native_noflicker" (the original behaviour of the app).
 _APP_THEME = "native_noflicker"
-_THEME_ORDER = ("native_noflicker", "native", "fusion")
+_THEME_ORDER = ("native_noflicker", "native_noflicker_proto", "native", "fusion")
 _THEME_LABELS = {
-    "native_noflicker": "原生（无闪烁）",
+    "native_noflicker": "原生（Fusion框）",
     "native": "原生",
     "fusion": "Fusion",
+    "native_noflicker_proto": "原生（NoFlicker框）",
 }
 
 
@@ -1936,7 +1937,7 @@ def dropdowns_use_fusion():
     """Whether the flickering dropdown popups should be individually styled
     with Fusion. True for native_noflicker (default) and fusion; False for the
     pure-native 'native' theme."""
-    return _APP_THEME in ("native_noflicker", "fusion")
+    return _APP_THEME in ("native_noflicker", "native_noflicker_proto", "fusion")
 
 
 # Application-wide color scheme (light/dark). One of:
@@ -2034,7 +2035,7 @@ class NoFlickerComboBox(QComboBox):
     #: square inner frame). Only the solid background is kept, so the area still
     #: never flashes through to a default colour.
     #:
-    #: Note "原生（无闪烁）" is *not* covered here despite its name: it keeps the
+    #: Note "原生（Fusion框）" is *not* covered here despite its name: it keeps the
     #: native window chrome but draws its dropdowns with Fusion, so it uses
     #: ``_VIEW_QSS_FUSION``.
     _VIEW_QSS_NATIVE = "QAbstractItemView { background: palette(base); }"
@@ -2602,7 +2603,7 @@ class MainWindow(QMainWindow):
         self._conversion_loading = False  # guard for CPU-priority restore
         self._view_loading = True      # suppress view-mode saves during build + restore
         self._theme_loading = False    # suppress theme saves during build / restore
-        self._init_theme()             # apply persisted theme (default 原生（无闪烁）) before UI build
+        self._init_theme()             # apply persisted theme (default 原生（Fusion框）) before UI build
         self._build_ui()
         # 关键设置（输出标签 / 输出位置 / 转换优先级）必须在首帧前就绪，否则首帧
         # 画的是不完整的输出/设置标签。经验测：把它们延后到 show 之后（singleShot）
@@ -4151,7 +4152,10 @@ class MainWindow(QMainWindow):
         # 左侧标签不强制最小宽度，下拉框紧贴标签文字（不强行对齐成一列）。
         # container 可以是 QBoxLayout（纵向追加一行），也可以是 QGridLayout
         # （按 row/col 落位，用于某个分组内部再做双列排布）。
-        def _label_row(container, label_text, combo, tip="", row=0, col=0):
+        # colspan 仅在 QGridLayout 下生效：让本行 [label + combo] 跨多列，避免长
+        # 选项的下拉框在 1:1 拉伸下被同列其它短项挤压。
+        def _label_row(container, label_text, combo, tip="", row=0, col=0,
+                       colspan=1):
             row_layout = QHBoxLayout()
             row_layout.setSpacing(8)
             lab = QLabel(label_text)
@@ -4162,7 +4166,7 @@ class MainWindow(QMainWindow):
             row_layout.addWidget(combo)
             row_layout.addStretch(1)
             if isinstance(container, QGridLayout):
-                container.addLayout(row_layout, row, col)
+                container.addLayout(row_layout, row, col, 1, colspan)
             else:
                 container.addLayout(row_layout)
 
@@ -4188,8 +4192,9 @@ class MainWindow(QMainWindow):
         grid.addWidget(win_group, 0, 1)
 
         # ---- 常规 ----
-        # 分组内部再分两列：左列放 主题 / 控件样式，右列与「主题」同排放 语言，
-        # 避免右半边留白。
+        # 分组内部用 2×2 网格，但行高分布不均：顶行 主题 / 语言（两个短项并排），
+        # 底行 控件样式 跨两列独占（其选项「原生（NoFlicker框）」最长，不跨列会被
+        # 1:1 拉伸和上方短项互相挤压，出现重叠）。
         theme_group, theme_inner = _section(i18n.t("常规"))
         theme_grid = QGridLayout()
         theme_grid.setColumnStretch(0, 1)
@@ -4218,10 +4223,12 @@ class MainWindow(QMainWindow):
                    row=0, col=0)
         # 控件样式（原"界面主题"）
         style_tip = (
-            i18n.t("原生（无闪烁）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单"
-            "单独使用 Fusion 样式以消除 Windows 弹出动画闪烁（默认）。\n"
-            "原生：完全使用系统原生外观，下拉菜单可能出现轻微闪烁。\n"
-            "Fusion：整套界面使用 Qt 自带的 Fusion 样式。")
+            i18n.t(
+                "原生（Fusion框）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单"
+                "单独使用 Fusion 样式以消除 Windows 弹出动画闪烁（默认）。\n"
+                "原生：完全使用系统原生外观，下拉菜单可能出现轻微闪烁。\n"
+                "Fusion：整套界面使用 Qt 自带的 Fusion 样式。\n"
+                "原生（NoFlicker框）：即将推出（占位），暂与「原生（Fusion框）」行为一致。")
         )
         self.theme_combo = NoFlickerComboBox()
         for key in _THEME_ORDER:
@@ -4232,7 +4239,7 @@ class MainWindow(QMainWindow):
         self._theme_loading = False
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         _label_row(theme_grid, i18n.t("控件样式"), self.theme_combo, style_tip,
-                   row=0, col=1)
+                   row=1, col=0, colspan=2)
         # 语言（跟随系统 / 简体中文 / 繁體中文 / English）：选中后重启程序生效，
         # 界面文本在窗口构建时取定（实时刷新成本高且易漏）。
         lang_tip = (
@@ -4268,7 +4275,7 @@ class MainWindow(QMainWindow):
         self.language_combo.currentIndexChanged.connect(
             self._on_language_combo_changed)
         _label_row(theme_grid, i18n.t("语言"), self.language_combo, lang_tip,
-                   row=1, col=0)
+                   row=0, col=1)
 
         # 本区下拉的最小宽度是按"构建时的样式"量出来的。切到「原生」后，Windows
         # 原生样式的箭头按钮与边框内边距都比 Fusion 宽，同一个最小宽度留给文字的
@@ -7205,7 +7212,7 @@ class MainWindow(QMainWindow):
     def _init_theme(self):
         """Read the persisted theme and apply it BEFORE the UI is built, so
         every NoFlickerComboBox constructed during the build uses the correct
-        dropdown style from the start. Default is 原生（无闪烁）."""
+        dropdown style from the start. Default is 原生（Fusion框）."""
         settings = QSettings()
         settings.beginGroup("appearance")
         theme = settings.value("theme", "native_noflicker")
@@ -7388,7 +7395,7 @@ class MainWindow(QMainWindow):
     def _apply_theme_to_folder_menu(self):
         """The custom-folder history popup always renders with the Fusion
         style, so its look is identical under both the "原生" and
-        "原生（无闪烁）" themes (the latter is the canonical look the user
+        "原生（Fusion框）" themes (the latter is the canonical look the user
         wants). Other dropdowns keep following the active theme; this popup is
         intentionally forced to Fusion for cross-theme consistency."""
         if not hasattr(self, "folder_menu"):
@@ -7430,6 +7437,11 @@ class MainWindow(QMainWindow):
         settings.endGroup()
         settings.sync()
         label = _LANGUAGE_LABELS.get(code, code)
+        # 「跟随系统」是功能描述（不是语言自称名），随界面语言翻译；
+        # 其它真实语言项按约定保持自称名原样（English / 简体中文 / 繁體中文），
+        # 否则英文界面下会出现 "Traditional Chinese" 之类让人认不出的译文。
+        if code == "follow_system":
+            label = i18n.t(label)
         # label 是语言自称名（简体中文 / English），按约定保持原样不翻译。
         tip = i18n.t("语言已切换为%s，重启程序后生效。") % label
         self.statusBar().showMessage(tip, 8000)
