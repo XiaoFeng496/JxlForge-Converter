@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# libjxl GUI - 依赖安装脚本 (Bash 版, 适用于 macOS / Linux / WSL)
+# JxlForge Converter - 依赖安装脚本 (Bash 版, 适用于 macOS / Linux / WSL)
 #
 # 功能:
 #   1. 检测操作系统 (Windows / macOS / Linux)
@@ -75,7 +75,7 @@ check_tools() {
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
 
-printf '%s=== libjxl GUI · 依赖安装脚本 ===%s\n' "$BOLD" "$RESET"
+printf '%s=== JxlForge Converter · 依赖安装脚本 ===%s\n' "$BOLD" "$RESET"
 ok "检测到操作系统: $OS_NAME ($OS)"
 info "架构: $(uname -m) | Shell: $BASH_VERSION"
 

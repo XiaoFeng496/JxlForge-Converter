@@ -194,7 +194,7 @@ def _print_tools_hint() -> None:
 # ---------------------------------------------------------------------------
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="libjxl GUI 项目环境安装脚本 (OS 检测 / PySide6 安装 / cjxl·djxl 检查)"
+        description="JxlForge Converter 项目环境安装脚本 (OS 检测 / PySide6 安装 / cjxl·djxl 检查)"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--check", action="store_true", help="仅检测系统与 cjxl/djxl (默认)")
@@ -206,7 +206,7 @@ def main() -> int:
     do_check = args.check or args.all or not (args.install or args.venv or args.all)
     do_install = args.install or args.venv or args.all
 
-    print(_c("1;35", "=== libjxl GUI · 项目环境脚本 ==="))
+    print(_c("1;35", "=== JxlForge Converter · 项目环境脚本 ==="))
     report_os()
 
     if do_install:

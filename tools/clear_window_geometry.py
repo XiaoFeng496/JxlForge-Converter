@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""清除 libjxl GUI 持久化在 .ini 文件里的窗口几何，用于测试首启 6x3 排版。
+"""清除 JxlForge Converter 持久化在 .ini 文件里的窗口几何，用于测试首启 6x3 排版。
 
 程序在关闭时会把窗口大小/位置存进 QSettings 的 `geometry` 键
 （见 jxlforge/main_window.py 的 _save_geometry / _load_geometry）。

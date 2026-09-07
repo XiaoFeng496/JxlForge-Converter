@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""清除 libjxl GUI 早期版本写入 Windows 注册表的持久化数据。
+r"""清除 JxlForge Converter 早期版本写入 Windows 注册表的持久化数据。
 
 早期版本使用 QSettings 的原生格式（Windows 注册表）保存设置，
 键路径为：HKEY_CURRENT_USER\Software\JxlForge\JxlForge-Converter
