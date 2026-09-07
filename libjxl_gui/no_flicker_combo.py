@@ -2037,6 +2037,44 @@ class NoFlickerPrototypeComboBox(CustomComboBox):
             kwargs["data"] = kwargs.pop("userData")
         return super().addItem(text, *args, **kwargs)
 
+    def insertItem(self, row, text, data=None):
+        """在 ``row`` 处插入项（对齐 ``QComboBox.insertItem``）。
+
+        主项目当前没在下拉上用到，但**代理会把未知 API 兜底转发到本类**：
+        缺了它，「原生（NoFlicker 框）」主题下一旦有人调用就是 AttributeError，
+        而且 ``hasattr`` 看不出来（代理 ``__getattr__`` 恒为真）。
+        """
+        if row < 0 or row > self.count():
+            row = self.count()
+        item = QStandardItem(text)
+        if data is not None:
+            item.setData(data, Qt.ItemDataRole.UserRole)
+        self._model.insertRow(row, item)
+        if self._index < 0:
+            self.setCurrentIndex(0)
+        self._sync_popup_size()
+
+    def removeItem(self, row):
+        """删除 ``row`` 处项（对齐 ``QComboBox.removeItem``）。"""
+        if not 0 <= row < self.count():
+            return
+        self._model.removeRow(row)
+        if self._index > row:
+            self._index -= 1
+        elif self._index >= self.count():
+            self._index = self.count() - 1
+        # ⚠️ ``currentText()`` 是动态算的，但按钮上显示的文本是 ``setText`` 落下的
+        # 快照。删掉当前项后必须手动刷新，否则按钮仍显示已被删掉的那一项。
+        if self._index >= 0:
+            self.setText(self.itemText(self._index))
+        self._sync_popup_size()
+
+    def setItemData(self, row, data):
+        """设置 ``row`` 处项的 userData（对齐 ``QComboBox.setItemData``）。"""
+        item = self._model.item(row)
+        if item is not None:
+            item.setData(data, Qt.ItemDataRole.UserRole)
+
     def _apply_fusion_style(self, *args, **kwargs):
         """主题/配色切换后重新同步 popup 调色板（原 ``NoFlickerComboBox`` 同名接口）。
 
