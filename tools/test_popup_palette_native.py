@@ -80,7 +80,7 @@ def _new_combo(theme):
     """Build a NoFlickerComboBox fully applied under ``theme``."""
     from libjxl_gui import main_window as mw
     mw.set_app_theme(theme)
-    combo = mw.NoFlickerComboBox()
+    combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
     combo._apply_fusion_style()
     return combo
@@ -90,10 +90,15 @@ def _new_combo(theme):
 # 1. palette 钉住（竖线变黑修复）
 # --------------------------------------------------------------------------
 def test_view_palette_pinned_under_every_theme():
-    """三种控件样式下，view 的相关角色都必须 == app palette 的 Active 组。"""
+    """三种原生控件样式下，view 的相关角色都必须 == app palette 的 Active 组。
+
+    ⚠️ 仅覆盖走原生 QComboBox 实现的主题（native_noflicker / native / fusion）；
+    「原生（NoFlicker框）」(native_noflicker_proto) 是自绘 CustomComboBox 原型，
+    popup 不走 QComboBox.view()，其配色由原型仓测试单独覆盖——不属于本测试范围。
+    """
     _bootstrap()
     from libjxl_gui import main_window as mw
-    for theme in mw._THEME_ORDER:
+    for theme in ("native_noflicker", "native", "fusion"):
         combo = _new_combo(theme)
         diff = _diff_roles(combo.view().palette(), QApplication.palette())
         assert not diff, (
@@ -107,7 +112,7 @@ def test_theme_switch_keeps_view_palette_in_sync():
     _bootstrap()
     from libjxl_gui import main_window as mw
     mw.set_app_theme("native")
-    combo = mw.NoFlickerComboBox()
+    combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
     for theme in ("native", "native_noflicker", "native", "fusion", "native"):
         mw.set_app_theme(theme)
@@ -170,9 +175,9 @@ def test_palette_change_event_refreshes_combo_palettes():
 def test_refresh_combo_styles_picks_up_new_app_palette():
     """_refresh_combo_styles 的实际效果：app palette 一变，每个弹窗都要跟上。"""
     _bootstrap()
-    from libjxl_gui.main_window import MainWindow, NoFlickerComboBox
+    from libjxl_gui.main_window import MainWindow, NativeNoFlickerComboBox
     win = MainWindow()
-    combos = win.findChildren(NoFlickerComboBox)
+    combos = win.findChildren(NativeNoFlickerComboBox)
     assert len(combos) >= 3, f"设置页/输出页下拉太少，只有 {len(combos)} 个"
 
     original = QApplication.palette()
@@ -228,12 +233,12 @@ def test_popup_container_style_follows_theme_both_ways():
 def test_theme_switch_refreshes_container_without_opening_popup():
     """主题切换时，即使从没打开过的下拉也要被刷新（容器构造后即存在）。"""
     _bootstrap()
-    from libjxl_gui.main_window import MainWindow, NoFlickerComboBox
+    from libjxl_gui.main_window import MainWindow, NativeNoFlickerComboBox
     win = MainWindow()
     mw_set = win._apply_theme
     mw_set("native")
     frameless = [
-        cb for cb in win.findChildren(NoFlickerComboBox)
+        cb for cb in win.findChildren(NativeNoFlickerComboBox)
         if cb._popup_container is not None
         and cb._popup_container.windowFlags() & Qt.FramelessWindowHint
     ]
@@ -286,7 +291,7 @@ def test_view_qss_follows_theme_switch_both_ways():
     _bootstrap()
     from libjxl_gui import main_window as mw
     mw.set_app_theme("native")
-    combo = mw.NoFlickerComboBox()
+    combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
 
     seen = {}
@@ -315,7 +320,7 @@ def test_show_popup_never_calls_setWindowFlags():
     from libjxl_gui import main_window as mw
 
     mw.set_app_theme("native")
-    combo = mw.NoFlickerComboBox()
+    combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
     combo._apply_fusion_style()
     container = combo._popup_container
@@ -350,7 +355,7 @@ def test_show_popup_applies_flags_once_when_they_are_stale():
     from libjxl_gui import main_window as mw
 
     mw.set_app_theme("native")
-    combo = mw.NoFlickerComboBox()
+    combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
     combo._apply_fusion_style()
     container = combo._popup_container
@@ -386,7 +391,7 @@ def test_detached_view_is_never_treated_as_container():
     _bootstrap()
     from libjxl_gui import main_window as mw
     mw.set_app_theme("native")
-    combo = mw.NoFlickerComboBox()
+    combo = mw.NativeNoFlickerComboBox()
     combo.addItems(["a", "b", "c"])
     combo._apply_fusion_style()
 
@@ -414,8 +419,8 @@ def test_resnap_propagates_to_viewport_and_container():
     # 同步路径，所以用 showPopup 触发一次。
     mw.set_app_theme("native")
     win = mw.MainWindow()
-    combo = win.findChild(mw.NoFlickerComboBox)
-    assert combo is not None, "主窗口应至少有一个 NoFlickerComboBox"
+    combo = win.findChild(mw.NativeNoFlickerComboBox)
+    assert combo is not None, "主窗口应至少有一个 NativeNoFlickerComboBox"
     combo._apply_fusion_style()
     # 让容器真正被新建一次：模拟 view.window() != self.window()。
     # offscreen 里 ``view().window()`` 默认就是 combo 所在 window，
@@ -454,7 +459,7 @@ def test_color_scheme_change_propagates_after_popup_already_exists():
     mw.set_app_theme("native")
     # 模拟容器已被前一次 showPopup 创建、且 curated 的 _popup_container 引用。
     win = mw.MainWindow()
-    combo = win.findChild(mw.NoFlickerComboBox)
+    combo = win.findChild(mw.NativeNoFlickerComboBox)
     assert combo is not None
     # 假设前一次 showPopup 留下的 container 引用
     fake_container = win
@@ -473,7 +478,7 @@ def test_color_scheme_change_propagates_after_popup_already_exists():
         # 真机上的真实流程是 QGuiApplication.styleHints().setColorScheme()
         # 发 PaletteChange → MainWindow.changeEvent → _refresh_combo_styles。
         # 这里直接调 _refresh_combo_styles 等价：
-        for cb in win.findChildren(mw.NoFlickerComboBox):
+        for cb in win.findChildren(mw.NativeNoFlickerComboBox):
             cb._apply_fusion_style()
 
         ap = QApplication.palette()

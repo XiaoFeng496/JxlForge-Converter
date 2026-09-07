@@ -53,6 +53,8 @@ except ImportError:
 from . import calibrate
 from . import power
 from . import i18n
+from . import no_flicker_combo
+from . import combo_switch
 
 from PySide6.QtCore import (
     QEvent,
@@ -2004,12 +2006,20 @@ def set_app_color_scheme(scheme):
         QGuiApplication.styleHints().setColorScheme(_QT_COLOR_SCHEMES[scheme])
 
 
-class NoFlickerComboBox(QComboBox):
+class NativeNoFlickerComboBox(QComboBox):
     """QComboBox that does not flicker on Windows 10/11. The dropdown popup
     is shown frameless: a frameless (caption-less) top-level window is exempt
     from the DWM slide/fade entrance animation that otherwise flickers. A solid
     background is forced on the popup container so no black flash appears, and
-    the Fusion style is applied for clean, native-free rendering."""
+    the Fusion style is applied for clean, native-free rendering.
+
+    This is the **native Fusion-popup** implementation, used by the
+    ``原生（Fusion框）`` / ``native`` / ``fusion`` themes. The ``原生（NoFlicker框）``
+    theme (``native_noflicker_proto``) instead uses the self-drawn
+    :class:`no_flicker_combo.NoFlickerPrototypeComboBox` via the
+    :class:`combo_switch.SwitchableComboBox` proxy, which ``NoFlickerComboBox``
+    now aliases. See the module-level wiring near the bottom of this file.
+    """
 
     #: Stylesheet applied to the popup container while it is rendered by Fusion
     #: (solid background so the area around the list never flashes black).
@@ -7333,6 +7343,11 @@ class MainWindow(QMainWindow):
         """Apply a theme in full: update global state, switch the app-wide
         style, and re-style every existing dropdown (comboboxes + the folder
         menu) so the change takes effect immediately, with no restart."""
+        # 先按主题把所有 NoFlickerComboBox 代理切到对应实现（真原生 / 自绘原型），
+        # 这样紧随其后的 _refresh_combo_styles() 才会作用到刚换上的实现上，
+        # 否则新实现拿不到 palette 刷新 → 小蓝条变黑。
+        # root=self → findChildren 最可靠（不依赖全局注册表）。
+        combo_switch.apply_mode_for_theme(theme, root=self)
         set_app_theme(theme)
         self._apply_app_style(theme)
         self._refresh_combo_styles()
@@ -9003,4 +9018,25 @@ class ActionParamDialog(QDialog):
         for name, (widget, getter) in self._controls.items():
             params[name] = getter()
         return params
+
+
+# =====================================================================
+# NoFlicker 原型代理接线（全量迁移：原型仓 → 主项目）
+# ---------------------------------------------------------------------
+# 把对外暴露的 ``NoFlickerComboBox`` 别名成「可运行时切换实现」的代理
+# ``combo_switch.SwitchableComboBox``：
+#   * ``原生（Fusion框）``（native_noflicker）/ ``native`` / ``fusion`` →
+#     真原生 Fusion-popup，即上面的 ``NativeNoFlickerComboBox``；
+#   * ``原生（NoFlicker框）``（native_noflicker_proto）→ 自绘 NoFlicker 原型
+#     （no_flicker_combo.NoFlickerPrototypeComboBox：DWM 圆角 + 系统阴影 +
+#     120ms 淡入 + 不吞 release）。
+# 切主题时由 MainWindow._apply_theme 调 combo_switch.apply_mode_for_theme
+# 实时换框（不重建控件，主项目连在代理上的信号全程有效）。
+# =====================================================================
+combo_switch.configure(
+    native_cls=NativeNoFlickerComboBox,
+    custom_cls=no_flicker_combo.NoFlickerPrototypeComboBox,
+    theme_getter=app_theme,
+)
+NoFlickerComboBox = combo_switch.SwitchableComboBox
 

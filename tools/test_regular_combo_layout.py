@@ -13,7 +13,7 @@ os.environ["APPDATA"] = str(tmp)
 os.environ["LOCALAPPDATA"] = str(tmp)
 
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QGridLayout, QHBoxLayout, QComboBox
+from PySide6.QtWidgets import QApplication, QGridLayout, QHBoxLayout
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp))
@@ -70,7 +70,9 @@ for gi, g in enumerate(all_grids):
             if isinstance(it, QHBoxLayout):
                 for i in range(it.count()):
                     w_ = it.itemAt(i).widget()
-                    if isinstance(w_, QComboBox):
+                    # 全量迁移后 NoFlickerComboBox 是 SwitchableComboBox 代理
+                    # （QWidget，非 QComboBox），用它判定下拉而非原生 QComboBox。
+                    if isinstance(w_, mw.NoFlickerComboBox):
                         n_combo += 1
                         combo_names.append(w_.objectName() or type(w_).__name__)
     print(f"  grid[{gi}]: {g.rowCount()}x{g.columnCount()}, combos={n_combo} {combo_names}")
