@@ -131,8 +131,8 @@ def test_persist_independent_of_theme():
     app, _ = _bootstrap()
     from libjxl_gui.main_window import MainWindow
     w = MainWindow()
-    # 默认值：theme=原生（无闪烁），color_scheme=follow_system
-    assert w.theme_combo.currentData() == "native_noflicker"
+    # 默认值：theme=原生（NoFlicker框），color_scheme=follow_system
+    assert w.theme_combo.currentData() == "native_noflicker_proto"
     assert w.color_scheme_combo.currentData() == "follow_system"
     # 切换 theme 到 fusion，color_scheme 不变
     w.theme_combo.setCurrentIndex(w.theme_combo.findData("fusion"))

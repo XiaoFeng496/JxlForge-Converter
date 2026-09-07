@@ -177,6 +177,9 @@ def test_refresh_combo_styles_picks_up_new_app_palette():
     _bootstrap()
     from libjxl_gui.main_window import MainWindow, NativeNoFlickerComboBox
     win = MainWindow()
+    # 本测试针对原生实现（NativeNoFlickerComboBox）；默认主题已是
+    # 原生（NoFlicker框）→ 代理实例化的是自绘原型，需显式切回。
+    win._apply_theme("native_noflicker")
     combos = win.findChildren(NativeNoFlickerComboBox)
     assert len(combos) >= 3, f"设置页/输出页下拉太少，只有 {len(combos)} 个"
 
@@ -417,8 +420,10 @@ def test_resnap_propagates_to_viewport_and_container():
     # 也建一个 MainWindow，因为 ``_popup_container`` 只有在 ``showPopup()``
     # 时被 ``_popup_container_widget`` 缓存，而本测试想直接 verify 容器
     # 同步路径，所以用 showPopup 触发一次。
-    mw.set_app_theme("native")
     win = mw.MainWindow()
+    # 默认主题已是原生（NoFlicker框）→ 代理实例化的是自绘原型；
+    # 本测试针对原生实现，显式切回。
+    win._apply_theme("native_noflicker")
     combo = win.findChild(mw.NativeNoFlickerComboBox)
     assert combo is not None, "主窗口应至少有一个 NativeNoFlickerComboBox"
     combo._apply_fusion_style()
@@ -456,9 +461,11 @@ def test_color_scheme_change_propagates_after_popup_already_exists():
     """
     _bootstrap()
     from libjxl_gui import main_window as mw
-    mw.set_app_theme("native")
     # 模拟容器已被前一次 showPopup 创建、且 curated 的 _popup_container 引用。
     win = mw.MainWindow()
+    # 默认主题已是原生（NoFlicker框）→ 代理实例化的是自绘原型；
+    # 本测试针对原生实现，显式切回。
+    win._apply_theme("native_noflicker")
     combo = win.findChild(mw.NativeNoFlickerComboBox)
     assert combo is not None
     # 假设前一次 showPopup 留下的 container 引用

@@ -352,6 +352,12 @@ class _FakeVP:
 
 
 win.input_list.viewport = lambda: _FakeVP()
+import libjxl_gui.main_window as _mw10
+_fit10_saved = _mw10._APP_THEME
+_mw10._APP_THEME = "native_noflicker"
+# 本组断言基于基准 FIT_EXTRA_H 常量；fit 逻辑本身与主题无关，但默认主题
+# 已是「原生（NoFlicker框）」（拿 +6px 的 native 附加高度），故显式固定为
+# 基准主题，测完恢复。
 vp_h = 3 * GRID_SIZES["缩略图"].height() + 17 + FIT_EXTRA_H
 x0, y0 = win.x(), win.y()
 # fresh_window() 的 show()+processEvents() 会在 offscreen 下先触发一次真实 fit，
@@ -359,10 +365,13 @@ x0, y0 = win.x(), win.y()
 # 否则 _fit_window_to_grid 内部 max(self.minimumHeight(), vp_h+frame_h) 会取旧值，
 # 使断言 minimumHeight()==vp_h+100 失败——这不是 fit 逻辑的缺陷，而是测试上下文
 # 残留。复位后 fit 纯粹按 vp_h+frame_h 计算，才能精确验证「viewport 隐藏时用缓存 frame」。
-win.setMinimumHeight(0)
-win._fit_window_to_grid(center=False)
-check("fit uses cached frame when viewport hidden (no huge height)",
-      win.height() == vp_h + 100)
+try:
+    win.setMinimumHeight(0)
+    win._fit_window_to_grid(center=False)
+    check("fit uses cached frame when viewport hidden (no huge height)",
+          win.height() == vp_h + 100)
+finally:
+    _mw10._APP_THEME = _fit10_saved
 # center=False must keep the window's *frame* position (only resize), modulo
 # the legitimate on-screen clamping that prevents the OS from re-floating an
 # off-screen window. The earlier "drift up" regression was a feedback loop
@@ -531,18 +540,21 @@ conv_mod.encode = _real_encode
 # Clean up persisted groups so this test leaves no stale QSettings behind.
 clear_output_settings()
 
-# --- Group 15: 一键 6×3 的额外视口高度按主题区分。纯「原生」主题下输出页
-# 由 Windows 原生风格绘制，GroupBox/复选框等高控件渲染更高，需比基准
-# FIT_EXTRA_H 再多 FIT_EXTRA_H_NATIVE(6)px，否则会冒出滚动条；
-# 原生（无闪烁）/Fusion 沿用基准值。
+# --- Group 15: 一键 6×3 的额外视口高度按主题区分。「原生」与「原生（NoFlicker框）」
+# 主题下输出页由 Windows 原生风格绘制，GroupBox/复选框等高控件渲染更高，需比
+# 基准 FIT_EXTRA_H 再多 FIT_EXTRA_H_NATIVE(6)px，否则会冒出滚动条；
+# 原生（Fusion框）/Fusion 沿用基准值。
 import libjxl_gui.main_window as _mw
 _fit_saved_theme = _mw._APP_THEME
 try:
     _mw._APP_THEME = "native"
     check("一键 6×3 额外高度：纯原生主题 = 基准 + 6px（防滚动条）",
           _fit_extra_h() == FIT_EXTRA_H + FIT_EXTRA_H_NATIVE)
+    _mw._APP_THEME = "native_noflicker_proto"
+    check("一键 6×3 额外高度：原生（NoFlicker框）= 基准 + 6px（防滚动条）",
+          _fit_extra_h() == FIT_EXTRA_H + FIT_EXTRA_H_NATIVE)
     _mw._APP_THEME = "native_noflicker"
-    check("一键 6×3 额外高度：原生（无闪烁）= 基准",
+    check("一键 6×3 额外高度：原生（Fusion框）= 基准",
           _fit_extra_h() == FIT_EXTRA_H)
     _mw._APP_THEME = "fusion"
     check("一键 6×3 额外高度：Fusion = 基准",

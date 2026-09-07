@@ -629,10 +629,11 @@ FIT_EXTRA_H = 21                         # extra viewport height (px) added when
                                          # clipping; even 1px less and it clips.
                                          # Baseline measured under 原生（Fusion框） / Fusion.
 FIT_EXTRA_H_NATIVE = 6                   # native-theme bonus for FIT_EXTRA_H (px). Under the
-                                         # pure "native" theme (not 原生（NoFlicker框）) the output
-                                         # page's GroupBox/checkbox controls render taller
-                                         # (Windows native drawing), so 6 more px of viewport
-                                         # height are needed to avoid a scrollbar on 一键 6×3.
+                                         # native-drawn themes (原生 / 原生（NoFlicker框）) the
+                                         # output page's GroupBox/checkbox controls render
+                                         # taller (Windows native drawing), so 6 more px of
+                                         # viewport height are needed to avoid a scrollbar on
+                                         # 一键 6×3.
 ROOT_MARGIN_LTR = 9                      # root layout left / top / right contents
                                          # margin (px); identical across themes.
 ROOT_MARGIN_BOTTOM_NATIVE = 2            # root layout bottom contents margin (px)
@@ -640,6 +641,49 @@ ROOT_MARGIN_BOTTOM_NATIVE = 2            # root layout bottom contents margin (p
 ROOT_MARGIN_BOTTOM_FUSION = 3            # root layout bottom contents margin (px)
                                          # under Fusion; 1px larger than native to
                                          # compensate for Fusion's tighter frame.
+
+# Fusion + 暗色下的配色微调（真机取色后指定）：
+FUSION_DARK_WINDOW_BG = "#353535"        # 全局背景（QPalette::Window）。
+                                         # Qt 默认是 #1E1E1E，偏黑，提亮到此值。
+FUSION_DARK_TAB_PANE_BG = "#434343"      # tab 区域（QTabWidget 面板）背景。
+                                         # Qt 默认是 #4B4B4B。
+FUSION_DARK_TAB_PANE_BORDER = "#5a5a5a"  # 上面板的 1px 边框色（沿用原观感）。
+                                         # ⚠️ 两个关键事实（真机 + offscreen 实测）：
+                                         # 1. pane 色由 Fusion 风格**硬编码**，改
+                                         #    QPalette::Window 后 tab bar / 窗口边缘
+                                         #    跟着变（#353535），pane 却纹丝不动 ——
+                                         #    只能靠样式表钉住；且 QSS 必须带 border，
+                                         #    只写 background 会被 Qt 忽略。
+                                         # 2. tabs.setStyleSheet 的 QSS 会传播进下拉
+                                         #    的 popup view；offscreen 平台在「反复
+                                         #    清/挂 QSS + 切主题」几轮后 view.setStyleSheet
+                                         #    段错误（真机 windows 平台 8 轮交替稳定）。
+                                         #    回归测试因此在 offscreen 上最多跑 2 轮
+                                         #    完整 _apply_theme，深切换只在真机探针验。
+
+
+def _is_dark_palette(pal=None):
+    """Whether the given (default: application) palette is dark.
+
+    以 ``QPalette::Window`` 的亮度判定，比查 ``styleHints().colorScheme()``
+    更直接反映实际渲染结果（配色方案为「跟随系统」时尤其可靠）。
+    """
+    palette = pal if pal is not None else QApplication.palette()
+    return palette.color(QPalette.Window).lightness() < 128
+
+
+def _effective_scheme_key():
+    """Resolve the effective light/dark scheme to a stable "light"/"dark" key.
+
+    显式选了 light/dark 就用之；「跟随系统」则问 QStyleHints 实际解析结果
+    （系统无偏好时 Unknown 回落 light）。
+    """
+    if _APP_COLOR_SCHEME == "dark":
+        return "dark"
+    if _APP_COLOR_SCHEME == "light":
+        return "light"
+    cs = QGuiApplication.styleHints().colorScheme()
+    return "dark" if cs == Qt.ColorScheme.Dark else "light"
 
 
 def _root_bottom_margin():
@@ -656,11 +700,13 @@ def _fit_extra_h():
     """Extra viewport height (px) for the 6x3 fit, theme-dependent.
 
     Baseline FIT_EXTRA_H (21) is the clearance measured under 原生（Fusion框） /
-    Fusion. Under the pure "native" theme, Windows-native control drawing makes
-    the output page (the tallest tab) render ~6px taller, so we add
-    FIT_EXTRA_H_NATIVE (6) to keep 一键 6×3 from popping a scrollbar.
+    Fusion. Under the native-drawn themes (原生 / 原生（NoFlicker框）) Windows-native
+    control drawing makes the output page (the tallest tab) render ~6px taller,
+    so we add FIT_EXTRA_H_NATIVE (6) to keep 一键 6×3 from popping a scrollbar.
     """
-    return FIT_EXTRA_H + FIT_EXTRA_H_NATIVE if _APP_THEME == "native" else FIT_EXTRA_H
+    if _APP_THEME in ("native", "native_noflicker_proto"):
+        return FIT_EXTRA_H + FIT_EXTRA_H_NATIVE
+    return FIT_EXTRA_H
 
 
 THUMB_BATCH = 8                           # thumbnails decoded per timer tick when
@@ -1910,11 +1956,17 @@ def _fusion_style():
 #   "native_noflicker" - mostly native; only the flickering dropdown popups
 #                        (NoFlickerComboBox + folder-history menu) use the
 #                        Fusion style to dodge the Windows DWM popup flicker.
+#   "native_noflicker_proto"
+#                      - like "native_noflicker", but the dropdowns are the
+#                        self-drawn NoFlicker prototype widgets instead of
+#                        native QComboBox + Fusion popups.
 #   "native"           - fully native; no Fusion anywhere (dropdowns may flicker).
 #   "fusion"           - the entire application uses the Fusion style.
-# Default is "native_noflicker" (the original behaviour of the app).
-_APP_THEME = "native_noflicker"
-_THEME_ORDER = ("native_noflicker", "native_noflicker_proto", "native", "fusion")
+# Default is "native_noflicker_proto" (the self-drawn NoFlicker dropdowns).
+# 单独成常量：_APP_THEME 是运行时可变的全局状态，默认值不能被它带跑。
+DEFAULT_THEME = "native_noflicker_proto"
+_APP_THEME = DEFAULT_THEME
+_THEME_ORDER = ("native_noflicker_proto", "native_noflicker", "native", "fusion")
 _THEME_LABELS = {
     "native_noflicker": "原生（Fusion框）",
     "native": "原生",
@@ -2517,6 +2569,14 @@ class MainWindow(QMainWindow):
         # Capture the native style name BEFORE any setStyle() call so it can be
         # restored for the "native" / "native_noflicker" themes.
         self._native_style_name = QApplication.style().objectName()
+        # ⚠️ 关键：必须在任何 setPalette / setStyle 之前捕获两套方案快照。
+        # 真机探针（tools/probe_palette_scheme_freeze.py）证实：一旦显式
+        # QApplication.setPalette()，QStyleHints::setColorScheme() 就不再刷新
+        # 应用调色板（切 Light 后 Window 仍停在旧值）——本类为了 Fusion 的
+        # Accent/Window 覆盖和原生主题还原恰恰必须显式设调色板，所以方案
+        # 明暗切换不能指望 Qt 自动重建，得自己持有亮/暗快照、切换时重建。
+        self._last_effective_scheme = None   # changeEvent 重建用的去重标记
+        self._capture_scheme_palettes()
         # Also capture the original system palette. The Fusion theme overrides
         # QPalette.Accent to black; when switching back to a native theme we
         # must restore this original palette instead of using standardPalette(),
@@ -2613,8 +2673,11 @@ class MainWindow(QMainWindow):
         self._conversion_loading = False  # guard for CPU-priority restore
         self._view_loading = True      # suppress view-mode saves during build + restore
         self._theme_loading = False    # suppress theme saves during build / restore
-        self._init_theme()             # apply persisted theme (default 原生（Fusion框）) before UI build
+        self._init_theme()             # apply persisted theme (default 原生（NoFlicker框）) before UI build
         self._build_ui()
+        # UI 建好后补一次 tab 面板配色覆盖（_init_theme 早于 UI 构建，当时
+        # self.tabs 尚不存在，Fusion + 暗色的 pane 覆盖只能在这里挂上）。
+        self._apply_tab_pane_style()
         # 关键设置（输出标签 / 输出位置 / 转换优先级）必须在首帧前就绪，否则首帧
         # 画的是不完整的输出/设置标签。经验测：把它们延后到 show 之后（singleShot）
         # 只会把这段 QSettings 读取+控件填充的耗时暴露在「show→首帧」的白屏窗口里，
@@ -4234,11 +4297,12 @@ class MainWindow(QMainWindow):
         # 控件样式（原"界面主题"）
         style_tip = (
             i18n.t(
+                "原生（NoFlicker框）：界面保持系统原生外观，下拉菜单为自绘控件，"
+                "彻底消除弹出动画闪烁（默认）。\n"
                 "原生（Fusion框）：大部分界面保持系统原生外观，仅会闪烁的下拉菜单"
-                "单独使用 Fusion 样式以消除 Windows 弹出动画闪烁（默认）。\n"
+                "单独使用 Fusion 样式以消除 Windows 弹出动画闪烁。\n"
                 "原生：完全使用系统原生外观，下拉菜单可能出现轻微闪烁。\n"
-                "Fusion：整套界面使用 Qt 自带的 Fusion 样式。\n"
-                "原生（NoFlicker框）：即将推出（占位），暂与「原生（Fusion框）」行为一致。")
+                "Fusion：整套界面使用 Qt 自带的 Fusion 样式。")
         )
         self.theme_combo = NoFlickerComboBox()
         for key in _THEME_ORDER:
@@ -4253,12 +4317,8 @@ class MainWindow(QMainWindow):
         # 语言（跟随系统 / 简体中文 / 繁體中文 / English）：选中后重启程序生效，
         # 界面文本在窗口构建时取定（实时刷新成本高且易漏）。
         lang_tip = (
-            i18n.t("选择界面显示语言。\n"
-            "切换后需重启程序生效：界面文本是在窗口构建时就取定的，实时刷新"
-            "每个控件既容易漏、又要额外缓存原文，得不偿失。\n"
-            "注意：目前已收录的英文文案以「内部标识的显示名」为主"
-            "（动作类型 / 水印位置 / 查看模式 / 冲突策略），"
-            "其余界面文本会随翻译推进逐步补全，未收录的暂时保持中文。")
+            i18n.t("选择界面显示语言，切换后需重启程序生效。\n"
+            "跟随系统：按 Windows 显示语言自动选择（默认）。")
         )
         self.language_combo = NoFlickerComboBox()
         for key in _LANGUAGE_COMBO_ORDER:
@@ -7082,6 +7142,22 @@ class MainWindow(QMainWindow):
             # System light/dark switch: re-sync the dropdown popups, whose
             # palette is a snapshot taken at style-apply time.
             self._refresh_combo_styles()
+            # 「跟随系统」下系统明暗切换：显式 setPalette 冻住了 Qt 的自动
+            # 刷新（见 _capture_scheme_palettes 注释），生效方案变了就必须
+            # 自己重建调色板。busy 标志防 setStyle 同步触发 PaletteChange
+            # 造成递归。_last_effective_scheme 为 None（尚未初始化）时跳过。
+            eff = _effective_scheme_key()
+            if (getattr(self, "_last_effective_scheme", None) not in (None, eff)
+                    and not getattr(self, "_scheme_rebuild_busy", False)):
+                self._scheme_rebuild_busy = True
+                try:
+                    self._apply_app_style(_APP_THEME)
+                    self._apply_tab_pane_style()
+                finally:
+                    self._scheme_rebuild_busy = False
+            # 明暗切换影响 Fusion 的暗色判定：切到暗色挂 pane 覆盖、切回亮色摘掉。
+            # ⚠️ offscreen 段错误限制见 FUSION_DARK_* 常量块注释（真机稳定）。
+            self._apply_tab_pane_style()
         super().changeEvent(event)
 
     # ---- output location / filename persistence (QSettings) ----------
@@ -7222,19 +7298,20 @@ class MainWindow(QMainWindow):
     def _init_theme(self):
         """Read the persisted theme and apply it BEFORE the UI is built, so
         every NoFlickerComboBox constructed during the build uses the correct
-        dropdown style from the start. Default is 原生（Fusion框）."""
+        dropdown style from the start. Default is 原生（NoFlicker框）."""
         settings = QSettings()
         settings.beginGroup("appearance")
-        theme = settings.value("theme", "native_noflicker")
+        theme = settings.value("theme", DEFAULT_THEME)
         settings.endGroup()
         if theme not in _THEME_ORDER:
-            theme = "native_noflicker"
+            theme = DEFAULT_THEME
         set_app_theme(theme)
-        self._apply_app_style(theme)
-        # Apply the persisted color scheme (light/dark/follow-system) on top
-        # of the chosen control style. Must run after the style is in place so
-        # the active QStyle receives the ColorScheme change immediately.
+        # 先把持久化的配色方案推给 QStyleHints，再套样式：_apply_app_style
+        # 依据「生效方案」选取调色板快照（显式 setPalette 会冻住方案驱动
+        # 刷新，见 _capture_scheme_palettes 注释），方案没就位就套样式会把
+        # 系统明暗当成生效方案，浅色设置启动成深色。
         self._init_color_scheme()
+        self._apply_app_style(theme)
 
     # ---- application color scheme (persisted) ------------------------
     def _init_color_scheme(self):
@@ -7316,6 +7393,42 @@ class MainWindow(QMainWindow):
         settings.endGroup()
         self._actions_loading = False
 
+    def _capture_scheme_palettes(self):
+        """Snapshot the native palette under both color schemes (light+dark).
+
+        必须在任何 setPalette / setStyle 之前调用（见 __init__ 内的注释）：
+        此时应用调色板仍随 ``QStyleHints::setColorScheme()`` 走，轮流推 Light /
+        Dark 各拍一份快照，再把启动时的方案推回去。这两份快照之后作为所有
+        显式 setPalette 的基底（`_scheme_palette`），方案切换由本类主动重建。
+        """
+        hints = QGuiApplication.styleHints()
+        saved = hints.colorScheme()
+        snaps = {}
+        for key, cs in (("light", Qt.ColorScheme.Light),
+                        ("dark", Qt.ColorScheme.Dark)):
+            hints.setColorScheme(cs)
+            # 快照是同步取的，processEvents 只为排掉刚触发的 PaletteChange，
+            # 此时除主窗口外没有任何窗口，安全。
+            QApplication.processEvents()
+            snaps[key] = QPalette(QApplication.palette())
+        hints.setColorScheme(saved)
+        QApplication.processEvents()
+        self._palette_light = snaps["light"]
+        self._palette_dark = snaps["dark"]
+
+    def _scheme_palette(self):
+        """A fresh native palette matching the effective color scheme.
+
+        Qt 不再自动刷新被显式 setPalette 冻住的调色板（根因见
+        `_capture_scheme_palettes` 的注释），所以每次重建都从对应方案的快照
+        复制一份，避免拿到上个方案的陈旧底色。
+        """
+        light = getattr(self, "_palette_light", None)
+        dark = getattr(self, "_palette_dark", None)
+        if light is None or dark is None:
+            return QPalette(QApplication.palette())
+        return QPalette(dark if _effective_scheme_key() == "dark" else light)
+
     def _apply_app_style(self, theme):
         """Set the application-wide style: Fusion for the 'fusion' theme, the
         captured native style otherwise. A fresh style is created each call so
@@ -7324,20 +7437,58 @@ class MainWindow(QMainWindow):
         style = QStyleFactory.create(name)
         if style is not None:
             QApplication.setStyle(style)
-        # Fusion paints the checked radio/checkbox indicator (and other accent
-        # controls) using the QPalette.Accent role, which defaults to blue. For
-        # the Fusion theme we override that accent to black, so the checked
-        # indicator background is black instead of blue. Other themes keep their
-        # native accent unchanged.
+        # 调色板一律从「当前方案对应的快照」重建（显式 setPalette 会冻住
+        # Qt 的方案驱动刷新，快照是唯一可靠的新底色来源）。
+        pal = self._scheme_palette()
+        self._last_effective_scheme = _effective_scheme_key()
         if theme == "fusion":
-            pal = QApplication.palette()
+            # Fusion paints the checked radio/checkbox indicator (and other
+            # accent controls) using the QPalette.Accent role, which defaults
+            # to blue. For the Fusion theme we override that accent to black,
+            # so the checked indicator background is black instead of blue.
+            # Other themes keep their native accent unchanged.
             pal.setColor(QPalette.Accent, QColor(0, 0, 0))
+            # Fusion + 暗色：Qt 默认的全局背景 (#1E1E1E) 偏黑，提亮到
+            # FUSION_DARK_WINDOW_BG。仅在暗色下覆盖，免得亮色模式被刷成深色。
+            if _is_dark_palette(pal):
+                pal.setColor(QPalette.Window, QColor(FUSION_DARK_WINDOW_BG))
             QApplication.setPalette(pal)
         else:
-            # Restore the palette captured at startup so native themes keep the
-            # real system colors. standardPalette() can return a generic beige
-            # palette that makes the Windows style look washed out / wrong.
-            QApplication.setPalette(self._original_app_palette)
+            QApplication.setPalette(pal)
+
+    def _apply_tab_pane_style(self, theme=None):
+        """Apply (or clear) the Fusion dark override on the QTabWidget pane.
+
+        The pane — the "tab 区域" that fills most of the window — is painted by
+        the Fusion style with a **hard-coded** colour (#4B4B4B); it does not
+        follow ``QPalette::Window`` (measured on the real Windows platform:
+        switching Window to #353535 recolours the tab bar and window frame but
+        leaves the pane untouched). Only a stylesheet can override it, and the
+        stylesheet must spell out ``border`` too — Qt silently ignores a lone
+        ``background`` on ``::pane``.
+
+        ⚠️ See the FUSION_DARK_* constants block for the offscreen-platform
+        segfault caveat: on offscreen, repeated set/clear of this stylesheet
+        combined with theme switches eventually crashes in
+        ``view.setStyleSheet``; the real Windows platform is stable across 8
+        alternating rounds. Regression tests therefore exercise at most two
+        full ``_apply_theme`` rounds here and cover the rest by direct calls.
+
+        Non-Fusion themes and light palettes clear the stylesheet so the
+        platform look is untouched.
+        """
+        tabs = getattr(self, "tabs", None)
+        if tabs is None:      # called before the UI is built (e.g. during __init__)
+            return
+        if theme is None:
+            theme = _APP_THEME
+        if theme == "fusion" and _is_dark_palette():
+            qss = ("QTabWidget::pane { background-color: %s; border: 1px solid %s; }"
+                   % (FUSION_DARK_TAB_PANE_BG, FUSION_DARK_TAB_PANE_BORDER))
+        else:
+            qss = ""
+        if tabs.styleSheet() != qss:
+            tabs.setStyleSheet(qss)
 
     def _apply_theme(self, theme):
         """Apply a theme in full: update global state, switch the app-wide
@@ -7371,6 +7522,11 @@ class MainWindow(QMainWindow):
                 _root_bottom_margin())
         self.statusBar().showMessage(
             i18n.t("主题已切换为：%s") % i18n.t(_THEME_LABELS.get(theme, theme)))
+        # ⚠️ pane 的 QSS 必须放在 _refresh_combo_styles() **之后**挂：tabs 的
+        # QSS 会传播进下拉的 popup view，若先挂 QSS 再对 view 调
+        # setStyleSheet，真机/offscreen 都会在几轮内段错误（已实测）。
+        # 挂在末尾则真机 8 轮交替稳定。详见 FUSION_DARK_* 常量块注释。
+        self._apply_tab_pane_style(theme)
 
     def _refresh_combo_styles(self):
         """Re-apply the active style and palette to every dropdown.
@@ -7475,6 +7631,11 @@ class MainWindow(QMainWindow):
         if scheme not in _COLOR_SCHEME_ORDER:
             return
         set_app_color_scheme(scheme)
+        # ⚠️ 显式 setPalette 会冻住 Qt 的方案驱动调色板刷新（根因见
+        # _capture_scheme_palettes 的注释），所以切完方案必须自己按新方案
+        # 重建调色板，否则浅色会残留深色背景 / 反之亦然。
+        self._apply_app_style(_APP_THEME)
+        self._apply_tab_pane_style()
         # Force every top-level widget to repaint; some styles cache the
         # palette and only re-read it on a PaletteChange event, but a manual
         # update() guarantees the new colours show even on offscreen tests
