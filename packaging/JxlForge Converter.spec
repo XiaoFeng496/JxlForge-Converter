@@ -1,4 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
+# JxlForge Converter 默认打包 spec（one-folder, windowed）。
+# 已做精简：剔除运行期用不到的二进制 + PySide6 子模块（纯 Widgets 程序）。
+# 本文件是发布默认；构建请用仓库 packaging/build_dist.bat（已入库、带 --selftest 门）。
 import os
 
 # 仓库根目录：spec 位于 <repo>/packaging/，上一级即项目根 JxlForge-Converter/
@@ -6,23 +9,47 @@ REPO = os.path.normpath(os.path.join(SPECPATH, '..'))
 # 运行时数据目录（与代码同目录，i18n.py 通过 __file__ 定位）：
 # jxlforge/i18n/*.json 必须进包，否则语言下拉扫不到 en_US/zh_TW，英文界面失效。
 I18N_DIR = os.path.join(REPO, 'jxlforge', 'i18n')
-# 打包入口：与 spec 同目录的 _launch_app.py
+# 打包入口：与 spec 同目录的 _launch_app.py（真实常驻启动序列，run() 支持 --selftest）
 ENTRY = os.path.join(SPECPATH, '_launch_app.py')
 
 
-# 可省运行期二进制（按 Tier 1 瘦身，详见下方 a.binaries 过滤）：
+# 可省运行期二进制（实测可删，不影响功能）：
 #   opengl32sw.dll         软件 GL 渲染器，本程序用系统 OpenGL，用不到（~20.6MB）
 #   libcrypto-3*.dll       OpenSSL，程序不走网络/SSL（~11.0MB）
 #   mfc140u.dll            VC++ MFC，被 pywin32(send2trash)间接拉入（~5.7MB）；
-#                          删除后必须实测「删除原图到回收站」路径不崩
+#                          删除后已实测「删除原图到回收站」路径不崩
+#   qt6qml*.dll / qt6quick*.dll / qt6qmlmodels*.dll / qt6qmlmeta*.dll /
+#   qt6qmlworkerscript*.dll / qt6pdf*.dll / qt6network*.dll / qt6virtualkeyboard*.dll
+#                          PySide6 的 QML/Quick/网络/PDF/虚拟键盘模块，纯 Widgets 程序不用
+#                          （PyInstaller 的 Qt hook 无视模块 excludes 仍会收这些 DLL，
+#                           故必须在 a.binaries 层按 basename 过滤，共省 ~20MB）
 # 注意：PIL._avif 必须保留——AVIF 是程序的输入格式（main_window._DECODE_TO_TEMP_EXTS），
 #       经 Pillow 解码，依赖该插件；若 exclude 会导致 AVIF 输入崩溃。
+# 注意：Qt6Svg（SVG 图标）/ Qt6OpenGL（Widgets 用系统 GL）必须保留。
 _DROP_BIN = {
     'opengl32sw.dll',
     'libcrypto-3-x64.dll',
     'libcrypto-3.dll',
     'mfc140u.dll',
+    'qt6qml.dll',
+    'qt6quick.dll',
+    'qt6qmlmodels.dll',
+    'qt6qmlmeta.dll',
+    'qt6qmlworkerscript.dll',
+    'qt6pdf.dll',
+    'qt6network.dll',
+    'qt6virtualkeyboard.dll',
 }
+
+# 不 import 的 PySide6 子模块（纯 Widgets 程序无需 QML/网络/PDF/虚拟键盘）。
+# 仅删 .pyd，底层 Qt6*.dll 已在上面 _DROP_BIN 按 basename 一并过滤。
+_EXCLUDE_MODULES = [
+    'PySide6.QtQml',
+    'PySide6.QtQuick',
+    'PySide6.QtNetwork',
+    'PySide6.QtPdf',
+    'PySide6.QtVirtualKeyboard',
+]
 
 a = Analysis(
     [ENTRY],
@@ -35,7 +62,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=_EXCLUDE_MODULES,
     noarchive=False,
     optimize=0,
 )

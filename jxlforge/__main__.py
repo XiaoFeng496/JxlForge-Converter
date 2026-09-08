@@ -3,6 +3,7 @@
 
 import os
 import sys
+import tempfile
 import time
 
 from PySide6.QtCore import QSettings
@@ -82,16 +83,23 @@ def _selftest(deep=False):
     - 默认（资源层）：校验 i18n 字典已打包且可加载、libjxl 引擎查找结果。
       仅启动 exe 本身就会先验证整条 import 链（模块缺失则 exe 起不来，
       selftest 根本跑不到，退出码非 0）。
+    - 端到端（当 cjxl/djxl 可发现时自动追加）：直接调用 ``converter.encode``
+      / ``converter.decode`` 跑一遍真实转换管线（PNG→JXL→PNG 往返、无损
+      JPEG 重编码、有损 quality 编码、缺失输入优雅报错），抓「打包后
+      cjxl/djxl 调用链路断掉 / 参数拼错」这类只有真正跑过才暴露的回归。
+      引擎本就不打包，机器上没装 libjxl 时这部分标记 SKIP（不阻断整体
+      PASS），但在装了 libjxl 的机器（含打包机）上会真正跑、坏了当场 FAIL。
     - ``--deep``：额外实例化 MainWindow，抓「模块未被收集」类 ImportError。
 
     返回退出码 0=PASS / 1=FAIL，并把报告写到 exe 同目录下的
     ``selftest_report.txt``（windowed 打包态无控制台，靠文件 + 退出码观测）。
     """
     report = []
-    checks = []  # (label, ok, detail)
+    checks = []  # (label, status, detail)  status in PASS/FAIL/SKIP
 
-    def add(label, ok, detail=""):
-        checks.append((label, ok, detail))
+    def add(label, ok, detail="", skip=False):
+        status = "SKIP" if skip else ("PASS" if ok else "FAIL")
+        checks.append((label, status, detail))
 
     # 1) i18n 语言清单：打包必须把 en_US / zh_TW 的 json 收进 datas。
     langs = i18n.available_languages()
@@ -116,7 +124,21 @@ def _selftest(deep=False):
     add("libjxl engines discoverable (engine not bundled by default)", True,
         "cjxl=%s djxl=%s jxlinfo=%s" % (found["cjxl"], found["djxl"], found["jxlinfo"]))
 
-    # 4) 可选 deep：实例化主窗口，抓「模块未被收集」类缺失。
+    # 4) 端到端转换管线：cjxl 与 djxl 都在才跑；否则整体标记 SKIP。
+    if found["cjxl"] and found["djxl"]:
+        _run_e2e_checks(add)
+    else:
+        for label in (
+            "e2e: encode PNG->JXL",
+            "e2e: decode JXL->PNG round-trip",
+            "e2e: lossless JPEG re-encode",
+            "e2e: lossy quality=70 encode",
+            "e2e: missing-input handled gracefully (no crash)",
+        ):
+            add(label, True, "SKIP: cjxl/djxl not found (engine not bundled by default)",
+                skip=True)
+
+    # 5) 可选 deep：实例化主窗口，抓「模块未被收集」类缺失。
     if deep:
         try:
             from PySide6.QtWidgets import QApplication
@@ -127,12 +149,12 @@ def _selftest(deep=False):
         except Exception as e:  # noqa: BLE001
             add("MainWindow instantiates", False, "%s: %s" % (type(e).__name__, e))
 
-    passed = all(ok for _, ok, _ in checks)
+    failed = [c for c in checks if c[1] == "FAIL"]
+    passed = not failed
     report.append("JxlForge Converter --selftest @ %s"
                   % time.strftime("%Y-%m-%d %H:%M:%S"))
-    for label, ok, detail in checks:
-        mark = "PASS" if ok else "FAIL"
-        report.append("[%s] %s%s" % (mark, label, ("  -- " + detail) if detail else ""))
+    for label, status, detail in checks:
+        report.append("[%s] %s%s" % (status, label, ("  -- " + detail) if detail else ""))
     report.append("")
     report.append("RESULT: %s" % ("PASS" if passed else "FAIL"))
 
@@ -147,6 +169,77 @@ def _selftest(deep=False):
     # 源码态（有控制台）也打到 stdout，便于即时查看。
     print(text)
     return 0 if passed else 1
+
+
+def _run_e2e_checks(add):
+    """端到端转换管线真实跑一遍（cjxl/djxl 已确认可发现时调用）。
+
+    每个用例直接用程序自己的 ``converter.encode`` / ``converter.decode`` /
+    ``converter.is_lossless_jpeg_jxl``，与 GUI 走的是同一套执行路径，因此
+    能抓到「打包后 cjxl/djxl 子进程调用链路断掉」或「参数拼错导致 cjxl
+    退出非零」这类只有真正跑过转换才暴露的回归。临时文件用 mkdtemp 统一
+    清理，不会污染用户目录。
+    """
+    import shutil as _shutil
+    from PIL import Image
+    from . import converter
+
+    tmp = tempfile.mkdtemp(prefix="jxlforge_e2e_")
+    try:
+        # 造一张小 PNG（纯色，便于快速编码）。
+        src_png = os.path.join(tmp, "src.png")
+        Image.new("RGB", (64, 64), (123, 200, 77)).save(src_png, "PNG")
+
+        # 1) 编码 PNG -> JXL（最基本、最该有的能力）。
+        out_jxl = os.path.join(tmp, "out.jxl")
+        ok, msg, tag = converter.encode(src_png, out_jxl, effort=4)
+        good = ok and os.path.isfile(out_jxl) and os.path.getsize(out_jxl) > 0
+        add("e2e: encode PNG->JXL", good,
+            "" if good else "msg=%s tag=%s" % (msg, tag))
+
+        if good:
+            # 2) 解码 JXL -> PNG 往返，并校验产物是合法 PNG（防「文件生成了但
+            #    解码损坏」这类静默失败）。
+            dec_png = os.path.join(tmp, "dec.png")
+            dok, dmsg = converter.decode(out_jxl, dec_png)
+            valid = dok and os.path.isfile(dec_png) and os.path.getsize(dec_png) > 0
+            if valid:
+                try:
+                    Image.open(dec_png).verify()
+                except Exception:
+                    valid = False
+            add("e2e: decode JXL->PNG round-trip", valid,
+                "" if valid else "decode ok=%s msg=%s" % (dok, dmsg))
+
+            # 3) 无损 JPEG 重编码：编码时传 lossless_jpeg=True，再用
+            #    is_lossless_jpeg_jxl 验证产物确实是可比特还原的 JPEG 重编码。
+            src_jpg = os.path.join(tmp, "src.jpg")
+            Image.new("RGB", (48, 48), (10, 20, 30)).save(src_jpg, "JPEG", quality=90)
+            jxl_jpg = os.path.join(tmp, "out_j.jpg")
+            ok2, msg2, _ = converter.encode(src_jpg, jxl_jpg, effort=4,
+                                           lossless_jpeg=True)
+            okj = ok2 and os.path.isfile(jxl_jpg) and os.path.getsize(jxl_jpg) > 0
+            if okj:
+                recon = converter.is_lossless_jpeg_jxl(jxl_jpg)
+                add("e2e: lossless JPEG re-encode", recon is True,
+                    "" if recon is True else "is_lossless_jpeg_jxl=%r" % recon)
+            else:
+                add("e2e: lossless JPEG re-encode", False, msg2)
+
+            # 4) 有损 quality 编码（经 --quality 路径，验证参数拼装不崩）。
+            out_q = os.path.join(tmp, "out_q.jxl")
+            okq, msgq, _ = converter.encode(src_png, out_q, effort=4, quality=70)
+            add("e2e: lossy quality=70 encode",
+                okq and os.path.isfile(out_q) and os.path.getsize(out_q) > 0,
+                "" if okq else msgq)
+
+        # 5) 错误路径：输入文件不存在 -> 应优雅返回 False（不抛异常、不卡死）。
+        miss = os.path.join(tmp, "nope.png")
+        eok, _emsg, _ = converter.encode(miss, os.path.join(tmp, "x.jxl"))
+        add("e2e: missing-input handled gracefully (no crash)", eok is False,
+            "" if eok is False else "expected failure but got ok=True")
+    finally:
+        _shutil.rmtree(tmp, ignore_errors=True)
 
 
 def run():

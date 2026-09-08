@@ -506,8 +506,19 @@ def _run(args, priority=DEFAULT_PRIORITY):
     Popen as the underlying primitive). The running process is registered in
     ``_current_process`` (most-recent) and ``_active_processes`` (all live ones)
     so the parallel pool can interrupt them via :func:`terminate_current`.
+
+    命令名 ``cjxl`` / ``djxl`` / ``jxlinfo`` 会先经 :func:`find_tool` 解析成
+    完整路径再 spawn——这样即便 libjxl 只装在默认目录（``C:\\Program Files\\
+    libjxl\\bin``）而不在系统 PATH 上，子进程也能找到，避免 ``find_tool``
+    报"已发现"却 spawn 出 ``FileNotFoundError`` 的矛盾。（``build_args`` 仍返回
+    裸命令名用于「命令预览」显示，只在此处执行时解析，互不影响。）
     """
     global _current_process
+    # 解析已知 libjxl 工具名 -> 完整路径（PATH / 默认安装位 / 同目录均可）。
+    if args and args[0] in ("cjxl", "djxl", "jxlinfo"):
+        resolved = find_tool(args[0])
+        if resolved:
+            args = [resolved] + list(args[1:])
     flag = _PRIORITY_FLAGS.get(priority, _PRIORITY_FLAGS[DEFAULT_PRIORITY])
     try:
         proc = subprocess.Popen(
