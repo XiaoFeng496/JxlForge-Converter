@@ -87,7 +87,7 @@ window._on_remove_selected_actions()
 check("delete-key removed selected", window.action_list.count() == 0)
 
 # --- ActionListWidget.keyPressEvent routes Delete to removal -------------
-add_item("亮度/对比度", "亮度")
+add_item("亮度", "亮度")
 window.action_list.item(0).setSelected(True)
 ev = QKeyEvent(QEvent.KeyPress, Qt.Key_Delete, Qt.NoModifier)
 window.action_list.keyPressEvent(ev)

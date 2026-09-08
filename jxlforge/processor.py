@@ -23,11 +23,32 @@ except ImportError:
     AVAILABLE = False
 
 
-# The action types shown in the 动作 tab's combo box.
+# 「动作」标签页里可添加的动作类型。中文既是显示名又是内部 ID（会被存进
+# QSettings，并在 apply_actions 里做字面量比较），显示时一律走 i18n.t()。
+#
+# 顺序 = 菜单里的展示顺序，按类别排（与 ACTION_GROUPS 一致），不是添加先后。
 ACTION_TYPES = [
-    "调整大小", "旋转", "水印", "亮度/对比度", "锐化", "裁剪",
-    "规格化", "曝光", "阴影/高光",
-    "饱和度", "自然饱和度", "模糊",
+    # 几何与尺寸
+    "调整大小", "裁剪", "旋转",
+    # 明暗与影调
+    "亮度", "对比度", "曝光", "阴影/高光", "规格化",
+    # 色彩
+    "饱和度", "自然饱和度",
+    # 清晰度
+    "锐化", "模糊",
+    # 叠加
+    "水印",
+]
+
+# 「添加动作 ▶」菜单的分组（组名也是中文 ID，显示走 i18n.t）。
+# ⚠️ 组内 id 必须覆盖 ACTION_TYPES 且一一对应：菜单按顺序渲染这两个结构，
+# 测试（test_i18n_id_separation）按菜单顺序对账 ACTION_TYPES。
+ACTION_GROUPS = [
+    ("几何与尺寸", ["调整大小", "裁剪", "旋转"]),
+    ("明暗与影调", ["亮度", "对比度", "曝光", "阴影/高光", "规格化"]),
+    ("色彩", ["饱和度", "自然饱和度"]),
+    ("清晰度", ["锐化", "模糊"]),
+    ("叠加", ["水印"]),
 ]
 
 # Sensible defaults per action type (also used by the param dialog).
@@ -38,7 +59,12 @@ DEFAULT_PARAMS = {
         "text": "Sample", "font_size": 32, "opacity": 128,
         "position": "右下", "color": "white",
     },
+    # 旧版「亮度/对比度」已拆成「亮度」「对比度」两个独立动作（2026-09-09）。
+    # 这个键只用于兼容已存进 ini 的老数据（见 migrate_legacy_actions），
+    # 菜单里不再出现，新代码不要再用它。
     "亮度/对比度": {"brightness": 1.0, "contrast": 1.0},
+    "亮度": {"factor": 1.0},
+    "对比度": {"factor": 1.0},
     "锐化": {"factor": 1.5},
     "裁剪": {"left": 0, "top": 0, "width": 0, "height": 0},
     # 规格化：cutoff=0 等价于纯拉满直方图，cutoff=N 截掉各端 N‰ 的极值再拉满。
@@ -160,6 +186,31 @@ def _watermark_offset(position, img_w, img_h, tw, th, margin):
     return _clamp(hmap[hpos], 0, img_w), _clamp(vmap[vpos], 0, img_h)
 
 
+def migrate_legacy_actions(actions):
+    """把旧版动作类型升级成当前形式（读 QSettings 时调用一次即可）。
+
+    目前只有一条规则：旧版「亮度/对比度」拆成「亮度」+「对比度」两个动作。
+    拆开后按列表顺序链式执行（先亮度、后对比度）与旧实现**完全等价**，
+    所以老配置升级后出图结果不变，只是参数变成两个可单独开关的动作。
+    """
+    out = []
+    for a in actions or []:
+        if not isinstance(a, dict) or a.get("type") != "亮度/对比度":
+            out.append(a)
+            continue
+        p = a.get("params", {}) or {}
+        for new_type, key in (("亮度", "brightness"), ("对比度", "contrast")):
+            item = dict(a)
+            item["type"] = new_type
+            params = dict(p)
+            params.pop("brightness", None)
+            params.pop("contrast", None)
+            params["factor"] = _num(p, key, 1.0)
+            item["params"] = params
+            out.append(item)
+    return out
+
+
 def apply_actions(image, actions):
     """Apply each action in ``actions`` (in order) to ``image`` and return the
     resulting ``PIL.Image`` (mode RGBA)."""
@@ -176,7 +227,12 @@ def apply_actions(image, actions):
         elif atype == "水印":
             img = _watermark(img, params)
         elif atype == "亮度/对比度":
+            # 旧数据兼容（见 DEFAULT_PARAMS 的注释）；菜单已不再提供。
             img = _brightness_contrast(img, params)
+        elif atype == "亮度":
+            img = _brightness(img, params)
+        elif atype == "对比度":
+            img = _contrast(img, params)
         elif atype == "锐化":
             img = _sharpen(img, params)
         elif atype == "裁剪":
@@ -222,13 +278,25 @@ def _rotate(img, p):
 
 
 def _brightness_contrast(img, p):
-    b = float(p.get("brightness", 1.0) or 1.0)
-    c = float(p.get("contrast", 1.0) or 1.0)
-    if b != 1.0:
-        img = ImageEnhance.Brightness(img).enhance(b)
-    if c != 1.0:
-        img = ImageEnhance.Contrast(img).enhance(c)
-    return img
+    """旧版「亮度/对比度」合并动作，仅为兼容已存的老数据保留。"""
+    img = _brightness(img, {"factor": _num(p, "brightness", 1.0)})
+    return _contrast(img, {"factor": _num(p, "contrast", 1.0)})
+
+
+def _brightness(img, p):
+    """亮度：1.0=不变，<1.0 变暗，>1.0 变亮（ImageEnhance.Brightness）。"""
+    f = _num(p, "factor", 1.0)
+    if f == 1.0:
+        return img
+    return ImageEnhance.Brightness(img).enhance(_clamp(f, 0.0, 3.0))
+
+
+def _contrast(img, p):
+    """对比度：1.0=不变，0.0=整图归一成灰（ImageEnhance.Contrast）。"""
+    f = _num(p, "factor", 1.0)
+    if f == 1.0:
+        return img
+    return ImageEnhance.Contrast(img).enhance(_clamp(f, 0.0, 3.0))
 
 
 def _sharpen(img, p):

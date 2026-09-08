@@ -28,8 +28,14 @@ def base():
 
 
 check("Pillow available", processor.AVAILABLE is True)
-check("nine action types (6 original + 3 new: 规格化/曝光/阴影高光)",
-      len(processor.ACTION_TYPES) == 9)
+# 12 个：6 个原始 + 规格化/曝光/阴影高光 + 亮度/对比度（由「亮度/对比度」
+# 拆分而来）+ 饱和度/自然饱和度/模糊。具体断言「包含」而非硬编码数量，
+# 以后加动作不必再改这里。
+check("action types 含全部类型",
+      set(processor.ACTION_TYPES) == {
+          "调整大小", "旋转", "水印", "锐化", "裁剪",
+          "规格化", "曝光", "阴影/高光",
+          "亮度", "对比度", "饱和度", "自然饱和度", "模糊"})
 check("watermark positions = 9", len(processor.WATERMARK_POSITIONS) == 9)
 
 # resize: width only -> keep ratio

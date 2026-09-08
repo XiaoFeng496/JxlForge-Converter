@@ -45,8 +45,10 @@ check("summary rotate",
       s(None, {"type": "旋转", "params": {"angle": 90}}) == "旋转 (90°)")
 check("summary watermark",
       s(None, {"type": "水印", "params": {"text": "ABC"}}) == "水印 (ABC)")
-check("summary brightness",
-      s(None, {"type": "亮度/对比度", "params": {"brightness": 1.2, "contrast": 0.9}}) == "亮度/对比度 (亮1.2/对0.9)")
+check("summary brightness (拆分后的独立动作)",
+      s(None, {"type": "亮度", "params": {"factor": 1.2}}) == "亮度 (1.20)")
+check("summary contrast (拆分后的独立动作)",
+      s(None, {"type": "对比度", "params": {"factor": 0.9}}) == "对比度 (0.90)")
 check("summary sharpen",
       s(None, {"type": "锐化", "params": {"factor": 1.5}}) == "锐化 (1.5)")
 check("summary crop",

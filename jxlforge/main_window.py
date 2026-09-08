@@ -181,8 +181,12 @@ _ACTION_BTN_MAX_WIDTH = 50
 # 「模糊」动作半径（像素）上限。高斯/方框是近似三趟 box 卷积，半径再大也
 # 只有几十毫秒；中值滤波（MEDIAN）开销随核边长² 增长，且 Pillow 要求核边
 # 长为奇数，故单独压到 9（processor._blur 里也按同样上限夹）。
-_BLUR_MAX_RADIUS = 250.0
+# ⚠️ 上限别往大调：QDoubleSpinBox 的 sizeHint 按「能显示的最大值」算宽度，
+# 250.00 会让模糊的参数框比同类（0.0–3.0，84px）宽出一截，排版对不齐。
+_BLUR_MAX_RADIUS = 50.0
 _BLUR_MEDIAN_MAX_RADIUS = 9.0
+# 半径只需 1 位小数（步长 0.5）；默认 2 位会再撑宽一档。
+_BLUR_RADIUS_DECIMALS = 1
 _DECODE_TEMP_DIR = None
 
 # 缩略图像素缓存（path, px) -> QImage 与悬停信息缓存 path -> str 都可能在
@@ -1737,21 +1741,28 @@ class ActionItemWidget(QWidget):
                 lambda v, k="color": self._emit(k, v))
             self._add_param(layout, i18n.t("颜色"), col)
             widgets["color"] = col
-        elif atype == "亮度/对比度":
+        elif atype == "亮度":
+            # 旧版「亮度/对比度」已拆成两个独立动作（processor.migrate_legacy_actions
+            # 负责升级老配置），这里只处理新的单参数形式。
             b = QDoubleSpinBox()
             b.setRange(0.0, 3.0)
             b.setSingleStep(0.1)
-            b.setValue(float(p.get("brightness", 1.0) or 1.0))
-            b.valueChanged.connect(lambda v, k="brightness": self._emit(k, v))
-            self._add_param(layout, i18n.t("亮度"), b)
-            widgets["brightness"] = b
+            _bv = p.get("factor", None)
+            b.setValue(1.0 if _bv is None else float(_bv))
+            b.setToolTip(i18n.t("1.0=不变，<1.0 变暗，>1.0 变亮"))
+            b.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
+            self._add_param(layout, i18n.t("强度"), b)
+            widgets["factor"] = b
+        elif atype == "对比度":
             c = QDoubleSpinBox()
             c.setRange(0.0, 3.0)
             c.setSingleStep(0.1)
-            c.setValue(float(p.get("contrast", 1.0) or 1.0))
-            c.valueChanged.connect(lambda v, k="contrast": self._emit(k, v))
-            self._add_param(layout, i18n.t("对比度"), c)
-            widgets["contrast"] = c
+            _cv = p.get("factor", None)
+            c.setValue(1.0 if _cv is None else float(_cv))
+            c.setToolTip(i18n.t("1.0=不变，<1.0 降低对比，>1.0 提高对比"))
+            c.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
+            self._add_param(layout, i18n.t("强度"), c)
+            widgets["factor"] = c
         elif atype == "锐化":
             f = QDoubleSpinBox()
             f.setRange(0.0, 5.0)
@@ -1831,10 +1842,13 @@ class ActionItemWidget(QWidget):
         elif atype == "模糊":
             rad = QDoubleSpinBox()
             rad.setRange(0.0, _BLUR_MAX_RADIUS)
+            rad.setDecimals(_BLUR_RADIUS_DECIMALS)
             rad.setSingleStep(0.5)
             _rv = p.get("radius", None)
             rad.setValue(2.0 if _rv is None else float(_rv))
             rad.setToolTip(i18n.t("模糊半径（像素）；0=不处理"))
+            # ⚠️ 不给 widget 列 stretch（见 root 的注释）：让半径框按内容宽，
+            # 与其他 0.0–3.0 的浮点参数框（84px）差不多长即可。
             rad.valueChanged.connect(lambda v, k="radius": self._emit(k, v))
             self._add_param(layout, i18n.t("半径"), rad)
             widgets["radius"] = rad
@@ -3267,12 +3281,17 @@ class MainWindow(QMainWindow):
         # ID/显示名分离约定一致：英文界面下显示 "Resize"，而 action dict
         # 里仍存 "调整大小"，processor.apply_actions 的字面量判断不受影响。
         self.add_action_menu = QMenu(self)
-        for _aid in processor.ACTION_TYPES:
-            _act = self.add_action_menu.addAction(i18n.t(_aid))
-            _act.setData(_aid)
-            _act.triggered.connect(
-                lambda _checked=False, _a=_aid: self._add_action_by_id(_a)
-            )
+        # 按类别分组展示（processor.ACTION_GROUPS）：组标题用 addSection。
+        # ⚠️ addSection 生成的是一个 isSeparator()==True 的 QAction，遍历
+        # menu.actions() 取类型时要过滤掉（见 test_i18n_id_separation）。
+        for _gname, _gids in processor.ACTION_GROUPS:
+            self.add_action_menu.addSection(i18n.t(_gname))
+            for _aid in _gids:
+                _act = self.add_action_menu.addAction(i18n.t(_aid))
+                _act.setData(_aid)
+                _act.triggered.connect(
+                    lambda _checked=False, _a=_aid: self._add_action_by_id(_a)
+                )
         self.add_action_button = QPushButton(i18n.t("添加动作") + " \u25b6")
         self.clear_action_button = QPushButton(i18n.t("清空"))
         toolbar.addWidget(self.add_action_button)
@@ -6663,9 +6682,9 @@ class MainWindow(QMainWindow):
             return "%s (%d°)" % (name, int(p.get("angle", 0) or 0))
         if atype == "水印":
             return "%s (%s)" % (name, p.get("text", ""))
-        if atype == "亮度/对比度":
-            return i18n.t("%s (亮%.1f/对%.1f)") % (
-                name, float(p.get("brightness", 1.0)), float(p.get("contrast", 1.0)))
+        if atype in ("亮度", "对比度", "饱和度", "自然饱和度"):
+            # 注意不能用 ``p.get("factor") or 1.0``：0.0（去色/全黑）是合法取值。
+            return "%s (%.2f)" % (name, float(p.get("factor", 1.0)))
         if atype == "锐化":
             return "%s (%.1f)" % (name, float(p.get("factor", 1.0)))
         if atype == "裁剪":
@@ -6681,9 +6700,6 @@ class MainWindow(QMainWindow):
             return i18n.t("%s (影%.2f/亮%.2f)") % (
                 name, float(p.get("shadow", 1.0) or 1.0),
                 float(p.get("highlight", 1.0) or 1.0))
-        if atype in ("饱和度", "自然饱和度"):
-            # 注意不能用 ``p.get("factor") or 1.0``：0.0（去色）是合法取值。
-            return "%s (%.2f)" % (name, float(p.get("factor", 1.0)))
         if atype == "模糊":
             mid = str(p.get("method") or "GAUSSIAN")
             mlab = next((l for i, l in processor.BLUR_METHODS if i == mid), mid)
@@ -7478,7 +7494,9 @@ class MainWindow(QMainWindow):
                 except (TypeError, ValueError):
                     actions = []
             if isinstance(actions, list):
-                for a in actions:
+                # 先跑一遍老配置升级（旧「亮度/对比度」拆成「亮度」+「对比度」），
+                # 再逐项建列表项，保证载入后列表里只有当前支持的动作类型。
+                for a in processor.migrate_legacy_actions(actions):
                     if isinstance(a, dict) and "type" in a:
                         self._add_action_item(a, render_preview=False)
                 # 批量恢复后统一刷新一次预览，避免逐项重复渲染。

@@ -128,10 +128,11 @@ EXCEPTION_CONTEXTS = {"ValueError", "RuntimeError", "TypeError", "KeyError",
 # 偶然出现的同名变量。``tools/test_i18n_id_separation.py`` 会拿它和
 # processor / main_window 里的真实常量对账，改漏了会红。
 STAGE6_DISPLAY_IDS = {
-    # processor.ACTION_TYPES —— 动作类型（apply_actions 里 12 处字面量比较）
-    "调整大小", "旋转", "水印", "亮度/对比度", "锐化", "裁剪",
+    # processor.ACTION_TYPES —— 动作类型（apply_actions 里 14 处字面量比较）
+    # 注：旧「亮度/对比度」已不在菜单里（仅兼容老数据），不再属于显示 ID。
+    "调整大小", "旋转", "水印", "锐化", "裁剪",
     "规格化", "曝光", "阴影/高光",
-    "饱和度", "自然饱和度", "模糊",
+    "亮度", "对比度", "饱和度", "自然饱和度", "模糊",
     # processor.WATERMARK_POSITIONS —— 水印九宫格位置（_watermark_offset 查表）
     "左上", "中上", "右上", "左中", "居中", "右中", "左下", "中下", "右下",
     # main_window.VIEW_MODES —— 输入标签页查看模式（GRID_SIZES / THUMB_SIZES 查表）

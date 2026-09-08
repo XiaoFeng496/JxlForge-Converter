@@ -104,9 +104,14 @@ w = fresh_window()
 
 # --- 添加动作菜单（原「动作类型」下拉框已移除，改为「添加动作▶」弹出菜单） ---
 # 菜单项与旧下拉同构：text = 译文，data = 原始中文 ID。
-_acts = list(w.add_action_menu.actions())
+# ⚠️ 菜单按类别分组（processor.ACTION_GROUPS），组标题是 addSection 生成的
+# QAction（isSeparator() 为 True、data 为空），取动作项时必须过滤掉。
+_acts = [a for a in w.add_action_menu.actions() if not a.isSeparator()]
 check("添加动作菜单项数正确",
       len(_acts) == len(processor.ACTION_TYPES))
+check("菜单有分组标题（组数 == ACTION_GROUPS 数）",
+      len([a for a in w.add_action_menu.actions() if a.isSeparator()])
+      == len(processor.ACTION_GROUPS))
 check("动作类型显示为英文",
       _acts[0].text() == "Resize",
       "got=%r" % _acts[0].text())
@@ -155,7 +160,9 @@ print("\n=== 英文界面下添加动作 ===")
 _before = len(w._all_action_data())
 # ⚠️ 用 QAction.trigger() 而非 add_action_button.click()：后者会 exec() 一个
 # 模态菜单而阻塞。trigger() 同步走完「点菜单项 → 添加动作」的完整链路。
-w.add_action_menu.actions()[0].trigger()      # 显示 "Resize"
+# ⚠️ 菜单已按类别分组，首项是分组标题（separator），动作项要过滤后取。
+_first = [a for a in w.add_action_menu.actions() if not a.isSeparator()][0]
+_first.trigger()                                 # 显示 "Resize"
 QApplication.instance().processEvents()
 _added = w._all_action_data()
 check("添加后动作数 +1", len(_added) == _before + 1,
@@ -236,9 +243,10 @@ check("调试输出没有混入字典",
 print("\n=== 切回中文 ===")
 i18n.set_language("zh_CN")
 w3 = fresh_window()
+_zh_first = [a for a in w3.add_action_menu.actions()
+             if not a.isSeparator()][0]
 check("中文界面动作类型显示中文",
-      w3.add_action_menu.actions()[0].text() == "调整大小",
-      "got=%r" % w3.add_action_menu.actions()[0].text())
+      _zh_first.text() == "调整大小", "got=%r" % _zh_first.text())
 check("中文界面冲突策略显示中文",
       w3.on_exist_combo.itemText(0) == "替换",
       "got=%r" % w3.on_exist_combo.itemText(0))

@@ -158,7 +158,9 @@ def widget_of(item):
     return win.action_list.itemWidget(item)
 
 
-menu_ids = [a.data() for a in win.add_action_menu.actions()]
+# ⚠️ 菜单已按类别分组，组标题是 addSection 的 separator action，要过滤掉
+menu_ids = [a.data() for a in win.add_action_menu.actions()
+            if not a.isSeparator()]
 check("菜单里有 3 个新动作",
       all(t in menu_ids for t in ("饱和度", "自然饱和度", "模糊")),
       str(menu_ids))
