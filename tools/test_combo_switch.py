@@ -11,7 +11,7 @@ import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _HERE = os.path.dirname(os.path.abspath(__file__))
-for p in (_HERE, r"F:\Agent工作空间\libjxl_GUI"):
+for p in (_HERE, r"F:\Agent工作空间\JxlForge-Converter"):
     if p not in sys.path:
         sys.path.insert(0, p)
 
