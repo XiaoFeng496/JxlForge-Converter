@@ -28,6 +28,7 @@ from PySide6.QtWidgets import QApplication, QDoubleSpinBox
 app = QApplication.instance() or QApplication(sys.argv)
 
 from jxlforge import main_window as mw
+from jxlforge import main_window
 from jxlforge import processor
 
 passed = 0
@@ -179,6 +180,15 @@ check("模糊半径框与同类参数框同宽",
 check("半径上限收到 50（不再 250）", rad.maximum() == 50.0, str(rad.maximum()))
 check("半径只显示 1 位小数", rad.decimals() == 1, str(rad.decimals()))
 check("半径 50 仍能输入", rad.maximum() >= 50.0)
+# 用户反馈「真机 Fusion 下模糊框比同类宽一截」——sizeHint 对齐但渲染仍宽。
+# 根治方案：显式 setMaximumWidth，等于 sizeHint 留 4px 容差给 up/down button 边框。
+# 以后再去掉 cap 会立即失败，提醒再确认真机像素。
+check("模糊半径框显式 cap 到与 sizeHint 一致（防真机 Fusion 暗色被 layout 拉宽）",
+      rad.maximumWidth() == main_window._BLUR_RADIUS_MAX_WIDTH
+      and rad.maximumWidth() <= ref.sizeHint().width() + 4,
+      "maxW=%d ref_h=%d cap=%d" % (
+          rad.maximumWidth(), ref.sizeHint().width(),
+          main_window._BLUR_RADIUS_MAX_WIDTH))
 
 print()
 print("通过 %d 项" % passed)

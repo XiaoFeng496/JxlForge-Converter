@@ -187,6 +187,11 @@ _BLUR_MAX_RADIUS = 50.0
 _BLUR_MEDIAN_MAX_RADIUS = 9.0
 # 半径只需 1 位小数（步长 0.5）；默认 2 位会再撑宽一档。
 _BLUR_RADIUS_DECIMALS = 1
+# 真机 Fusion 暗色下模糊参数框被 layout 拉宽到比同类 sizeHint=84 还宽一截，
+# 用户报「参数框太宽」。sizeHint 对齐但渲染不一致——根治：显式 cap 像素宽，
+# 与 0.0–3.0 浮点框（84 = 4 字符宽 + 上下按钮）对齐。这里留 4px 容差给
+# QDoubleSpinBox 的 up/down 按钮在 Fusion 下加的额外边框。
+_BLUR_RADIUS_MAX_WIDTH = 88
 _DECODE_TEMP_DIR = None
 
 # 缩略图像素缓存（path, px) -> QImage 与悬停信息缓存 path -> str 都可能在
@@ -1847,6 +1852,7 @@ class ActionItemWidget(QWidget):
             _rv = p.get("radius", None)
             rad.setValue(2.0 if _rv is None else float(_rv))
             rad.setToolTip(i18n.t("模糊半径（像素）；0=不处理"))
+            rad.setMaximumWidth(_BLUR_RADIUS_MAX_WIDTH)
             # ⚠️ 不给 widget 列 stretch（见 root 的注释）：让半径框按内容宽，
             # 与其他 0.0–3.0 的浮点参数框（84px）差不多长即可。
             rad.valueChanged.connect(lambda v, k="radius": self._emit(k, v))
