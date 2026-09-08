@@ -178,6 +178,11 @@ _PREVIEW_LOADING_HINT_DELAY = 400
 # 用固定值而非 sizeHint 自适应：自适应会让按钮按内容撑到 ~80px 过大；
 # 固定值保持紧凑。英文简写 Up/Down/Del 在此宽度内可完整显示。
 _ACTION_BTN_MAX_WIDTH = 50
+# 「模糊」动作半径（像素）上限。高斯/方框是近似三趟 box 卷积，半径再大也
+# 只有几十毫秒；中值滤波（MEDIAN）开销随核边长² 增长，且 Pillow 要求核边
+# 长为奇数，故单独压到 9（processor._blur 里也按同样上限夹）。
+_BLUR_MAX_RADIUS = 250.0
+_BLUR_MEDIAN_MAX_RADIUS = 9.0
 _DECODE_TEMP_DIR = None
 
 # 缩略图像素缓存（path, px) -> QImage 与悬停信息缓存 path -> str 都可能在
@@ -1801,6 +1806,68 @@ class ActionItemWidget(QWidget):
             h.valueChanged.connect(lambda v, k="highlight": self._emit(k, v))
             self._add_param(layout, i18n.t("高光"), h)
             widgets["highlight"] = h
+        elif atype == "饱和度":
+            f = QDoubleSpinBox()
+            f.setRange(0.0, 3.0)
+            f.setSingleStep(0.05)
+            # ⚠️ 不能用 ``p.get(k) or 1.0``：0.0（完全去色）是合法取值，
+            # 会被 ``or`` 判假而回退成 1.0，用户设的去色就失效了。
+            _sv = p.get("factor", None)
+            f.setValue(1.0 if _sv is None else float(_sv))
+            f.setToolTip(i18n.t("1.0=不变，0.0=完全去色（灰度），>1.0 更浓"))
+            f.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
+            self._add_param(layout, i18n.t("强度"), f)
+            widgets["factor"] = f
+        elif atype == "自然饱和度":
+            f = QDoubleSpinBox()
+            f.setRange(0.0, 2.0)
+            f.setSingleStep(0.05)
+            _vv = p.get("factor", None)
+            f.setValue(1.0 if _vv is None else float(_vv))
+            f.setToolTip(i18n.t("只强化低饱和像素，已饱和像素几乎不变；1.0=不变"))
+            f.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
+            self._add_param(layout, i18n.t("强度"), f)
+            widgets["factor"] = f
+        elif atype == "模糊":
+            rad = QDoubleSpinBox()
+            rad.setRange(0.0, _BLUR_MAX_RADIUS)
+            rad.setSingleStep(0.5)
+            _rv = p.get("radius", None)
+            rad.setValue(2.0 if _rv is None else float(_rv))
+            rad.setToolTip(i18n.t("模糊半径（像素）；0=不处理"))
+            rad.valueChanged.connect(lambda v, k="radius": self._emit(k, v))
+            self._add_param(layout, i18n.t("半径"), rad)
+            widgets["radius"] = rad
+            method = NoFlickerComboBox()
+            # 与「调整大小」的算法下拉同构：显示译文，userData 存英文 ID，
+            # 回写 action params 时用 currentData()，英文界面不会存成英文。
+            for _bid, _blab in processor.BLUR_METHODS:
+                method.addItem(i18n.t(_blab), _bid)
+            _bi = method.findData(p.get("method", "GAUSSIAN"))
+            if _bi >= 0:
+                method.setCurrentIndex(_bi)
+            method.setToolTip(i18n.t("高斯最自然，方框最快，中值保边沿（可去噪点）"))
+
+            def _sync_radius_range(_idx=0, _c=method, _s=rad):
+                """中值时把半径上限收紧到 9（见 _BLUR_MEDIAN_MAX_RADIUS）。
+
+                不做这个同步的话，用户设 50 切到中值后实际只按 9 处理，
+                界面却仍显示 50——数字与结果对不上，是最容易困惑的一类 bug。
+                """
+                is_median = _c.itemData(_idx) == "MEDIAN"
+                _s.setMaximum(_BLUR_MEDIAN_MAX_RADIUS if is_median
+                              else _BLUR_MAX_RADIUS)
+                if is_median and _s.value() > _BLUR_MEDIAN_MAX_RADIUS:
+                    _s.setValue(_BLUR_MEDIAN_MAX_RADIUS)
+
+            method.currentIndexChanged.connect(
+                lambda i, k="method", c=method: self._emit(k, c.itemData(i)))
+            method.currentIndexChanged.connect(_sync_radius_range)
+            # 构造期也要跑一次：从配置/ini 载入的 method 可能是中值，此时
+            # 上限必须同步收紧（构造完成后 item 才挂上，setValue 无法回写）。
+            _sync_radius_range(method.currentIndex())
+            self._add_param(layout, i18n.t("算法"), method)
+            widgets["method"] = method
         return widgets
 
     def sync_from_action(self):
@@ -6614,6 +6681,19 @@ class MainWindow(QMainWindow):
             return i18n.t("%s (影%.2f/亮%.2f)") % (
                 name, float(p.get("shadow", 1.0) or 1.0),
                 float(p.get("highlight", 1.0) or 1.0))
+        if atype in ("饱和度", "自然饱和度"):
+            # 注意不能用 ``p.get("factor") or 1.0``：0.0（去色）是合法取值。
+            return "%s (%.2f)" % (name, float(p.get("factor", 1.0)))
+        if atype == "模糊":
+            mid = str(p.get("method") or "GAUSSIAN")
+            mlab = next((l for i, l in processor.BLUR_METHODS if i == mid), mid)
+            rad = float(p.get("radius", 2.0))
+            # 与 processor._blur / 半径控件同步：中值的核边长上限是 9，摘要
+            # 也按夹过的值显示，否则控件显示 9、摘要却写 r=40，一行里两个数
+            # 字对不上（手改 ini 的极端情况才会撞上，但显示必须自洽）。
+            if mid == "MEDIAN":
+                rad = min(rad, _BLUR_MEDIAN_MAX_RADIUS)
+            return "%s (r=%.1f, %s)" % (name, rad, i18n.t(mlab))
         return name
 
     def _collect_actions(self):
