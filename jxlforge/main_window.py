@@ -469,7 +469,7 @@ def _preserve_ctime(src, dst):
         return
     st = os.stat(src)
     try:
-        import pywintypes
+        import datetime as _dt
         import win32file
         import win32con
     except ImportError:
@@ -480,7 +480,12 @@ def _preserve_ctime(src, dst):
     # （访问掩码 0x100，仅需写属性的最小权限，无需写文件数据）。缺失时回退字面量，
     # 避免 AttributeError 导致「保持时间戳失败」频繁误报。
     FILE_WRITE_ATTRIBUTES = getattr(win32con, "FILE_WRITE_ATTRIBUTES", 0x100)
-    ctime = pywintypes.Time(st.st_ctime)
+    # 用标准库 datetime（UTC 时区感知）构造创建时间：新版 pywin32 的
+    # win32file.SetFileTime 内部会对时间参数调用 .astimezone()，而旧写法
+    # pywintypes.Time(st.st_ctime) 返回的 pywintypes.datetime 没有该方法，
+    # 会抛 "'pywintypes.datetime' object has no attribute 'astimezone'"。
+    # 标准库 datetime 支持 .astimezone，可正常写入创建时间（FILETIME 以 UTC 计）。
+    ctime = _dt.datetime.fromtimestamp(st.st_ctime, tz=_dt.timezone.utc)
     handle = win32file.CreateFile(
         dst,
         FILE_WRITE_ATTRIBUTES,
