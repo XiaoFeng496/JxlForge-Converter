@@ -12,6 +12,7 @@ import platform
 import shutil
 import subprocess
 import re
+import sys
 import tempfile
 
 # cjxl 编码时向 stderr 打印 "Encoding [<codec>, <mode>, effort: N]"，
@@ -83,8 +84,45 @@ def detect_os():
     return "unknown"
 
 
+def _tool_search_dirs():
+    """Directories to probe for a bundled libjxl copy.
+
+    A frozen bundle (PyInstaller/Nuitka) should be able to run without libjxl
+    on the system PATH: when the tools are shipped next to the executable (or
+    extracted under ``sys._MEIPASS``), we find them there first.
+    """
+    dirs = [os.path.dirname(sys.executable)]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        dirs.append(meipass)
+    return dirs
+
+
+def _windows_default_dirs():
+    """Common libjxl install locations, generalizing the old single hard-coded path."""
+    return [
+        r"C:\Program Files\libjxl\bin",
+        r"C:\Program Files (x86)\libjxl\bin",
+    ]
+
+
 def find_tool(tool_name):
-    """Locate an executable in PATH, also trying Windows extensions."""
+    """Locate a libjxl executable, preferring a bundled copy over system PATH.
+
+    Search order (so a frozen bundle works without libjxl on PATH):
+      1. next to the executable / PyInstaller ``sys._MEIPASS`` (bundled copy),
+      2. system PATH (``shutil.which``, also trying Windows extensions),
+      3. common libjxl install locations on Windows.
+
+    Returns the absolute path or ``None`` when the tool is nowhere to be found.
+    """
+    # 1) bundled / same-directory copy (works for frozen bundles and dev runs)
+    for d in _tool_search_dirs():
+        for ext in ("", ".exe", ".cmd", ".bat"):
+            cand = os.path.join(d, tool_name + ext)
+            if os.path.isfile(cand):
+                return cand
+    # 2) system PATH
     found = shutil.which(tool_name)
     if found:
         return found
@@ -93,6 +131,12 @@ def find_tool(tool_name):
             candidate = shutil.which(tool_name + ext)
             if candidate:
                 return candidate
+    # 3) common Windows install locations
+    if detect_os() == "windows":
+        for d in _windows_default_dirs():
+            cand = os.path.join(d, tool_name + ".exe")
+            if os.path.isfile(cand):
+                return cand
     return None
 
 
@@ -105,12 +149,19 @@ def check_tools():
 
 
 def find_jxlinfo():
-    """Locate the jxlinfo tool in PATH (trying Windows extensions).
+    """Locate the jxlinfo tool, preferring a bundled copy (see ``find_tool``).
 
     jxlinfo prints JPEG XL file metadata from the *header only* (no pixel
     decode) and is the fast path for judging whether a JXL was produced by
     lossless JPEG re-encoding. Returns the path or ``None`` when absent.
     """
+    # 1) bundled / same-directory copy
+    for d in _tool_search_dirs():
+        for ext in ("", ".exe", ".cmd", ".bat"):
+            cand = os.path.join(d, "jxlinfo" + ext)
+            if os.path.isfile(cand):
+                return cand
+    # 2) system PATH
     found = shutil.which("jxlinfo")
     if found:
         return found
@@ -119,6 +170,12 @@ def find_jxlinfo():
             candidate = shutil.which("jxlinfo" + ext)
             if candidate:
                 return candidate
+    # 3) common Windows install locations
+    if detect_os() == "windows":
+        for d in _windows_default_dirs():
+            cand = os.path.join(d, "jxlinfo.exe")
+            if os.path.isfile(cand):
+                return cand
     return None
 
 

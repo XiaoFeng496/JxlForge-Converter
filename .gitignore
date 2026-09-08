@@ -16,6 +16,8 @@ run2.bat
 # ===== 打包 / 构建产物 =====
 build/
 dist/
+packaging/build/
+packaging/dist/
 *.egg-info/
 .eggs/
 

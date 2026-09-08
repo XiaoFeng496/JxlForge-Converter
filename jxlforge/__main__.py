@@ -2,6 +2,7 @@
 """Application entry point: python -m jxlforge"""
 
 import os
+import sys
 import time
 
 from PySide6.QtCore import QSettings
@@ -70,8 +71,91 @@ def _migrate_legacy_settings():
     current.sync()
 
 
+def _selftest(deep=False):
+    """打包后完整性自检（不建窗口、不进 GUI）。
+
+    通过程序自己的 ``i18n.available_languages()`` 等运行时接口做检查，
+    与正式运行走同一套代码，因此能抓到「数据没打进包 / 路径没对齐到
+    _MEIPASS / JSON 损坏」这类打包态才暴露的缺失——这正是源码态回归
+    测试覆盖不到、却最容易漏掉的维度。
+
+    - 默认（资源层）：校验 i18n 字典已打包且可加载、libjxl 引擎查找结果。
+      仅启动 exe 本身就会先验证整条 import 链（模块缺失则 exe 起不来，
+      selftest 根本跑不到，退出码非 0）。
+    - ``--deep``：额外实例化 MainWindow，抓「模块未被收集」类 ImportError。
+
+    返回退出码 0=PASS / 1=FAIL，并把报告写到 exe 同目录下的
+    ``selftest_report.txt``（windowed 打包态无控制台，靠文件 + 退出码观测）。
+    """
+    report = []
+    checks = []  # (label, ok, detail)
+
+    def add(label, ok, detail=""):
+        checks.append((label, ok, detail))
+
+    # 1) i18n 语言清单：打包必须把 en_US / zh_TW 的 json 收进 datas。
+    langs = i18n.available_languages()
+    for code in ("en_US", "zh_TW"):
+        ok = code in langs
+        add("i18n language present: %s" % code, ok,
+            "" if ok else "available=%s（打包漏了 i18n/*.json）" % langs)
+
+    # 2) 英文字典真能加载且有内容（抓「文件在但空 / 损坏」）。
+    if "en_US" in langs:
+        i18n.set_language("en_US")
+        n = i18n.translation_count()
+        ok = n > 400
+        add("en_US dictionary loads with content", ok,
+            "translation_count=%d（期望 >400）" % n)
+    else:
+        add("en_US dictionary loads with content", False, "skipped: en_US missing")
+
+    # 3) libjxl 引擎可发现：打包本就不带引擎，仅报告、不阻断。
+    from . import converter
+    found = {t: converter.find_tool(t) is not None for t in ("cjxl", "djxl", "jxlinfo")}
+    add("libjxl engines discoverable (engine not bundled by default)", True,
+        "cjxl=%s djxl=%s jxlinfo=%s" % (found["cjxl"], found["djxl"], found["jxlinfo"]))
+
+    # 4) 可选 deep：实例化主窗口，抓「模块未被收集」类缺失。
+    if deep:
+        try:
+            from PySide6.QtWidgets import QApplication
+            app = QApplication([])
+            from .main_window import MainWindow
+            MainWindow()
+            add("MainWindow instantiates", True, "")
+        except Exception as e:  # noqa: BLE001
+            add("MainWindow instantiates", False, "%s: %s" % (type(e).__name__, e))
+
+    passed = all(ok for _, ok, _ in checks)
+    report.append("JxlForge Converter --selftest @ %s"
+                  % time.strftime("%Y-%m-%d %H:%M:%S"))
+    for label, ok, detail in checks:
+        mark = "PASS" if ok else "FAIL"
+        report.append("[%s] %s%s" % (mark, label, ("  -- " + detail) if detail else ""))
+    report.append("")
+    report.append("RESULT: %s" % ("PASS" if passed else "FAIL"))
+
+    text = "\n".join(report) + "\n"
+    try:
+        out = os.path.join(os.path.dirname(os.path.abspath(sys.executable)),
+                           "selftest_report.txt")
+        with open(out, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    except OSError:
+        out = None
+    # 源码态（有控制台）也打到 stdout，便于即时查看。
+    print(text)
+    return 0 if passed else 1
+
+
 def run():
     """Create the QApplication and show the main window."""
+    # 打包后自检入口：--selftest / --verify 不建窗口，只做资源完整性检查。
+    # 必须放在最前，避免任何 QSettings / QApplication 副作用。
+    if "--selftest" in sys.argv or "--verify" in sys.argv:
+        sys.exit(_selftest(deep="--deep" in sys.argv))
+
     # Persist settings to a portable .ini file instead of the Windows registry.
     # Must be set before any QSettings object is constructed.
     QSettings.setDefaultFormat(QSettings.IniFormat)

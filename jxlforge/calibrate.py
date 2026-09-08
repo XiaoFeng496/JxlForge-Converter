@@ -36,12 +36,14 @@ MP_LEVELS = [1, 2, 4, 8, 12, 16, 24, 32, 40, 48, 56, 64]
 
 
 def cjxl_path():
-    """返回 cjxl 可执行文件路径（PATH 优先，否则回退到 Windows 默认安装位）。"""
-    p = shutil.which("cjxl")
-    if p:
-        return p
-    cand = r"C:\Program Files\libjxl\bin\cjxl.exe"
-    return cand if os.path.isfile(cand) else None
+    """返回 cjxl 可执行文件路径（同目录/打包态优先，否则 PATH，再回退默认安装位）。
+
+    复用 converter.find_tool 的统一查找逻辑，去掉原先单一的硬编码
+    ``C:\\Program Files\\libjxl\\bin`` 路径——那样在打包分发且 libjxl 装到
+    其他位置时校准会静默失效。
+    """
+    from .converter import find_tool
+    return find_tool("cjxl")
 
 
 def make_photo_mp(mp):
