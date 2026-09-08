@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PIL import Image
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QDoubleSpinBox
+from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QSlider, QSpinBox
 
 app = QApplication.instance() or QApplication(sys.argv)
 
@@ -159,57 +159,144 @@ check("分组顺序：几何在前、水印在最后",
       str([g[0] for g in processor.ACTION_GROUPS]))
 
 # ======================================================================
-# 3. 模糊参数框宽度
+# 3. 下拉框宽度：_build_param_widgets 末尾集中 cap，对齐同动作 SpinBox
+#    根因：调整大小·算法原标签 "LANCZOS (高质量, 默认)" 20+ 字符 → sizeHint 234，
+#    把整列撑爆；模糊/水印下拉只有 54–90，本身没超，但要跟同动作 SpinBox 等宽。
 # ======================================================================
-print("\n=== 3. 模糊参数框宽度 ===")
+print("\n=== 3. 下拉框宽度（集中 cap 对齐同动作 SpinBox） ===")
 win2 = mw.MainWindow()
 
 
-def param_widget(window, action_name, key):
+def _spin_max_of(window, action_name, spin_keys):
+    """加一个动作，返回其 item widget 与「最宽 SpinBox 的 sizeHint 宽度」。"""
     n = window.action_list.count()
     window._add_action_by_id(action_name)
     w = window.action_list.itemWidget(window.action_list.item(n))
-    return w._param_widgets[key]
+    sm = 0
+    for k in spin_keys:
+        sm = max(sm, w._param_widgets[k].sizeHint().width())
+    return w, sm
 
 
-ref = param_widget(win2, "锐化", "factor")      # 0.0–5.0 的同类浮点框
-rad = param_widget(win2, "模糊", "radius")
-check("模糊半径框与同类参数框同宽",
+# --- 模糊：SpinBox(半径)+下拉(算法) ---
+b_w, _ = _spin_max_of(win2, "模糊", ["radius"])
+rad = b_w._param_widgets["radius"]
+method_w = b_w._param_widgets["method"]
+# 锐化作为同类浮点框参照（不 cap，验证自然等宽）
+s_w, _ = _spin_max_of(win2, "锐化", ["factor"])
+ref = s_w._param_widgets["factor"]
+check("模糊半径框与锐化强度框自然等宽（sizeHint 一致）",
       rad.sizeHint().width() == ref.sizeHint().width(),
       "radius=%d sharpen=%d" % (rad.sizeHint().width(), ref.sizeHint().width()))
 check("半径上限收到 50（不再 250）", rad.maximum() == 50.0, str(rad.maximum()))
 check("半径只显示 1 位小数", rad.decimals() == 1, str(rad.decimals()))
-check("半径 50 仍能输入", rad.maximum() >= 50.0)
-# 用户反馈「真机 Fusion 下模糊框比同类宽一截」——sizeHint 对齐但渲染仍宽。
-# 根治方案：显式 setMaximumWidth，等于 sizeHint 留 4px 容差给 up/down button 边框。
-# 以后再去掉 cap 会立即失败，提醒再确认真机像素。
-check("模糊半径框显式 cap 到与 sizeHint 一致（防真机 Fusion 暗色被 layout 拉宽）",
-      rad.maximumWidth() == main_window._BLUR_RADIUS_MAX_WIDTH
-      and rad.maximumWidth() <= ref.sizeHint().width() + 4,
-      "maxW=%d ref_h=%d cap=%d" % (
-          rad.maximumWidth(), ref.sizeHint().width(),
-          main_window._BLUR_RADIUS_MAX_WIDTH))
+# SpinBox 不被 cap：Qt 默认 minW==0（未设任何宽度约束）
+check("模糊半径 SpinBox 未被 cap（minW==0）", rad.minimumWidth() == 0,
+      "minW=%d" % rad.minimumWidth())
+# 下拉被 cap 到 _PARAM_COMBO_REF_WIDTH（模糊动作 spin_max=半径 sizeHint≈84）
+check("模糊算法下拉被 cap 到 _PARAM_COMBO_REF_WIDTH",
+      method_w.maximumWidth() == main_window._PARAM_COMBO_REF_WIDTH,
+      "maxW=%d ref=%d" % (method_w.maximumWidth(),
+                          main_window._PARAM_COMBO_REF_WIDTH))
+check("模糊算法下拉不是 setMinimumWidth 撑大（minW==0）",
+      method_w.minimumWidth() == 0, "minW=%d" % method_w.minimumWidth())
 
-# --- 上面两段已用了 param_widget(win2, "锐化"/"模糊", ...)，下面统一改用
-# 「再创建一次模糊」并共享同一组 rad / method，避免第三项是另一个新实例。 ---
+# --- 调整大小：算法下拉原标签 20+ 字符，sizeHint 234，是「撑宽」真凶 ---
+r_w, r_spin = _spin_max_of(win2, "调整大小", ["width", "height"])
+algo_w = r_w._param_widgets["algorithm"]
+check("调整大小算法下拉被 cap（不再 234 撑爆整列）",
+      algo_w.maximumWidth() == r_spin and algo_w.maximumWidth() < 234,
+      "maxW=%d spin_max=%d" % (algo_w.maximumWidth(), r_spin))
+check("调整大小算法下拉与同动作 SpinBox 等宽",
+      algo_w.maximumWidth() == r_spin,
+      "maxW=%d spin_max=%d" % (algo_w.maximumWidth(), r_spin))
+
+# --- 水印：位置/颜色下拉，cap 后应与同动作 SpinBox 等宽（且 >= 基准 84）---
+wm_w, wm_spin = _spin_max_of(win2, "水印", ["font_size", "opacity"])
+pos_w = wm_w._param_widgets["position"]
+col_w = wm_w._param_widgets["color"]
+_wm_ref = max(wm_spin, main_window._PARAM_COMBO_REF_WIDTH)
+check("水印位置下拉被 cap（与同动作 SpinBox 等宽，>=基准84）",
+      pos_w.maximumWidth() == _wm_ref, "maxW=%d ref=%d" % (pos_w.maximumWidth(), _wm_ref))
+check("水印颜色下拉同样被 cap",
+      col_w.maximumWidth() == _wm_ref, "maxW=%d" % col_w.maximumWidth())
+
+# ======================================================================
+# 4. 数值参数拖拽条：滑块放参数名与数字框中间，数字框在条右边，双向同步
+# =====================================================================
+print("\n=== 4. 数值参数拖拽条（滑块放中间，数字框在右）===")
+
+
+def _slider_of(w, key):
+    """取某数值参数对应的拖拽条（_param_sliders 以数值框为键）。"""
+    return w._param_sliders.get(w._param_widgets[key])
+
+
+# --- 锐化：浮点框 0..5 step0.1，应映射成 0..50 的整数滑块 ---
+fac_sb = s_w._param_widgets["factor"]
+fac_sl = _slider_of(s_w, "factor")
+check("锐化 factor 带拖拽条（QSlider）",
+      isinstance(fac_sl, QSlider), type(fac_sl).__name__)
+# 数字框在滑块右边：控件列是一个 HBox，item0=滑块 item1=数字框
+fac_ctrl = s_w.params_container.layout().itemAtPosition(0, 1).widget()
+check("数字框在拖拽条右边（HBox: [滑块, 数字框]）",
+      fac_ctrl.layout().itemAt(0).widget() is fac_sl
+      and fac_ctrl.layout().itemAt(1).widget() is fac_sb)
+check("浮点滑块量程 = round((5-0)/0.1) = 50",
+      fac_sl.maximum() == 50, str(fac_sl.maximum()))
+# 拖滑块 → 数字框同步
+fac_sl.setValue(fac_sl.maximum())
+check("拖滑块到最大 → 数字框同步到 5.0",
+      abs(fac_sb.value() - 5.0) < 1e-6, str(fac_sb.value()))
+# 改数字框 → 滑块同步
+fac_sb.setValue(2.0)
+check("改数字框 → 滑块同步（位置 > 0）",
+      fac_sl.value() > 0, str(fac_sl.value()))
+
+# --- 调整大小：宽/高是像素参数 → 不加拖拽条（验证 no_slider），但可正常设值 ---
+wid_sb = r_w._param_widgets["width"]
+wid_sl = _slider_of(r_w, "width")
+check("调整大小 width 是像素参数 → 不带拖拽条",
+      wid_sl is None, type(wid_sl).__name__)
+wid_sb.setValue(1024)
+check("设 width 数字框 = 1024 生效", wid_sb.value() == 1024, str(wid_sb.value()))
+hei_sb = r_w._param_widgets["height"]
+hei_sl = _slider_of(r_w, "height")
+check("调整大小 height 是像素参数 → 不带拖拽条",
+      hei_sl is None, type(hei_sl).__name__)
+
+# --- 模糊 radius 是像素参数 → 不带拖拽条；切 MEDIAN 仅收半径上限到 9 ---
+b_sl = _slider_of(b_w, "radius")
+check("模糊 radius 是像素参数 → 不带拖拽条",
+      b_sl is None, type(b_sl).__name__)
+rad.setValue(8.0)
+method_w.setCurrentIndex(2)   # MEDIAN
+check("切 MEDIAN 后 radius 上限收到 9（功能不受影响）",
+      rad.maximum() == main_window._BLUR_MEDIAN_MAX_RADIUS,
+      "max=%s" % rad.maximum())
+
+# --- 拖拽条拖动要触发参数回写（实时预览依赖此链路，issue #3）---
+# 锐化 factor 带滑块：拖到最大应让 _emit('factor', ...) 被调用 → action 数据更新。
+_emit_calls = []
+_orig_emit = s_w._emit
+def _spy_emit(key, value):
+    _emit_calls.append((key, value))
+    _orig_emit(key, value)
+s_w._emit = _spy_emit
+fac_sl.setValue(fac_sl.maximum())
+s_w._emit = _orig_emit
+check("拖滑块触发参数回写（_emit 被调用，实时预览链路打通）",
+      len(_emit_calls) >= 1, str(_emit_calls))
+
+# --- 回归：调 MEDIAN 仍把半径上限收 9（功能不受影响）---
 n_blur = win2.action_list.count()
 win2._add_action_by_id("模糊")
 w_blur = win2.action_list.itemWidget(win2.action_list.item(n_blur))
-rad = w_blur._param_widgets["radius"]      # 用最后创建的实例
+rad = w_blur._param_widgets["radius"]
 method_w = w_blur._param_widgets["method"]
 gl_blur = w_blur.params_container.layout()
-check("模糊行只有 1 行（rad + method 并排 sub 容器）",
-      gl_blur.rowCount() == 1, "rowCount=%d" % gl_blur.rowCount())
-check("col1 cell 类型是 sub QWidget（内含 HBox）",
-      gl_blur.itemAtPosition(0, 1).widget().layout() is not None
-      and gl_blur.itemAtPosition(0, 1).widget().layout().__class__.__name__
-      == "QHBoxLayout",
-      "actual=%r" % (gl_blur.itemAtPosition(0, 1).widget().layout().__class__.__name__
-                     if gl_blur.itemAtPosition(0, 1).widget().layout() else None))
-check("sub 容器固定横向 policy（按 sh 渲染不被 col1 cell 拉到 panel 全宽）",
-      gl_blur.itemAtPosition(0, 1).widget().sizePolicy().horizontalPolicy()
-      == main_window.QSizePolicy.Fixed)
-# 回归：模糊的两个参数控件仍能正常回写 + 摘要正常
+check("模糊两个参数各占一行（共 2 行）",
+      gl_blur.rowCount() == 2, "rowCount=%d" % gl_blur.rowCount())
 check("rad 初始值 = 2.0", rad.value() == 2.0)
 check("method 初始 = GAUSSIAN",
       method_w.itemData(method_w.currentIndex()) == "GAUSSIAN")

@@ -187,11 +187,12 @@ _BLUR_MAX_RADIUS = 50.0
 _BLUR_MEDIAN_MAX_RADIUS = 9.0
 # 半径只需 1 位小数（步长 0.5）；默认 2 位会再撑宽一档。
 _BLUR_RADIUS_DECIMALS = 1
-# 真机 Fusion 暗色下模糊参数框被 layout 拉宽到比同类 sizeHint=84 还宽一截，
-# 用户报「参数框太宽」。sizeHint 对齐但渲染不一致——根治：显式 cap 像素宽，
-# 与 0.0–3.0 浮点框（84 = 4 字符宽 + 上下按钮）对齐。这里留 4px 容差给
-# QDoubleSpinBox 的 up/down 按钮在 Fusion 下加的额外边框。
-_BLUR_RADIUS_MAX_WIDTH = 88
+# 动作参数区下拉框宽度的对齐基准（像素）。见 _build_param_widgets 末尾的
+# 集中约束：每个 NoFlickerComboBox 的最大宽度钉到「同动作里最宽 SpinBox 的宽度」
+# 与这个基准二者取大，确保下拉框不会因长标签（如「调整大小·算法」原标签长达
+# 20+ 字符）把整列撑到 200+px，同时与同动作 SpinBox 等宽、视觉对齐。
+# 84 对应典型的 0.0–3.0 浮点框 sizeHint，即用户夸过「显示正确」的阴影/高光宽度。
+_PARAM_COMBO_REF_WIDTH = 84
 _DECODE_TEMP_DIR = None
 
 # 缩略图像素缓存（path, px) -> QImage 与悬停信息缓存 path -> str 都可能在
@@ -1598,10 +1599,11 @@ class ActionItemWidget(QWidget):
         # 用 QGridLayout(2 列: label, widget)：
         # PySide6 中 Python 派生的 QLayout 子类的 setGeometry 不会被 C++ 端
         # 调到（_do_layout 从不执行）。QGridLayout 是 Qt 原生实现，cascade 稳。
-        # ⚠️ widget 列不要 stretch=1 —— 6×3 默认布局里 panel 只有 ~400px，
-        # stretch=1 会把 QSpinBox/NoFlickerComboBox 拉成全宽（实测 640px），
-        # 「算法」下拉「LANCZOS (高质量, 默认)」撑爆整行。改为 0：widget 按
-        # 内容显示，右侧留白；窗口拉宽时各 widget 略宽但仍按内容。
+        # widget 列 stretch=1：数值参数行是「参数名 | 拖拽条(撑满中间) |
+        # 数字框(右)」，拖拽条要占满参数名与数字框之间的全部剩余空间，所以控件
+        # 列必须可拉伸。下拉参数行里该列虽被拉宽，但下拉框用 AlignLeft + 末尾
+        # setMaximumWidth 钉到同动作 SpinBox 宽，只靠左显示、不顶满
+        # （见 _build_param_widgets 末尾集中约束）。
         self.params_container = QWidget()
         if self.action:
             param_layout = QGridLayout(self.params_container)
@@ -1609,7 +1611,7 @@ class ActionItemWidget(QWidget):
             param_layout.setHorizontalSpacing(8)
             param_layout.setVerticalSpacing(4)
             param_layout.setColumnStretch(0, 0)  # label 列：内容宽度
-            param_layout.setColumnStretch(1, 0)  # widget 列：按内容
+            param_layout.setColumnStretch(1, 1)  # 控件列：可拉伸，拖拽条撑满中间
             self._next_param_row = 0
             self._param_widgets = self._build_param_widgets(param_layout)
             if self._param_widgets:
@@ -1653,17 +1655,119 @@ class ActionItemWidget(QWidget):
             # 兜底也走 t()：直接返回原始 ID 会让英文界面冒出中文。
             return i18n.t(self.action.get("type", ""))
 
-    def _add_param(self, grid, label, widget):
-        """Add 'label: widget' as a row in a QGridLayout (label=左, widget=右)。"""
+    def _add_param(self, grid, label, widget, no_slider=False):
+        """Add 'label: widget' as a row in a QGridLayout (label=左, widget=右)。
+
+        数值参数（QSpinBox / QDoubleSpinBox）：
+        - 普通数值（强度/角度/透明度/截断/曝光/阴影高光/饱和度等）：行内嵌
+          「拖拽条(撑满中间) + 数字框(右)」——拖拽条放参数名与数字框中间，
+          数字框在条右边（用户 2026-09-09 要求）。拖拽条与数字框双向同步，
+          互不触发循环回调。
+        - 像素类参数（宽/高/裁剪左·上·宽·高/模糊半径/字号）：``no_slider=True``
+          不给拖拽条——像素数值拖滑块没有意义，且 0–100000 的量程拖拽根本不精确。
+          此时数字框用 HBox + 右侧 spacer 占位，保持自然宽度、靠左显示，不拉伸
+          成整列宽（否则与带滑块的参数观感不一致）。
+
+        下拉参数（NoFlickerComboBox）：靠左、宽度自适应（不顶满该列），宽度由
+        _build_param_widgets 末尾集中 setMaximumWidth 钉到同动作 SpinBox 宽，
+        长标签也不会撑爆整列。
+
+        文本参数（QLineEdit）：原样放置。
+        """
         lbl = QLabel(label)
         lbl.setStyleSheet("color: gray;")
         row = self._next_param_row
         self._next_param_row += 1
-        # ⚠️ 不用 AlignRight —— 它把 label 推到 cell 右端，widget 紧跟其右，
-        # 整体看起来 label+widget 都偏右。改用默认左对齐，label 紧贴左边缘、
-        # widget 紧跟其后，参数行整体靠左（与标题行左缩进对齐）。
         grid.addWidget(lbl, row, 0)
-        grid.addWidget(widget, row, 1)
+        if not no_slider and isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+            slider = self._make_param_slider(widget)
+            self._param_sliders[widget] = slider
+            ctrl = QWidget()
+            hb = QHBoxLayout(ctrl)
+            hb.setContentsMargins(0, 0, 0, 0)
+            hb.setSpacing(6)
+            hb.addWidget(slider, 1)     # stretch=1：拖拽条撑满参数名与数字框之间
+            hb.addWidget(widget, 0)     # stretch=0：数字框自然宽、居右
+            grid.addWidget(ctrl, row, 1)
+        elif no_slider and isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+            # 像素类参数不带拖拽条：用 HBox + 右侧 spacer 吃掉 stretch 列的剩余
+            # 空间，使数字框保持自然宽度并靠左，不拉伸成整列宽。
+            ctrl = QWidget()
+            hb = QHBoxLayout(ctrl)
+            hb.setContentsMargins(0, 0, 0, 0)
+            hb.setSpacing(6)
+            hb.addWidget(widget, 0)     # stretch=0：自然宽、靠左
+            hb.addStretch(1)            # 吃掉剩余空间
+            grid.addWidget(ctrl, row, 1)
+        elif isinstance(widget, NoFlickerComboBox):
+            # 靠左 + 垂直居中：控件列虽被拉宽（供拖拽条撑满），下拉框仍贴左显示、
+            # 右侧留白，宽度由末尾 cap 限制，做到「不顶满、自适应」。
+            grid.addWidget(widget, row, 1, Qt.AlignLeft | Qt.AlignVCenter)
+        else:
+            grid.addWidget(widget, row, 1)
+
+    def _make_param_slider(self, sb):
+        """给数值框配一个水平拖拽条，返回已与 sb 双向绑定的 QSlider。
+
+        - 整数框（QSpinBox）：滑块范围直接等于框的 [min, max]。
+        - 浮点框（QDoubleSpinBox）：滑块按框的 singleStep 离散化
+          （0..n，n=round((max-min)/step)），值 = min + 滑块位置*step。
+        - 双向同步用 blockSignals 防循环：拖滑块→改框（框信号被屏蔽）；改框→
+          拖滑块（滑块信号被屏蔽）。初始位置按框当前值对齐。
+        """
+        slider = QSlider(Qt.Horizontal)
+        slider.setSingleStep(1)
+        if isinstance(sb, QDoubleSpinBox):
+            lo, hi, step = sb.minimum(), sb.maximum(), sb.singleStep()
+            n = max(1, int(round((hi - lo) / step)))
+            slider.setRange(0, n)
+        else:
+            slider.setRange(int(sb.minimum()), int(sb.maximum()))
+        slider.valueChanged.connect(
+            lambda sv, _sb=sb, _sl=slider: self._slider_to_spin(_sb, _sl, sv))
+        sb.valueChanged.connect(
+            lambda v, _sb=sb, _sl=slider: self._spin_to_slider(_sb, _sl, v))
+        self._spin_to_slider(sb, slider, sb.value())
+        return slider
+
+    def _slider_to_spin(self, sb, slider, sv):
+        """滑块位置 → 数值框值。
+
+        不屏蔽 sb 信号：sb.valueChanged 会触发参数回写（``_emit``）→ 实时预览，
+        这正是用户要求的「拖拽条也要实时预览」。``_spin_to_slider`` 再把滑块位置
+        同步回来（同值 → 不再 emit），不会形成回环。
+        """
+        if isinstance(sb, QDoubleSpinBox):
+            lo, step = sb.minimum(), sb.singleStep()
+            val = lo + sv * step
+        else:
+            val = sv
+        # 注意：这里不 blockSignals —— 让 sb.valueChanged → _emit 触发预览刷新。
+        sb.setValue(val)
+
+    def _spin_to_slider(self, sb, slider, v):
+        """数值框值 → 滑块位置（屏蔽滑块信号，避免回环）；值越界时夹到合法范围。"""
+        if isinstance(sb, QDoubleSpinBox):
+            lo, step = sb.minimum(), sb.singleStep()
+            sv = int(round((v - lo) / step))
+        else:
+            sv = int(v)
+        sv = max(slider.minimum(), min(slider.maximum(), sv))
+        slider.blockSignals(True)
+        try:
+            slider.setValue(sv)
+        finally:
+            slider.blockSignals(False)
+
+    def _range_slider_to_spin(self, sb, slider):
+        """数值框量程变化时（如模糊切中值收紧半径上限）同步滑块量程与位置。"""
+        if isinstance(sb, QDoubleSpinBox):
+            lo, hi, step = sb.minimum(), sb.maximum(), sb.singleStep()
+            n = max(1, int(round((hi - lo) / step)))
+            slider.setRange(0, n)
+        else:
+            slider.setRange(int(sb.minimum()), int(sb.maximum()))
+        self._spin_to_slider(sb, slider, sb.value())
 
     def _emit(self, key, value):
         if self._block_change:
@@ -1676,20 +1780,21 @@ class ActionItemWidget(QWidget):
         p = self.action.get("params", {}) or {}
         atype = self.action.get("type", "")
         widgets = {}
+        self._param_sliders = {}
         if atype == "调整大小":
             w = QSpinBox()
             w.setRange(0, 100000)
             w.setValue(int(p.get("width", 0) or 0))
             w.setSpecialValueText(i18n.t("自动(按比例)"))
             w.valueChanged.connect(lambda v, k="width": self._emit(k, v))
-            self._add_param(layout, i18n.t("宽"), w)
+            self._add_param(layout, i18n.t("宽"), w, no_slider=True)
             widgets["width"] = w
             h = QSpinBox()
             h.setRange(0, 100000)
             h.setValue(int(p.get("height", 0) or 0))
             h.setSpecialValueText(i18n.t("自动(按比例)"))
             h.valueChanged.connect(lambda v, k="height": self._emit(k, v))
-            self._add_param(layout, i18n.t("高"), h)
+            self._add_param(layout, i18n.t("高"), h, no_slider=True)
             widgets["height"] = h
             algo = NoFlickerComboBox()
             for key, lab in processor.RESIZE_ALGORITHMS:
@@ -1700,6 +1805,9 @@ class ActionItemWidget(QWidget):
             algo.setCurrentIndex(idx)
             algo.currentIndexChanged.connect(
                 lambda i, c=algo: self._emit("algorithm", c.itemData(i)))
+            algo.setToolTip(i18n.t(
+                "重采样算法：LANCZOS 最平滑（默认），双三次/双线性适合通用缩放，"
+                "方框最快，汉明/最近邻适合缩小或保留硬边缘。"))
             self._add_param(layout, i18n.t("算法"), algo)
             widgets["algorithm"] = algo
         elif atype == "旋转":
@@ -1719,7 +1827,7 @@ class ActionItemWidget(QWidget):
             fs.setRange(8, 400)
             fs.setValue(int(p.get("font_size", 32) or 32))
             fs.valueChanged.connect(lambda v, k="font_size": self._emit(k, v))
-            self._add_param(layout, i18n.t("字号"), fs)
+            self._add_param(layout, i18n.t("字号"), fs, no_slider=True)
             widgets["font_size"] = fs
             op = QSpinBox()
             op.setRange(0, 255)
@@ -1740,10 +1848,15 @@ class ActionItemWidget(QWidget):
             self._add_param(layout, i18n.t("位置"), pos)
             widgets["position"] = pos
             col = NoFlickerComboBox()
-            col.addItems(["white", "black"])
-            col.setCurrentText(p.get("color", "white"))
-            col.currentTextChanged.connect(
-                lambda v, k="color": self._emit(k, v))
+            # 显示名与内部 ID 分离：显示 t(颜色)，userData 存 white/black 英文 ID，
+            # 回写 action params 时用 currentData()，英文/繁中界面下也不会存成英文。
+            for _cid, _clab in (("white", "白色"), ("black", "黑色")):
+                col.addItem(i18n.t(_clab), _cid)
+            _ci = col.findData(p.get("color", "white"))
+            if _ci >= 0:
+                col.setCurrentIndex(_ci)
+            col.currentIndexChanged.connect(
+                lambda _idx, k="color": self._emit(k, col.itemData(_idx)))
             self._add_param(layout, i18n.t("颜色"), col)
             widgets["color"] = col
         elif atype == "亮度":
@@ -1785,7 +1898,7 @@ class ActionItemWidget(QWidget):
                 sp.setRange(0, 100000)
                 sp.setValue(int(p.get(key, 0) or 0))
                 sp.valueChanged.connect(lambda v, k=key: self._emit(k, v))
-                self._add_param(layout, label, sp)
+                self._add_param(layout, label, sp, no_slider=True)
                 widgets[key] = sp
         elif atype == "规格化":
             co = QSpinBox()
@@ -1852,14 +1965,8 @@ class ActionItemWidget(QWidget):
             _rv = p.get("radius", None)
             rad.setValue(2.0 if _rv is None else float(_rv))
             rad.setToolTip(i18n.t("模糊半径（像素）；0=不处理"))
-            # ⚠️ cap 在这里是为了让 sub-HBox 内两个控件总宽不再被 GridLayout
-            # col1 按 panel 全宽（~600）撑开 —— 之前两参数「一长一短」的根因：
-            # columnStretch=0 时 GridLayout 仍会把 col 1 整列铺满 panel，没 cap
-            # 的 method 被拉到 600px，cap 了的 rad 只 88px，看着一短一长。
-            # 把两个控件并排塞进 sub 容器后，col1 cell 渲染按 sub.sizeHint()，
-            # 行间不一致消失；这里 cap 只是兜底防 layout 被外部 resize 拉宽。
-            rad.setMaximumWidth(_BLUR_RADIUS_MAX_WIDTH)
             rad.valueChanged.connect(lambda v, k="radius": self._emit(k, v))
+            self._add_param(layout, i18n.t("半径"), rad, no_slider=True)
             widgets["radius"] = rad
 
             method = NoFlickerComboBox()
@@ -1883,6 +1990,11 @@ class ActionItemWidget(QWidget):
                               else _BLUR_MAX_RADIUS)
                 if is_median and _s.value() > _BLUR_MEDIAN_MAX_RADIUS:
                     _s.setValue(_BLUR_MEDIAN_MAX_RADIUS)
+                # 半径量程变化（50↔9）后，同步拖拽条量程与位置，否则滑块会停在原
+                # 量程外/无法拖到新上限。滑块在 _add_param 时按 _s 存入 _param_sliders。
+                _sl = self._param_sliders.get(_s)
+                if _sl is not None:
+                    self._range_slider_to_spin(_s, _sl)
 
             method.currentIndexChanged.connect(
                 lambda i, k="method", c=method: self._emit(k, c.itemData(i)))
@@ -1890,22 +2002,27 @@ class ActionItemWidget(QWidget):
             # 构造期也要跑一次：从配置/ini 载入的 method 可能是中值，此时
             # 上限必须同步收紧（构造完成后 item 才挂上，setValue 无法回写）。
             _sync_radius_range(method.currentIndex())
+            self._add_param(layout, i18n.t("算法"), method)
             widgets["method"] = method
 
-            # 两个控件并排塞进同一个 sub-HBox 容器，整体作为 col 1 的 cell，
-            # 让模糊行只占 1 行；否则 GridLayout 的 col 1 会把 method 拉成
-            # panel 全宽、rad 按 cap 88 渲染，呈现「一短一长」。
-            sub = QWidget()
-            # Fixed 横向：sub 按 sizeHint (≈ rad.sh + spacing + method.sh)
-            # 渲染，col 1 cell 余下宽度留白；否则即使挪进 sub 容器，
-            # GridLayout 仍会把 sub 拉到 cell 全宽（panel 全宽），恢复原状。
-            sub.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-            sub_h = QHBoxLayout(sub)
-            sub_h.setContentsMargins(0, 0, 0, 0)
-            sub_h.setSpacing(6)
-            sub_h.addWidget(rad)
-            sub_h.addWidget(method, 1)   # 占满 sub 剩余宽度
-            self._add_param(layout, i18n.t("模糊"), sub)
+        # ── 统一约束下拉框宽度，使其与同动作的 SpinBox 对齐 ──
+        # 根因：下拉项标签过长（如「调整大小·算法」原标签 "LANCZOS (高质量, 默认)"
+        # 长达 20+ 字符）会把整列撑到 234px，比同动作 SpinBox(108) 宽一倍，
+        # 用户报「带下拉框的动作都会撑宽」。这里把每个 NoFlickerComboBox 的
+        # 最大宽度钉到「同动作里最宽的 SpinBox 宽度」与基准宽度二者取大；下拉框
+        # 按 Preferred 策略会撑满该列 → 与 SpinBox 等宽，且绝不超出，即便标签
+        # 再长也不会把动作撑爆。基准 _PARAM_COMBO_REF_WIDTH=84 对应典型的 0–3.0
+        # 浮点框，保证没有 SpinBox 的下拉（理论不存在）也有合理下限。
+        # ⚠️ 用 setMaximumWidth（硬上界），不是 setMinimumWidth（只会撑大拦不住
+        # 长标签）——之前踩过 setMinimumWidth 拦不住长标签的坑。
+        _spin_max = 0
+        for _w in widgets.values():
+            if isinstance(_w, (QSpinBox, QDoubleSpinBox)):
+                _spin_max = max(_spin_max, _w.sizeHint().width())
+        _ref = max(_spin_max, _PARAM_COMBO_REF_WIDTH)
+        for _w in widgets.values():
+            if isinstance(_w, NoFlickerComboBox):
+                _w.setMaximumWidth(_ref)
         return widgets
 
     def sync_from_action(self):
@@ -3401,11 +3518,15 @@ class MainWindow(QMainWindow):
         # 取消勾选后，切源沿用当前缩放位置（便于对比多张图的同一局部）。
         # 默认启用（保留「切换预览源后自动适应窗口」的既有行为）。
         self.fit_on_source_change_check = QCheckBox(i18n.t("切换预览源后自动适应窗口"))
-        self.fit_on_source_change_check.setChecked(True)
         # 不设样式：保留与默认 QCheckBox 一致的外观（颜色/字号同系统控件）
         self.fit_on_source_change_check.setToolTip(
             i18n.t("取消勾选后，切换预览源时沿用当前缩放位置，不被重置到适应窗口。")
         )
+        # 用持久化值初始化勾选态（控件刚创建、下方 toggled 尚未连接，
+        # 不会触发保存）。此前放在 __init 早期的 _load_fit_on_source_change()
+        # 因复选框尚未创建而整段空过（getattr 返回 None 直接返回），导致保存值
+        # 永远读不回来、启动被强制勾选——故改在这里（控件就绪后）加载。
+        self._load_fit_on_source_change()
         # 勾选状态即时持久化（toggled 首参是 checked，无需 _checked 守卫）。
         self.fit_on_source_change_check.toggled.connect(
             lambda _checked: self._save_fit_on_source_change())
@@ -6596,7 +6717,11 @@ class MainWindow(QMainWindow):
             lambda _checked=False, it=item: self._on_remove_action_for(it))
         self._update_tab_titles()
         if render_preview:
-            self._render_action_preview()
+            # 添加动作是「同图刷新」：源图与当前预览图相同，仅动作链多一步，
+            # 应保留用户当前缩放位置（与「清空/删除/拖动参数」一致）。
+            # 仅当此前没有任何预览图（首次加载）才 fit，让用户先看到完整图。
+            had_preview = self._preview_processed_pixmap is not None
+            self._render_action_preview(fit=not had_preview)
         return item
 
     def _add_action_item(self, action, render_preview=True):
@@ -6824,7 +6949,9 @@ class MainWindow(QMainWindow):
     def _on_clear_actions(self):
         self.action_list.clear()
         self._update_tab_titles()
-        self._render_action_preview()
+        # fit=False：清空动作是同图刷新（源图不变），保留用户当前缩放位置，
+        # 否则点「清空」会强制把预览图弹回适应窗口，与拖动参数时保留缩放不一致。
+        self._render_action_preview(fit=False)
 
     def _on_remove_selected_actions(self):
         """Delete key handler: remove all selected action items."""
@@ -6837,7 +6964,8 @@ class MainWindow(QMainWindow):
         for r in rows:
             self._discard_action_item(r)
         self._update_tab_titles()
-        self._render_action_preview()
+        # fit=False：删除动作是同图刷新（源图不变），保留用户当前缩放位置。
+        self._render_action_preview(fit=False)
 
     # ------------------------------------------------------------------
     # Actions-tab live preview

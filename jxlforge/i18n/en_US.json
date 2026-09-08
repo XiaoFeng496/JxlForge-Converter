@@ -487,5 +487,13 @@
     "高级参数": "Advanced parameters",
     "默认关闭：djxl 解码时不传 --num_threads，由它自己按机器决定（吃满核心，最快）。\n开启后：每个 djxl 进程按当前每文件线程预算限制线程数，使「CPU 核心使用数」在解码路径同样生效，可精确控制 CPU 负载。\n⚠️ 注意：启用后解码速度可能略有下降。20 核机实测多文件批量解码约慢 7%~13%——解码的线程收益本就远小于编码（满核 vs 单线程约 1.2x，编码是 2.3x），限制线程换不回等价的进程级并行。\n仅建议在需要精确控制 CPU 负载时开启（如转换时需同时跑其他重负载任务）。": "Off by default: djxl decode does not pass --num_threads and decides on its own (uses all cores, fastest).\nWhen on: each djxl process limits its threads to the current per-file thread budget, so \"CPU cores to use\" also applies on the decode path, giving precise CPU load control.\n⚠️ Note: enabling it may slightly slow decoding. On a 20-core machine, bulk multi-file decoding was measured about 7%–13% lower than multithreaded (decode's thread benefit is far smaller than encode's (full vs single thread ~1.2x for decode, 2.3x for encode), so limiting threads does not pay back equivalent process-level parallelism.\nOnly enable when you need precise CPU load control (e.g. running other heavy tasks during conversion).",
     "（已套用当前电源状态记录的阈值）": "(threshold recorded for the current power state has been applied)",
-    "（当前电源状态无记录，建议重新校准；或会自动套用同计划记录值）": "(no record for the current power state; recalibration is recommended, or the same-plan recorded value will be applied automatically)"
+    "（当前电源状态无记录，建议重新校准；或会自动套用同计划记录值）": "(no record for the current power state; recalibration is recommended, or the same-plan recorded value will be applied automatically)",
+    "双三次": "Bicubic",
+    "双线性": "Bilinear",
+    "Lanczos": "Lanczos",
+    "最近邻": "Nearest",
+    "汉明": "Hamming",
+    "白色": "White",
+    "黑色": "Black",
+    "重采样算法：LANCZOS 最平滑（默认），双三次/双线性适合通用缩放，方框最快，汉明/最近邻适合缩小或保留硬边缘。": "Resampling algorithm: LANCZOS is smoothest (default); Bicubic/Bilinear for general scaling; Box is fastest; Hamming/Nearest for downscaling or preserving hard edges."
 }

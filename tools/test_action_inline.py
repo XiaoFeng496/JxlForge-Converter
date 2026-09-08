@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QGridLayout, QSpinBox, QDoubleSpinBox, QLineEdit,
+    QApplication, QGridLayout, QSlider, QSpinBox, QDoubleSpinBox, QLineEdit,
 )
 
 app = QApplication.instance() or QApplication(sys.argv)
@@ -93,21 +93,57 @@ grid = w.params_container.layout()
 check("参数容器用 QGridLayout（2 列布局）",
       isinstance(grid, QGridLayout))
 check("label 列无 stretch（内容宽度）", grid.columnStretch(0) == 0)
-check("widget 列 stretch=0（按内容显示，不拉满）", grid.columnStretch(1) == 0)
+# 控件列 stretch=1：数值参数行里拖拽条要撑满参数名与数字框之间的剩余空间。
+check("控件列 stretch=1（拖拽条撑满中间）", grid.columnStretch(1) == 1)
+
+
+def _row_ctrl(r):
+    """取第 r 行控件列（col1）的顶层 widget。"""
+    return grid.itemAtPosition(r, 1).widget()
+
+
+def _spin_in(row_widget):
+    """数值参数行 col1 是 HBox(滑块, 数字框)，取出其中的 QSpinBox/QDoubleSpinBox。"""
+    if isinstance(row_widget, (QSpinBox, QDoubleSpinBox)):
+        return row_widget
+    lay = row_widget.layout()
+    if lay is None:
+        return None
+    for i in range(lay.count()):
+        w = lay.itemAt(i).widget()
+        if isinstance(w, (QSpinBox, QDoubleSpinBox)):
+            return w
+    return None
+
+
+def _slider_in(row_widget):
+    lay = row_widget.layout()
+    if lay is None:
+        return None
+    for i in range(lay.count()):
+        w = lay.itemAt(i).widget()
+        if isinstance(w, QSlider):
+            return w
+    return None
+
+
 # 三个参数各占一行
 check("3 个参数占 3 行", grid.rowCount() == 3)
 labels = [grid.itemAtPosition(r, 0).widget().text()
           for r in range(grid.rowCount())]
-widgets = [grid.itemAtPosition(r, 1).widget()
-           for r in range(grid.rowCount())]
 check("3 行 label 顺序正确：宽/高/算法",
       labels == ["宽", "高", "算法"])
-check("3 行 widget 类型正确：QSpinBox/QSpinBox/下拉框(NoFlickerComboBox)",
-      type(widgets[0]).__name__ == "QSpinBox"
-      and type(widgets[1]).__name__ == "QSpinBox"
-      # NoFlickerComboBox 现为可切换代理（QWidget 子类），不再是 QComboBox，
-      # 按类名/基类判型都会漏；用代理类本身判型，兼容原生与自绘两种实现。
-      and isinstance(widgets[2], mw.NoFlickerComboBox))
+# 数值参数行：像素类参数（宽/高）无拖拽条，col1 是 HBox(数字框+spacer)，
+# 数字框靠左自然宽；下拉参数行：col1 直接是 NoFlickerComboBox
+w0, w1, w2 = (_row_ctrl(r) for r in range(3))
+check("宽 行 col1 含 QSpinBox 且无拖拽条（像素参数不加滑块）",
+      isinstance(_spin_in(w0), QSpinBox) and _slider_in(w0) is None)
+check("高 行 col1 含 QSpinBox 且无拖拽条（像素参数不加滑块）",
+      isinstance(_spin_in(w1), QSpinBox) and _slider_in(w1) is None)
+# NoFlickerComboBox 现为可切换代理（QWidget 子类），不再是 QComboBox，
+# 按类名/基类判型都会漏；用代理类本身判型，兼容原生与自绘两种实现。
+check("算法 行 col1 直接是下拉框(NoFlickerComboBox)",
+      isinstance(w2, mw.NoFlickerComboBox))
 
 # 改宽 → 写回 dict
 w._param_widgets["width"].setValue(1024)

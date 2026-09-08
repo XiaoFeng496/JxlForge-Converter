@@ -99,13 +99,15 @@ BLUR_METHODS = [
 # ``Image.Resampling`` 枚举名，未识别时回退到 LANCZOS（最稳）。BICUBIC
 # 默认替代 LANCZOS 的选项，二者都是高质量插值；BOX 适合缩小整数倍，
 # BILINEAR 速度更快但质量稍差，NEAREST 适合像素画（保边沿锐利）。
+# 显示标签只留算法名（描述见 toolTip / 下拉项自然顺序），避免长标签把
+# 下拉框撑到 200+px 宽（见 main_window._build_param_widgets 的下拉宽度约束）。
 RESIZE_ALGORITHMS = [
-    ("LANCZOS", "LANCZOS (高质量, 默认)"),
-    ("BICUBIC", "BICUBIC (高质量, 较快)"),
-    ("BILINEAR", "BILINEAR (较快)"),
-    ("BOX", "BOX (缩小整数倍)"),
-    ("HAMMING", "HAMMING (缩小)"),
-    ("NEAREST", "NEAREST (像素画, 最快)"),
+    ("LANCZOS", "Lanczos"),
+    ("BICUBIC", "双三次"),
+    ("BILINEAR", "双线性"),
+    ("BOX", "方框"),
+    ("HAMMING", "汉明"),
+    ("NEAREST", "最近邻"),
 ]
 
 

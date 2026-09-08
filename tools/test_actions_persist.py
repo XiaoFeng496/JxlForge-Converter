@@ -110,6 +110,44 @@ w6 = MainWindow()
 check("加载完成后 _actions_loading 复位为 False", getattr(w6, "_actions_loading", "MISSING") is False)
 w6.close()
 
+# 8) 「切换预览源后自动适应窗口」勾选态持久化恢复（修复：启动时从 QSettings 读回，
+#    不再被硬编码 setChecked(True) 覆盖；此前加载调用早于复选框创建而整段空过）。
+def _set_fit_pref(val):
+    s = QSettings()
+    s.beginGroup("actions")
+    s.setValue("fit_on_source_change", bool(val))
+    s.endGroup()
+    QSettings().sync()
+
+def _read_fit_pref():
+    s = QSettings()
+    s.beginGroup("actions")
+    v = s.value("fit_on_source_change", None)
+    s.endGroup()
+    return v
+
+# 干净起点：清掉该键，验证默认（无键）为勾选(True)。
+_s = QSettings()
+_s.beginGroup("actions")
+_s.remove("fit_on_source_change")
+_s.endGroup()
+QSettings().sync()
+w7 = MainWindow()
+check("fit_on_source_change 默认勾选(True)", w7.fit_on_source_change_check.isChecked() is True)
+# 取消勾选 → 持久化 → 重启恢复为未勾选(False)。
+w7.fit_on_source_change_check.setChecked(False)
+QSettings().sync()
+check("取消勾选后 fit_on_source_change 持久化为 false", _read_fit_pref() is False)
+w8 = MainWindow()
+check("重启恢复 fit_on_source_change=未勾选(False)", w8.fit_on_source_change_check.isChecked() is False)
+# 重新勾选 → 重启恢复为勾选(True)。
+w8.fit_on_source_change_check.setChecked(True)
+QSettings().sync()
+check("重新勾选后 fit_on_source_change 持久化为 true", _read_fit_pref() is True)
+w9 = MainWindow()
+check("重启恢复 fit_on_source_change=勾选(True)", w9.fit_on_source_change_check.isChecked() is True)
+w7.close(); w8.close(); w9.close()
+
 print("\n%d/%d checks passed" % (total - len(failures), total))
 print("ALL_OK" if not failures else "FAILED: " + ", ".join(failures))
 sys.exit(1 if failures else 0)
