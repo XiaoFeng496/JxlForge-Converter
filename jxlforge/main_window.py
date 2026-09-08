@@ -4603,19 +4603,26 @@ class MainWindow(QMainWindow):
             # 闭合框随当前项文字收缩，同时把 maximumWidth 按「当前样式下最长项」
             # 重新量一遍，作为不顶宽页面的上限；弹出列表仍按最宽项完整展开。
             for combo in (self.color_scheme_combo, self.language_combo):
-                old_idx = combo.currentIndex()
-                longest_idx = 0
-                longest_len = 0
-                for i in range(combo.count()):
-                    text_len = len(combo.itemText(i))
-                    if text_len > longest_len:
-                        longest_len = text_len
-                        longest_idx = i
-                combo.setCurrentIndex(longest_idx)
-                combo.updateGeometry()
-                cap = combo.sizeHint().width() + 8
-                combo.setMaximumWidth(cap)
-                combo.setCurrentIndex(old_idx)
+                # ⚠️ 量宽度时要临时把索引切到最长项再切回原项；这两个 setCurrentIndex
+                # 会触发 currentIndexChanged，从而误弹「语言已切换」/「颜色方案已切换」
+                # 提示（bug：切控件样式却报语言已切换）。量宽度期间一律屏蔽信号。
+                combo.blockSignals(True)
+                try:
+                    old_idx = combo.currentIndex()
+                    longest_idx = 0
+                    longest_len = 0
+                    for i in range(combo.count()):
+                        text_len = len(combo.itemText(i))
+                        if text_len > longest_len:
+                            longest_len = text_len
+                            longest_idx = i
+                    combo.setCurrentIndex(longest_idx)
+                    combo.updateGeometry()
+                    cap = combo.sizeHint().width() + 8
+                    combo.setMaximumWidth(cap)
+                    combo.setCurrentIndex(old_idx)
+                finally:
+                    combo.blockSignals(False)
 
         self.theme_combo.currentIndexChanged.connect(_remeasure_regular_combos)
         grid.addWidget(theme_group, 0, 0)
