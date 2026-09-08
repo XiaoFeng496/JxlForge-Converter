@@ -1852,12 +1852,16 @@ class ActionItemWidget(QWidget):
             _rv = p.get("radius", None)
             rad.setValue(2.0 if _rv is None else float(_rv))
             rad.setToolTip(i18n.t("模糊半径（像素）；0=不处理"))
+            # ⚠️ cap 在这里是为了让 sub-HBox 内两个控件总宽不再被 GridLayout
+            # col1 按 panel 全宽（~600）撑开 —— 之前两参数「一长一短」的根因：
+            # columnStretch=0 时 GridLayout 仍会把 col 1 整列铺满 panel，没 cap
+            # 的 method 被拉到 600px，cap 了的 rad 只 88px，看着一短一长。
+            # 把两个控件并排塞进 sub 容器后，col1 cell 渲染按 sub.sizeHint()，
+            # 行间不一致消失；这里 cap 只是兜底防 layout 被外部 resize 拉宽。
             rad.setMaximumWidth(_BLUR_RADIUS_MAX_WIDTH)
-            # ⚠️ 不给 widget 列 stretch（见 root 的注释）：让半径框按内容宽，
-            # 与其他 0.0–3.0 的浮点参数框（84px）差不多长即可。
             rad.valueChanged.connect(lambda v, k="radius": self._emit(k, v))
-            self._add_param(layout, i18n.t("半径"), rad)
             widgets["radius"] = rad
+
             method = NoFlickerComboBox()
             # 与「调整大小」的算法下拉同构：显示译文，userData 存英文 ID，
             # 回写 action params 时用 currentData()，英文界面不会存成英文。
@@ -1886,8 +1890,22 @@ class ActionItemWidget(QWidget):
             # 构造期也要跑一次：从配置/ini 载入的 method 可能是中值，此时
             # 上限必须同步收紧（构造完成后 item 才挂上，setValue 无法回写）。
             _sync_radius_range(method.currentIndex())
-            self._add_param(layout, i18n.t("算法"), method)
             widgets["method"] = method
+
+            # 两个控件并排塞进同一个 sub-HBox 容器，整体作为 col 1 的 cell，
+            # 让模糊行只占 1 行；否则 GridLayout 的 col 1 会把 method 拉成
+            # panel 全宽、rad 按 cap 88 渲染，呈现「一短一长」。
+            sub = QWidget()
+            # Fixed 横向：sub 按 sizeHint (≈ rad.sh + spacing + method.sh)
+            # 渲染，col 1 cell 余下宽度留白；否则即使挪进 sub 容器，
+            # GridLayout 仍会把 sub 拉到 cell 全宽（panel 全宽），恢复原状。
+            sub.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+            sub_h = QHBoxLayout(sub)
+            sub_h.setContentsMargins(0, 0, 0, 0)
+            sub_h.setSpacing(6)
+            sub_h.addWidget(rad)
+            sub_h.addWidget(method, 1)   # 占满 sub 剩余宽度
+            self._add_param(layout, i18n.t("模糊"), sub)
         return widgets
 
     def sync_from_action(self):

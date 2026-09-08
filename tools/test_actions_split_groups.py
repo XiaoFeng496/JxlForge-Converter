@@ -190,6 +190,34 @@ check("模糊半径框显式 cap 到与 sizeHint 一致（防真机 Fusion 暗�
           rad.maximumWidth(), ref.sizeHint().width(),
           main_window._BLUR_RADIUS_MAX_WIDTH))
 
+# --- 上面两段已用了 param_widget(win2, "锐化"/"模糊", ...)，下面统一改用
+# 「再创建一次模糊」并共享同一组 rad / method，避免第三项是另一个新实例。 ---
+n_blur = win2.action_list.count()
+win2._add_action_by_id("模糊")
+w_blur = win2.action_list.itemWidget(win2.action_list.item(n_blur))
+rad = w_blur._param_widgets["radius"]      # 用最后创建的实例
+method_w = w_blur._param_widgets["method"]
+gl_blur = w_blur.params_container.layout()
+check("模糊行只有 1 行（rad + method 并排 sub 容器）",
+      gl_blur.rowCount() == 1, "rowCount=%d" % gl_blur.rowCount())
+check("col1 cell 类型是 sub QWidget（内含 HBox）",
+      gl_blur.itemAtPosition(0, 1).widget().layout() is not None
+      and gl_blur.itemAtPosition(0, 1).widget().layout().__class__.__name__
+      == "QHBoxLayout",
+      "actual=%r" % (gl_blur.itemAtPosition(0, 1).widget().layout().__class__.__name__
+                     if gl_blur.itemAtPosition(0, 1).widget().layout() else None))
+check("sub 容器固定横向 policy（按 sh 渲染不被 col1 cell 拉到 panel 全宽）",
+      gl_blur.itemAtPosition(0, 1).widget().sizePolicy().horizontalPolicy()
+      == main_window.QSizePolicy.Fixed)
+# 回归：模糊的两个参数控件仍能正常回写 + 摘要正常
+check("rad 初始值 = 2.0", rad.value() == 2.0)
+check("method 初始 = GAUSSIAN",
+      method_w.itemData(method_w.currentIndex()) == "GAUSSIAN")
+rad.setValue(8.0); method_w.setCurrentIndex(2)   # MEDIAN
+check("切到 MEDIAN 后 rad 上限收到 9",
+      rad.maximum() == main_window._BLUR_MEDIAN_MAX_RADIUS,
+      "max=%s" % rad.maximum())
+
 print()
 print("通过 %d 项" % passed)
 if failures:
