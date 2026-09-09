@@ -495,10 +495,10 @@
     "白色": "白色",
     "黑色": "黑色",
     "重采样算法：LANCZOS 最平滑（默认），双三次/双线性适合通用缩放，方框最快，汉明/最近邻适合缩小或保留硬边缘。": "重採樣演算法：LANCZOS 最平滑（預設），雙三次/雙線性適合通用縮放，方框最快，漢明/最近鄰適合縮小或保留硬邊緣。",
-    "图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif);;所有文件 (*.*)": "圖像檔案 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif);;所有檔案 (*.*)",
     "文件过小，不是 PBM": "檔案過小，不是 PBM",
     "magic 不符，不是 PBM": "magic 不符，不是 PBM",
     "PBM 头缺少宽高": "PBM 頭缺少寬高",
     "PBM 宽高非法": "PBM 寬高非法",
-    "PBM 像素数据不完整": "PBM 像素數據不完整"
+    "PBM 像素数据不完整": "PBM 像素數據不完整",
+    "图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有文件 (*.*)": "圖像檔案 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有檔案 (*.*)"
 }

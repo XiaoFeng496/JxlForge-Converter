@@ -154,7 +154,7 @@ from . import converter, processor, formats
 # 元数据用于预览展示，不做像素渲染（见 jxlforge.formats.parse_exr_header）。
 # 解码出的临时文件按源路径缓存，重复缩略图 / 预览不再重复解码。
 # ----------------------------------------------------------------------
-_DECODE_TO_TEMP_EXTS = {".jxl", ".avif", ".pfm", ".pam", ".pgx", ".pbm", ".heic", ".heif"}
+_DECODE_TO_TEMP_EXTS = {".jxl", ".avif", ".pfm", ".pam", ".pgx", ".pbm", ".heic", ".heif", ".apng"}
 
 # 编码侧「cjxl 原生读不了、必须由 Pillow 中转」的位图格式。cjxl 的读图器只认
 # PNG/APNG/GIF/JPEG/EXR/PPM/PFM/PAM/PGX（与 JXL）；其余常见位图（BMP/TIFF/WebP/
@@ -276,7 +276,7 @@ def _decode_to_temp_file(path):
         except OSError:
             pass
         return None
-    if ext == ".avif":
+    if ext in (".avif", ".apng"):
         if not processor.AVAILABLE:
             return None
         try:
@@ -431,7 +431,7 @@ def get_image_dims(path):
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif",
     ".tiff", ".webp", ".ppm", ".pgm", ".jxl", ".avif",
-    ".pfm", ".pam", ".pgx", ".exr", ".heic", ".heif", ".jpe", ".jfif", ".pbm",
+    ".pfm", ".pam", ".pgx", ".exr", ".heic", ".heif", ".jpe", ".jfif", ".pbm", ".apng", ".ico",
 }
 
 # Extensions that denote a real JPEG bitstream. cjxl's --lossless_jpeg=1 can
@@ -5520,7 +5520,7 @@ class MainWindow(QMainWindow):
     def _on_add_files(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self, i18n.t("选择输入文件"), "",
-            i18n.t("图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif);;所有文件 (*.*)"),
+            i18n.t("图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有文件 (*.*)"),
         )
         # 多选文件：每文件的根默认取其父目录（root=None 时 _add_input_paths 回退）。
         self._add_input_paths(paths, root=None)

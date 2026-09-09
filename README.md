@@ -8,8 +8,8 @@
 
 ## 功能特性
 
-- **支持输入格式（编码为 JXL）**：PNG / APNG / GIF / JPEG / EXR / PPM / PGM / PFM / PAM / PGX / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF
-  - WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF 经 Pillow 中转解码为临时 PNG 后交给 cjxl，保留 ICC 配置
+- **支持输入格式（编码为 JXL）**：PNG / APNG / GIF / JPEG / JPE / JFIF / EXR / PPM / PGM / PFM / PAM / PGX / PBM / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF
+  - WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF 经 Pillow 中转解码为临时 PNG 后交给 cjxl，保留 ICC 配置（HEIC/HEIF 需先装 pi-heif 插件，见依赖）
   - 其余格式由 cjxl 原生直转
   - EXR 为浮点 HDR，仅解析头部元数据、不渲染像素缩略图
 - **编码（→ JXL）**
@@ -71,7 +71,7 @@ JxlForge-Converter/
 │   ├── processor.py    # 转换任务处理
 │   ├── calibrate.py    # 功耗校准
 │   ├── power.py        # 电源状态
-│   ├── formats.py      # 格式支持判定
+│   ├── formats.py      # 格式解码实现（PFM/PAM/PGX/PBM → PPM 等中转解码）
 │   ├── combo_switch.py / no_flicker_combo.py  # 自绘无闪烁下拉控件
 │   ├── i18n.py         # 国际化加载
 │   └── i18n/           # 翻译字典（en_US.json / zh_TW.json）
@@ -101,7 +101,7 @@ JxlForge-Converter/
 - [libjxl](https://github.com/libjxl/libjxl)（cjxl/djxl/jxlinfo，运行时由用户自备，BSD-3-Clause）
 - [PySide6](https://doc.qt.io/qtforpython/)（Qt 6 绑定，LGPL v3）
 - [Pillow](https://python-pillow.org/)（MIT）
-- [pi-heif](https://github.com/bigcat88/pillow_heif/tree/master/pi-heif)（pillow-heif 的解码专用精简版，BSD-3-Clause）
+- [pi-heif](https://github.com/bigcat88/pillow_heif/tree/master/pi-heif)（**可选，但强烈推荐**：用于支持 HEIC/HEIF 输入；不装仅该格式不可用。pillow-heif 的解码专用精简版，BSD-3-Clause）
 - Python 3.12（PSF License）
 
 ---
@@ -142,7 +142,7 @@ python main.py          REM 或双击 run.bat/run.pyw（推荐） 无控制台�
 packaging\build_dist.bat
 ```
 
-> 打包产物输出到仓库外的 `JxlForge-Build/`，不进 git。
+> 打包产物输出到仓库外、与仓库**同级**的 `JxlForge-Build/`（具体位置由 `packaging/build_dist.bat` 按仓库实际所在盘符/路径自动推算，例如仓库在 `D:\x\JxlForge-Converter` 则落到 `D:\x\JxlForge-Build`），不进 git。Python 解释器同样自动解析（PATH → `py -3` → `E:\Python\Python312`），无需固定盘符。
 
 它会：① 安全挪走旧 dist（避免触发安全守卫）② 用 spec 打包（已把 `jxlforge/i18n/*.json` 作为数据带进包）③ 跑 `exe --selftest` 自检，漏打资源会红字报警。
 

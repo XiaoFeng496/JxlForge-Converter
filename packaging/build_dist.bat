@@ -13,14 +13,40 @@ REM 打包完成后会自动跑 `JxlForge Converter.exe --selftest` 做完整性
 REM 漏打 i18n 等资源会让自检 FAIL 并红字报警，防止「打包漏功能」漏到用户手上。
 REM ===========================================================================
 
-REM 仓库根目录（packaging/ 的上一级）
+REM 仓库根目录（packaging/ 的上一级）—— 全程基于 bat 自身位置 %~dp0 推算，
+REM 不硬编码任何盘符；换台机器克隆到任意盘，构建产物会自动落在「仓库同级」目录。
 set REPO=%~dp0..
-REM 外部构建目录（与仓库同级，不在 git 内；存放 dist/build 产物）
+REM 外部构建目录（与仓库同级，不在 git 内；存放 dist/build 产物）。
+REM 例：仓库若在 D:\x\JxlForge-Converter，则产物落到 D:\x\JxlForge-Build。
 set BUILD=%~dp0..\..\JxlForge-Build
 set SPEC=%~dp0JxlForge Converter.spec
 set DIST=%BUILD%\dist\JxlForge Converter
 set EXE=%DIST%\JxlForge Converter.exe
 set OLD=%BUILD%\_dist_old_bak
+
+REM 解析 Python 解释器（跨机器可移植，不再绑定作者机器 E: 盘）：
+REM   逐个候选探测「能否真正调起 PyInstaller」——优先 PATH 中的 python、
+REM   Windows Python Launcher `py -3`、回退作者固定安装 E:\Python\Python312；
+REM   探测失败（如 PATH 上那个 python 损坏）会自动跳过下一个候选。都不可用则报错退出。
+set PY=
+python -m PyInstaller --version >nul 2>&1 && set "PY=python"
+if not defined PY (
+    py -3 -m PyInstaller --version >nul 2>&1 && set "PY=py -3"
+)
+if not defined PY (
+    if exist "E:\Python\Python312\python.exe" (
+        E:\Python\Python312\python.exe -m PyInstaller --version >nul 2>&1 && set "PY=E:\Python\Python312\python.exe"
+    )
+)
+if not defined PY (
+    echo.
+    echo [FAIL] 找不到可用的 Python 解释器（需能 import PyInstaller）。
+    echo        请安装 Python 3.10+ 并加入 PATH，或安装到 E:\Python\Python312。
+    echo        也可手动编辑本脚本 PY 变量指向你的 python.exe。
+    pause
+    exit /b 1
+)
+echo [INFO] 使用 Python：%PY%
 
 REM 打包前把旧 dist 改名挪走，避免 PyInstaller COLLECT 阶段删旧目录触发
 REM safe-delete 守卫（历史实测会卡住）。rename 不算删除，安全。旧备份推到
@@ -30,7 +56,8 @@ if exist "%DIST%" (
     move "%DIST%" "%OLD%"
 )
 
-E:\Python\Python312\python.exe -m PyInstaller "%SPEC%" --noconfirm --distpath "%BUILD%\dist" --workpath "%BUILD%\build"
+cd /d "%REPO%"
+"%PY%" -m PyInstaller "%SPEC%" --noconfirm --distpath "%BUILD%\dist" --workpath "%BUILD%\build"
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo [FAIL] 打包失败，退出码 %ERRORLEVEL%
