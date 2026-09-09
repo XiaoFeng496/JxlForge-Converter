@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Headless test for the cjxl-unsupported-input fallback in ConvertWorker.
+"""Headless tests for input-format routing in ConvertWorker._encode_source.
 
-cjxl cannot read formats like WebP/BMP/TIFF. When a direct encode fails, the
-worker should decode the source with Pillow into a temp PNG and re-encode it.
-This test stubs converter.encode to fail on the first (native) call and succeed
-on the second (temp PNG) call, verifying the fallback path is taken and the
-temp file is registered for cleanup.
+cjxl's native reader only accepts PNG/APNG/GIF/JPEG/EXR/PPM/PFM/PAM/PGX/JXL.
+Formats like BMP/TIFF/WebP (and AVIF with pillow-avif) are NOT readable by
+cjxl, so _encode_source must route them through Pillow (decode -> temp PNG ->
+cjxl) WITHOUT first attempting a guaranteed-fail native cjxl call. Native-
+supported formats still try cjxl first and fall back to Pillow only on failure.
+
+These tests stub converter.encode so they run engine-independent on any box.
 """
 import os
 import sys
@@ -21,7 +23,6 @@ _app = QApplication.instance() or QApplication(["-platform", "offscreen"])
 import jxlforge.converter as conv_mod
 from jxlforge.main_window import ConvertWorker
 
-
 results = []
 
 
@@ -30,42 +31,79 @@ def check(name, cond):
     print(("PASS" if cond else "FAIL"), name)
 
 
-# Build a tiny source image Pillow can open. Name it .webp to simulate an
-# unsupported cjxl input (Pillow reads by content, not extension).
-tmpdir = tempfile.mkdtemp()
 from PIL import Image
 
-src = os.path.join(tmpdir, "sample.webp")
-Image.new("RGB", (16, 16), (10, 20, 30)).save(src, "PNG")
+tmpdir = tempfile.mkdtemp()
 
-# Stub converter.encode: fail on the first (native) call, succeed on the
-# second (temp PNG) call. Record every invocation path.
+# Fake converter.encode: succeeds only when the input is a .png temp file
+# (simulating cjxl happily encoding a Pillow-produced PNG); fails on any other
+# input (simulating cjxl rejecting an unsupported/raw source).
 calls = []
 
 
 def fake_encode(input_path, output_path, **kwargs):
     calls.append(input_path)
-    if len(calls) == 1:
-        return False, "命令返回错误（退出码 1）：... Getting pixel data failed.", ""
-    return True, "操作成功完成。", ""
+    if input_path.lower().endswith(".png"):
+        return True, "操作成功完成。", ""
+    return False, "命令返回错误（退出码 1）：... Getting pixel data failed.", ""
+
+
+def fake_encode_fail_first(input_path, output_path, **kwargs):
+    # Fails on the first (native) call, succeeds on any subsequent (temp png) call.
+    calls.append(input_path)
+    ok = len(calls) > 1
+    return ok, "操作成功完成。" if ok else "Getting pixel data failed", ""
 
 
 _real = conv_mod.encode
 conv_mod.encode = fake_encode
 
+
+def run_encode(src_ext):
+    calls.clear()
+    src = os.path.join(tmpdir, "sample" + src_ext)
+    Image.new("RGB", (16, 16), (10, 20, 30)).save(src, "PNG")
+    worker = ConvertWorker([], [])
+    tmp_files = []
+    out_path = os.path.join(tmpdir, "sample.jxl")
+    return worker._encode_source(src, out_path, tmp_files), tmp_files
+
+
+# --- Transit formats: BMP/TIFF/WebP -> Pillow, single encode call on temp png ---
+for ext in (".bmp", ".tif", ".tiff", ".webp"):
+    (ok, msg, _tag), tmp_files = run_encode(ext)
+    check("transit %s routes via Pillow (success)" % ext, ok is True)
+    check("transit %s calls encode exactly once" % ext, len(calls) == 1)
+    check("transit %s encode input is temp .png" % ext,
+          bool(calls) and calls[0].lower().endswith(".png"))
+    check("transit %s temp png registered for cleanup" % ext,
+          any(t.lower().endswith(".png") for t in tmp_files))
+
+# --- Native format: PNG tries cjxl directly, succeeds without Pillow ---
+calls.clear()
+(ok, msg, _tag), tmp_files = run_encode(".png")
+check("native .png uses cjxl directly (success)", ok is True)
+check("native .png encode called once on src",
+      len(calls) == 1 and calls[0].lower().endswith(".png")
+      and "sample.png" in calls[0].lower())
+check("native .png does NOT create a transit temp png",
+      not any(t.lower().endswith(".png") and "tmp" in t.lower() for t in tmp_files))
+
+# --- Native format failure falls back to Pillow ---
+conv_mod.encode = fake_encode_fail_first
+calls.clear()
+src = os.path.join(tmpdir, "broken.png")
+Image.new("RGB", (16, 16), (10, 20, 30)).save(src, "PNG")
 worker = ConvertWorker([], [])
 tmp_files = []
-out_path = os.path.join(tmpdir, "sample.jxl")
+out_path = os.path.join(tmpdir, "broken.jxl")
 ok, msg, _tag = worker._encode_source(src, out_path, tmp_files)
+check("native failure falls back to Pillow (success)", ok is True)
+check("native failure calls encode twice (src + temp png)", len(calls) == 2)
+check("native failure second call is temp .png", calls[1].lower().endswith(".png"))
+check("native failure temp png registered for cleanup",
+      any(t.lower().endswith(".png") for t in tmp_files))
 
-check("fallback reports success", ok is True)
-check("fallback message mentions Pillow", "Pillow" in msg)
-check("converter.encode called twice (native + temp png)", len(calls) == 2)
-check("second call used a temp .png", calls[1].lower().endswith(".png"))
-check("temp png registered for cleanup", any(t.lower().endswith(".png") for t in tmp_files))
-check("temp png was actually created", os.path.exists(calls[1]))
-
-# Restore and cleanup
 conv_mod.encode = _real
 shutil.rmtree(tmpdir, ignore_errors=True)
 

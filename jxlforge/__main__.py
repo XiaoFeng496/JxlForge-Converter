@@ -133,6 +133,7 @@ def _selftest(deep=False):
             "e2e: decode JXL->PNG round-trip",
             "e2e: lossless JPEG re-encode",
             "e2e: lossy quality=70 encode",
+            "e2e: Pillow-transit BMP->JXL (via _encode_source)",
             "e2e: missing-input handled gracefully (no crash)",
         ):
             add(label, True, "SKIP: cjxl/djxl not found (engine not bundled by default)",
@@ -233,7 +234,26 @@ def _run_e2e_checks(add):
                 okq and os.path.isfile(out_q) and os.path.getsize(out_q) > 0,
                 "" if okq else msgq)
 
-        # 5) 错误路径：输入文件不存在 -> 应优雅返回 False（不抛异常、不卡死）。
+        # 5) Pillow 中转格式（BMP）：cjxl 原生读不了，_encode_source 必须路由到
+        #    Pillow。直接走应用真实路径（_encode_source）覆盖 converter.encode-only
+        #    用例没碰到的中转逻辑；本段仅在 cjxl 可发现时运行（上层已判断）。
+        try:
+            from PySide6.QtWidgets import QApplication as _QA
+            _qa = _QA.instance() or _QA([])
+            from .main_window import ConvertWorker as _CW
+            src_bmp = os.path.join(tmp, "src.bmp")
+            Image.new("RGB", (32, 32), (200, 100, 50)).save(src_bmp, "BMP")
+            out_bmp = os.path.join(tmp, "out_bmp.jxl")
+            _cw = _CW([], [])
+            ok_b, _mb, _tb = _cw._encode_source(src_bmp, out_bmp, [])
+            good_b = ok_b and os.path.isfile(out_bmp) and os.path.getsize(out_bmp) > 0
+            add("e2e: Pillow-transit BMP->JXL (via _encode_source)", good_b,
+                "" if good_b else "msg=%s" % _mb)
+        except Exception as exc:  # noqa: BLE001
+            add("e2e: Pillow-transit BMP->JXL (via _encode_source)", False,
+                "%s: %s" % (type(exc).__name__, exc))
+
+        # 6) 错误路径：输入文件不存在 -> 应优雅返回 False（不抛异常、不卡死）。
         miss = os.path.join(tmp, "nope.png")
         eok, _emsg, _ = converter.encode(miss, os.path.join(tmp, "x.jxl"))
         add("e2e: missing-input handled gracefully (no crash)", eok is False,

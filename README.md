@@ -8,9 +8,9 @@
 
 ## 功能特性
 
-- **支持输入格式（编码为 JXL）**：PNG / APNG / GIF / JPEG / WebP / AVIF / EXR / PPM / PGM / PFM / PAM / PGX / JXL
-  - WebP / AVIF 经 Pillow 中转为 PNG 后交给 cjxl（保留 ICC 配置）
-  - PFM / PAM / PGX 经内置轻量解码器中转为 PPM（零外部依赖）
+- **支持输入格式（编码为 JXL）**：PNG / APNG / GIF / JPEG / EXR / PPM / PGM / PFM / PAM / PGX / JXL / WebP / AVIF / BMP / TIFF
+  - WebP / AVIF / BMP / TIFF 经 Pillow 中转解码为临时 PNG 后交给 cjxl，保留 ICC 配置
+  - 其余格式由 cjxl 原生直转
   - EXR 为浮点 HDR，仅解析头部元数据、不渲染像素缩略图
 - **编码（→ JXL）**
   - 有损（距离 distance）/ 无损（含 JPEG 无损重编码 `--lossless_jpeg=1`）
@@ -18,6 +18,7 @@
   - 支持自定义命令
 - **解码（JXL → PNG/PNM）** 与基本信息查看（jxlinfo）
 - **动作操作链**：上移 / 下移 / 移除、单操作双行布局、批量转换
+- **双队列并发调度**：按像素数把任务分为「大图 / 小图」——超大图独占全部核心逐个处理，其余小图并行利用剩余核心，整批转换不空转、互不拖慢；判定阈值首次启动自动校准，无需手动配置。
 - **保持源文件时间戳**：修改时间 + 创建时间
 - **五标签页设计**：输入 / 动作 / 输出 / 状态 / 设置；底部常驻 转换 / 停止 / 关闭
 - **语言**：简体中文 / 繁體中文 / English（重启生效）
@@ -106,6 +107,8 @@ JxlForge-Converter/
 
 - 未自带 libjxl 引擎（设计如此，见上文）。
 - 未做代码签名。
+- 暂不支持 JPEG XR（.jxr / HD Photo）：Pillow 当前未编译对应解码器，需引入额外依赖且收益低，暂不纳入。
+- 多页 TIFF 仅转换第 0 页（其余页被忽略）。
 - 本人首个项目的首次发布版本，欢迎在 Issues 反馈问题。
 
 ---

@@ -156,6 +156,13 @@ from . import converter, processor, formats
 # ----------------------------------------------------------------------
 _DECODE_TO_TEMP_EXTS = {".jxl", ".avif", ".pfm", ".pam", ".pgx"}
 
+# 编码侧「cjxl 原生读不了、必须由 Pillow 中转」的位图格式。cjxl 的读图器只认
+# PNG/APNG/GIF/JPEG/EXR/PPM/PFM/PAM/PGX（与 JXL）；其余常见位图（BMP/TIFF/WebP，
+# AVIF 在装了 pillow-avif 插件时）它读不了、必失败。把这些格式显式短路到 Pillow
+# 中转，避免每次都先白跑一次注定失败的 cjxl 子进程、也让「该走 Pillow」的意图显式化。
+# 注意：EXR 不能进此集合——它是 cjxl 原生支持、且 Pillow 读不了，必须留原生路径。
+_PILLOW_TRANSIT_EXTS = {".bmp", ".tif", ".tiff", ".webp", ".avif"}
+
 _DECODE_TEMP_CACHE = {}       # src_path -> 解码出的临时可显示文件（PNG/PPM）路径
 # 线程安全锁：异步预览（_PreviewLoader）与后续缩略图线程池都可能在子线程里
 # 读/写该缓存，必须加锁，否则会出现竞态（同一文件被并发解码两次、缓存写入错位）。
@@ -8991,13 +8998,27 @@ class ConvertWorker(QThread):
             except Exception as exc:
                 detail = str(exc).replace(chr(92) + chr(92), chr(92))
                 return False, i18n.t("Pillow 解码失败：%s") % detail, ""
+        # cjxl 原生读不了的格式（BMP/TIFF/WebP/AVIF）：直接走 Pillow 中转，
+        # 跳过注定失败的 cjxl 原生尝试（集合见模块级 _PILLOW_TRANSIT_EXTS）。
+        if os.path.splitext(src)[1].lower() in _PILLOW_TRANSIT_EXTS:
+            return self._encode_via_pillow(src, out_path, tmp_files)
         ok, message, tag = converter.encode(src, out_path, **self._encode_kwargs())
         if ok:
             return True, message, tag
-        # Native encode failed — fall back to a Pillow-based decode for inputs
-        # cjxl cannot read directly (e.g. WebP, BMP, TIFF).
+        # 原生编码失败（文件损坏 / cjxl 报错等）：对未列入上述集合的罕见格式兜底
+        # 走 Pillow 中转——这就是“通用兜底”，未来 cjxl 支持新格式也不会退化。
+        return self._encode_via_pillow(src, out_path, tmp_files, native_error=message)
+
+    def _encode_via_pillow(self, src, out_path, tmp_files, native_error=""):
+        """用 Pillow 解码 ``src`` 为临时 PNG（保留 ICC），再交给 cjxl 编码。
+
+        用于 cjxl 原生读不了的输入（BMP/TIFF/WebP/AVIF，见 _PILLOW_TRANSIT_EXTS）
+        或原生编码失败后的兜底。Pillow 解码失败时返回既有提示（cjxl 同样读不了
+        这些格式，故无需再试 cjxl）。
+        """
         if not processor.AVAILABLE:
-            return False, message + "\n    （提示：安装 Pillow 后可兼容 WebP 等更多输入格式）", ""
+            base = (native_error + "\n    ") if native_error else ""
+            return False, base + "（提示：安装 Pillow 后可兼容 WebP 等更多输入格式）", ""
         try:
             from PIL import Image
             img = Image.open(src)
