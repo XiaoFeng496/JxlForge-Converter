@@ -134,6 +134,7 @@ def _selftest(deep=False):
             "e2e: lossless JPEG re-encode",
             "e2e: lossy quality=70 encode",
             "e2e: Pillow-transit BMP->JXL (via _encode_source)",
+            "e2e: HEIC decode-capable (pi_heif bundled)",
             "e2e: missing-input handled gracefully (no crash)",
         ):
             add(label, True, "SKIP: cjxl/djxl not found (engine not bundled by default)",
@@ -253,7 +254,37 @@ def _run_e2e_checks(add):
             add("e2e: Pillow-transit BMP->JXL (via _encode_source)", False,
                 "%s: %s" % (type(exc).__name__, exc))
 
-        # 6) 错误路径：输入文件不存在 -> 应优雅返回 False（不抛异常、不卡死）。
+        # 6) HEIC 解码能力（pi_heif）：用随包测试资源验证「冻结包内能解码
+        #    HEIC」——这是 HEIC 支持的关键门槛。要求 pi_heif 已随包收集且
+        #    libheif/libde265 解码链可用（pi_heif 的 libheif 为解码专用构建，
+        #    不链 libx265，无需带编码器）。资源经源码态 pi_heif 预生成并提交（tools/test_assets）。
+        try:
+            from .main_window import _ensure_heif_opener, _decode_to_temp_file
+            # 资源在源码态位于 <repo>/tools/test_assets/；打包后随 datas 落到
+            # <bundle>/jxlforge/test_assets/，两条路径都试。
+            _here = os.path.dirname(os.path.abspath(__file__))
+            asset_candidates = [
+                os.path.normpath(os.path.join(_here, "test_assets", "sample.heic")),
+                os.path.normpath(os.path.join(_here, "..", "tools", "test_assets", "sample.heic")),
+            ]
+            asset = next((p for p in asset_candidates if os.path.isfile(p)), None)
+            if asset is None:
+                add("e2e: HEIC decode-capable (pi_heif bundled)", True,
+                    "SKIP: sample.heic asset missing", skip=True)
+            elif not _ensure_heif_opener():
+                add("e2e: HEIC decode-capable (pi_heif bundled)", False,
+                    "pi_heif not bundled in this package")
+            else:
+                dec = _decode_to_temp_file(asset)
+                ok_h = isinstance(dec, str) and dec.lower().endswith(".png") \
+                    and os.path.isfile(dec) and os.path.getsize(dec) > 0
+                add("e2e: HEIC decode-capable (pi_heif bundled)", ok_h,
+                    "" if ok_h else "decode returned %r" % dec)
+        except Exception as exc:  # noqa: BLE001
+            add("e2e: HEIC decode-capable (pi_heif bundled)", False,
+                "%s: %s" % (type(exc).__name__, exc))
+
+        # 7) 错误路径：输入文件不存在 -> 应优雅返回 False（不抛异常、不卡死）。
         miss = os.path.join(tmp, "nope.png")
         eok, _emsg, _ = converter.encode(miss, os.path.join(tmp, "x.jxl"))
         add("e2e: missing-input handled gracefully (no crash)", eok is False,

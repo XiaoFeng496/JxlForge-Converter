@@ -1,8 +1,11 @@
 # JxlForge Converter 依赖清单
 # 安装: pip install -r requirements.txt
-PySide6>=6.7
+PySide6==6.11.2
 Pillow>=10.0
 # 删除原文件功能：移入系统回收站（Windows 上 send2trash 走 IFileOperation 原生后端，
 # 需 pywin32 提供 COM 支持；缺失时 send2trash 会回退到不可靠的 legacy 后端）。
 send2trash>=1.8
 pywin32>=306; sys_platform == "win32"
+# 可选：HEIC/HEIF 输入支持（手机照片常用）。pip install pi-heif 即解锁（解码专用、
+# 不链 libx265 的 pillow-heif 精简版，体积更省），缺失时程序会提示安装、不影响其他格式。
+# 打包版已带入解码链（libheif+libde265），无 HEVC 编码器（libx265），故只能解码、不能编码回 HEIC。

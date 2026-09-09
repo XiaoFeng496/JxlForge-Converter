@@ -89,8 +89,15 @@ try:
     print("T_FALLBACK %s" % i18n.t("源码里有但字典里没有"))
 
 finally:
-    if os.path.isfile(path):
-        os.remove(path)
+    import time
+    for _ in range(10):
+        if not os.path.isfile(path):
+            break
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        time.sleep(0.05)
     print("CLEANED %s" % (not os.path.isfile(path)))
 '''
 
@@ -119,6 +126,14 @@ def main():
     print("=" * 60)
 
     # --- 1. 基线：目录里当前只有 en_US ---
+    # 防御：清掉上一次中断测试可能残留的临时语言文件（Windows 上 os.remove 有竞态，
+    # 子进程 finally 偶尔删不干净），否则基线会被污染、本次断言误 FAIL。
+    _stray = os.path.join(i18n._I18N_DIR, "ja_JP.json")
+    if os.path.isfile(_stray):
+        try:
+            os.remove(_stray)
+        except OSError:
+            pass
     codes = i18n.available_languages()
     check("目录扫描能找到 en_US", "en_US" in codes, str(codes))
     check("默认语言排在第一位",

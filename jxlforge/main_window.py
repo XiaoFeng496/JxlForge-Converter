@@ -154,14 +154,42 @@ from . import converter, processor, formats
 # 元数据用于预览展示，不做像素渲染（见 jxlforge.formats.parse_exr_header）。
 # 解码出的临时文件按源路径缓存，重复缩略图 / 预览不再重复解码。
 # ----------------------------------------------------------------------
-_DECODE_TO_TEMP_EXTS = {".jxl", ".avif", ".pfm", ".pam", ".pgx"}
+_DECODE_TO_TEMP_EXTS = {".jxl", ".avif", ".pfm", ".pam", ".pgx", ".heic", ".heif"}
 
 # 编码侧「cjxl 原生读不了、必须由 Pillow 中转」的位图格式。cjxl 的读图器只认
-# PNG/APNG/GIF/JPEG/EXR/PPM/PFM/PAM/PGX（与 JXL）；其余常见位图（BMP/TIFF/WebP，
-# AVIF 在装了 pillow-avif 插件时）它读不了、必失败。把这些格式显式短路到 Pillow
-# 中转，避免每次都先白跑一次注定失败的 cjxl 子进程、也让「该走 Pillow」的意图显式化。
-# 注意：EXR 不能进此集合——它是 cjxl 原生支持、且 Pillow 读不了，必须留原生路径。
-_PILLOW_TRANSIT_EXTS = {".bmp", ".tif", ".tiff", ".webp", ".avif"}
+# PNG/APNG/GIF/JPEG/EXR/PPM/PFM/PAM/PGX（与 JXL）；其余常见位图（BMP/TIFF/WebP/
+# AVIF/ICO，以及 HEIC/HEIF 在装了 pi-heif 插件时）它读不了、必失败。把这些
+# 格式显式短路到 Pillow 中转，避免每次都先白跑一次注定失败的 cjxl 子进程、也让
+# 「该走 Pillow」的意图显式化。注意：EXR 不能进此集合——它是 cjxl 原生支持、且
+# Pillow 读不了，必须留原生路径。HEIC/HEIF 额外需要 pi-heif，缺失时由
+# _encode_source / _decode_to_temp_file 给出精准提示（见 _HEIF_EXTS）。
+_PILLOW_TRANSIT_EXTS = {".bmp", ".tif", ".tiff", ".webp", ".avif", ".ico", ".heic", ".heif"}
+
+# HEIC/HEIF 需要 pi_heif 插件（底层 libheif 解码专用构建）才能被 Pillow 识别；它不属于默认
+# 依赖，缺失时给出精准提示而不是浪费一次失败尝试。注意：pi_heif 的 libheif 是*解码专用*
+# 构建、不链 libx265（实测导入表无 x265），故打包无需带 HEVC 编码器即可解码（见 spec）。
+_HEIF_EXTS = {".heic", ".heif"}
+_HEIF_OPENER_REGISTERED = False
+_HEIF_PROBE_DONE = False
+
+
+def _ensure_heif_opener():
+    """注册 pi_heif 的 HEIF/HEIC opener，使 Pillow 能 open(.heic/.heif)。
+
+    返回 True 表示 HEIC/HEIF 解码可用；不可用时返回 False（pi_heif 未安装）。
+    探测结果缓存，重复调用零成本。
+    """
+    global _HEIF_OPENER_REGISTERED, _HEIF_PROBE_DONE
+    if _HEIF_PROBE_DONE:
+        return _HEIF_OPENER_REGISTERED
+    try:
+        import pi_heif
+        pi_heif.register_heif_opener()
+        _HEIF_OPENER_REGISTERED = True
+    except Exception:
+        _HEIF_OPENER_REGISTERED = False
+    _HEIF_PROBE_DONE = True
+    return _HEIF_OPENER_REGISTERED
 
 _DECODE_TEMP_CACHE = {}       # src_path -> 解码出的临时可显示文件（PNG/PPM）路径
 # 线程安全锁：异步预览（_PreviewLoader）与后续缩略图线程池都可能在子线程里
@@ -286,6 +314,30 @@ def _decode_to_temp_file(path):
                 return tmp
             try:
                 os.remove(tmp)
+            except OSError:
+                pass
+        except Exception:
+            pass
+        return None
+    if ext in (".heic", ".heif"):
+        if not _ensure_heif_opener():
+            return None
+        if not processor.AVAILABLE:
+            return None
+        try:
+            from PIL import Image
+            fd, png = tempfile.mkstemp(suffix=".png", dir=_decode_temp_dir())
+            os.close(fd)
+            img = Image.open(path)
+            icc = img.info.get("icc_profile")
+            if icc:
+                img.save(png, "PNG", icc_profile=icc)
+            else:
+                img.save(png, "PNG")
+            if os.path.isfile(png) and os.path.getsize(png) > 0:
+                return png
+            try:
+                os.remove(png)
             except OSError:
                 pass
         except Exception:
@@ -8998,9 +9050,13 @@ class ConvertWorker(QThread):
             except Exception as exc:
                 detail = str(exc).replace(chr(92) + chr(92), chr(92))
                 return False, i18n.t("Pillow 解码失败：%s") % detail, ""
-        # cjxl 原生读不了的格式（BMP/TIFF/WebP/AVIF）：直接走 Pillow 中转，
-        # 跳过注定失败的 cjxl 原生尝试（集合见模块级 _PILLOW_TRANSIT_EXTS）。
-        if os.path.splitext(src)[1].lower() in _PILLOW_TRANSIT_EXTS:
+        # cjxl 原生读不了的格式（BMP/TIFF/WebP/AVIF/ICO，HEIC/HEIF 需 pi-heif）：
+        # 直接走 Pillow 中转，跳过注定失败的 cjxl 原生尝试（集合见 _PILLOW_TRANSIT_EXTS）。
+        ext = os.path.splitext(src)[1].lower()
+        if ext in _PILLOW_TRANSIT_EXTS:
+            # HEIC/HEIF 需要 pi-heif；缺失时直接给精准提示，不浪费失败尝试。
+            if ext in _HEIF_EXTS and not _ensure_heif_opener():
+                return False, i18n.t("HEIC/HEIF 需要安装 pi-heif 才能转换：pip install pi-heif"), ""
             return self._encode_via_pillow(src, out_path, tmp_files)
         ok, message, tag = converter.encode(src, out_path, **self._encode_kwargs())
         if ok:
@@ -9021,6 +9077,7 @@ class ConvertWorker(QThread):
             return False, base + "（提示：安装 Pillow 后可兼容 WebP 等更多输入格式）", ""
         try:
             from PIL import Image
+            _ensure_heif_opener()  # 让 Pillow 能识别 HEIC/HEIF（若已装 pi-heif）
             img = Image.open(src)
             tmp_png = self._make_temp(".png")
             tmp_files.append(tmp_png)

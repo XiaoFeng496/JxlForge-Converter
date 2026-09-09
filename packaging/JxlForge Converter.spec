@@ -26,6 +26,9 @@ ENTRY = os.path.join(SPECPATH, '_launch_app.py')
 # 注意：PIL._avif 必须保留——AVIF 是程序的输入格式（main_window._DECODE_TO_TEMP_EXTS），
 #       经 Pillow 解码，依赖该插件；若 exclude 会导致 AVIF 输入崩溃。
 # 注意：Qt6Svg（SVG 图标）/ Qt6OpenGL（Widgets 用系统 GL）必须保留。
+# 注意：libheif-*.dll / libde265-*.dll 必须保留——pi_heif 的 libheif 是*解码专用*
+#       构建，不链 libx265（实测导入表无 x265），故 HEIC/HEIF 解码无需带 HEVC 编码器，
+#       包体比 pillow-heif（其 libheif 硬链 x265）精简约 22MB。
 _DROP_BIN = {
     'opengl32sw.dll',
     'libcrypto-3-x64.dll',
@@ -57,8 +60,11 @@ a = Analysis(
     binaries=[],
     datas=[
         (I18N_DIR, 'jxlforge/i18n'),
+        # HEIC 解码能力自检资源：随包落入 <bundle>/jxlforge/test_assets/，
+        # 让冻结版 --selftest 能验证 HEIC 解码链（libheif+libde265）确实可用。
+        (os.path.join(REPO, 'tools', 'test_assets'), 'jxlforge/test_assets'),
     ],
-    hiddenimports=[],
+    hiddenimports=['pi_heif'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

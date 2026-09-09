@@ -79,6 +79,54 @@ for ext in (".bmp", ".tif", ".tiff", ".webp"):
     check("transit %s temp png registered for cleanup" % ext,
           any(t.lower().endswith(".png") for t in tmp_files))
 
+# --- ICO transit: Pillow 原生支持 ICO，无需额外依赖，直接走中转 ---
+calls.clear()
+src_ico = os.path.join(tmpdir, "sample.ico")
+Image.new("RGB", (16, 16), (10, 20, 30)).save(src_ico, "ICO")
+worker = ConvertWorker([], [])
+tmp_files = []
+out_ico = os.path.join(tmpdir, "sample_ico.jxl")
+ok_ico, _mico, _tico = worker._encode_source(src_ico, out_ico, tmp_files)
+check("transit .ico routes via Pillow (success)", ok_ico is True)
+check("transit .ico calls encode exactly once", len(calls) == 1)
+check("transit .ico encode input is temp .png",
+      bool(calls) and calls[0].lower().endswith(".png"))
+
+# --- HEIC/HEIF 中转：需 pi-heif；缺失给精准提示，已装则走中转 ---
+from jxlforge.main_window import _ensure_heif_opener, _decode_to_temp_file
+heic_src = os.path.join(tmpdir, "sample.heic")
+if not _ensure_heif_opener():
+    calls.clear()
+    Image.new("RGB", (16, 16), (10, 20, 30)).save(heic_src, "PNG")  # 占位名
+    worker = ConvertWorker([], [])
+    ok_h, msg_h, _th = worker._encode_source(heic_src, os.path.join(tmpdir, "h.jxl"), [])
+    check("HEIC without pi-heif returns False with hint",
+          ok_h is False and "pi-heif" in msg_h)
+else:
+    import pi_heif as _ph
+    _ph.register_heif_opener()
+    # pi_heif 是*解码专用*版，不注册 HEIF 保存句柄（故不能 Image.save(...,"HEIF") 造样例）。
+    # 改用随仓库提交的测试资源做真实解码中转验证。
+    _sample = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "test_assets", "sample.heic")
+    if not os.path.isfile(_sample):
+        check("HEIC transit skipped (sample.heic missing)", True)
+    else:
+        shutil.copy(_sample, heic_src)
+        calls.clear()
+        worker = ConvertWorker([], [])
+        tmp_files = []
+        out_h = os.path.join(tmpdir, "sample.heic.jxl")
+        ok_h, _mh, _th = worker._encode_source(heic_src, out_h, tmp_files)
+        check("transit .heic routes via Pillow (success)", ok_h is True)
+        check("transit .heic calls encode exactly once", len(calls) == 1)
+        check("transit .heic encode input is temp .png",
+              bool(calls) and calls[0].lower().endswith(".png"))
+        # 预览解码：HEIC 应被解码为临时 PNG（缩略图可用）
+        dec_h = _decode_to_temp_file(heic_src)
+        check("HEIC preview decodes to temp png",
+              isinstance(dec_h, str) and dec_h.lower().endswith(".png"))
+
 # --- Native format: PNG tries cjxl directly, succeeds without Pillow ---
 calls.clear()
 (ok, msg, _tag), tmp_files = run_encode(".png")

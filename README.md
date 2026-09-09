@@ -8,8 +8,8 @@
 
 ## 功能特性
 
-- **支持输入格式（编码为 JXL）**：PNG / APNG / GIF / JPEG / EXR / PPM / PGM / PFM / PAM / PGX / JXL / WebP / AVIF / BMP / TIFF
-  - WebP / AVIF / BMP / TIFF 经 Pillow 中转解码为临时 PNG 后交给 cjxl，保留 ICC 配置
+- **支持输入格式（编码为 JXL）**：PNG / APNG / GIF / JPEG / EXR / PPM / PGM / PFM / PAM / PGX / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF
+  - WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF 经 Pillow 中转解码为临时 PNG 后交给 cjxl，保留 ICC 配置
   - 其余格式由 cjxl 原生直转
   - EXR 为浮点 HDR，仅解析头部元数据、不渲染像素缩略图
 - **编码（→ JXL）**
@@ -101,6 +101,7 @@ JxlForge-Converter/
 - [libjxl](https://github.com/libjxl/libjxl)（cjxl/djxl，运行时由用户自备，BSD-3-Clause）
 - [PySide6](https://doc.qt.io/qtforpython/)（Qt 6 绑定，LGPL v3）
 - [Pillow](https://python-pillow.org/)（MIT）
+- [pi-heif](https://github.com/bigcat88/pillow_heif/tree/master/pi-heif)（pillow-heif 的解码专用精简版，BSD-3-Clause）
 - Python 3.12（PSF License）
 
 ---
