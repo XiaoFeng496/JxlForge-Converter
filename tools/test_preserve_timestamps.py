@@ -13,6 +13,7 @@
 import os
 import sys
 import types
+import datetime as _dt
 import tempfile
 from unittest import mock
 
@@ -158,8 +159,12 @@ with mock.patch.dict(sys.modules, {"pywintypes": fake_pywintypes,
      mock.patch("sys.platform", "win32"):
     _preserve_ctime(src2, dst2)
 check("_preserve_ctime：Windows 调用 SetFileTime 一次", "settime" in _calls)
-check("_preserve_ctime：创建时间参数==src.st_ctime",
-      _calls.get("settime", (None, None, None))[0] == st.st_ctime)
+# 同一 float 经同一 fromtimestamp 构造 datetime，逐位相等、零精度问题；
+# 直接拿记录的 datetime 跟 st.st_ctime(float) 用 == 比是恒 False 的类型错配。
+_expected_ctime = _dt.datetime.fromtimestamp(st.st_ctime, tz=_dt.timezone.utc)
+_rec_ctime = _calls.get("settime", (None, None, None))[0]
+check("_preserve_ctime：创建时间参数==src.st_ctime(datetime)",
+      _rec_ctime == _expected_ctime)
 
 # 7) _process_job 集成：成功转换后自动保持修改时间
 import jxlforge.main_window as mw
