@@ -164,7 +164,6 @@
     "启用高级参数": "啟用高級參數",
     "命令返回错误（退出码 %d）：%s": "命令返回錯誤（退出碼 %d）：%s",
     "噪声合成 (--noise)": "噪聲合成 (--noise)",
-    "图像文件 (*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.jxl *.avif);;所有文件 (*.*)": "圖像檔案 (*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.jxl *.avif);;所有檔案 (*.*)",
     "处理出错：%s": "處理出錯：%s",
     "处理失败：%s": "處理失敗：%s",
     "多部件：是": "多部件：是",
@@ -495,5 +494,11 @@
     "Lanczos": "Lanczos",
     "白色": "白色",
     "黑色": "黑色",
-    "重采样算法：LANCZOS 最平滑（默认），双三次/双线性适合通用缩放，方框最快，汉明/最近邻适合缩小或保留硬边缘。": "重採樣演算法：LANCZOS 最平滑（預設），雙三次/雙線性適合通用縮放，方框最快，漢明/最近鄰適合縮小或保留硬邊緣。"
+    "重采样算法：LANCZOS 最平滑（默认），双三次/双线性适合通用缩放，方框最快，汉明/最近邻适合缩小或保留硬边缘。": "重採樣演算法：LANCZOS 最平滑（預設），雙三次/雙線性適合通用縮放，方框最快，漢明/最近鄰適合縮小或保留硬邊緣。",
+    "图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif);;所有文件 (*.*)": "圖像檔案 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif);;所有檔案 (*.*)",
+    "文件过小，不是 PBM": "檔案過小，不是 PBM",
+    "magic 不符，不是 PBM": "magic 不符，不是 PBM",
+    "PBM 头缺少宽高": "PBM 頭缺少寬高",
+    "PBM 宽高非法": "PBM 寬高非法",
+    "PBM 像素数据不完整": "PBM 像素數據不完整"
 }

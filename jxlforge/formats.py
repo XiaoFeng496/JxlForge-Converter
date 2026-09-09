@@ -18,6 +18,7 @@ from . import i18n
 """
 
 import os
+import re
 import struct
 
 
@@ -244,6 +245,74 @@ def pgx_to_ppm_bytes(path):
             out.append(int((v - mn) * inv + 0.5))
     else:
         out.extend(b"\x00" * n)
+
+    return b"P5\n%d %d\n255\n" % (width, height) + bytes(out)
+
+
+# ---------------------------------------------------------------------------
+# PBM（Portable BitMap）→ PPM（灰度）
+# ---------------------------------------------------------------------------
+def pbm_to_ppm_bytes(path):
+    """把 PBM 文件解码为二进制灰度 PPM（P5）字节。
+
+    PBM 两类：``P1``（ASCII，像素 0/1 以空白分隔、可跨行）与 ``P4``（二进制，
+    每字节塞 8 像素、高位优先，末行不足一字节补在低位）。两种极性统一映射为
+    ``1``=黑→0、``0``=白→255，与 PBM 规范一致；像素扫描忽略任何非 0/1 字符
+    （含换行与 ``#`` 注释），对常见变体鲁棒。
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    if len(data) < 4:
+        raise ValueError(i18n.t("文件过小，不是 PBM"))
+    nl1 = data.index(b"\n")
+    magic = data[:nl1].strip()
+    if magic not in (b"P1", b"P4"):
+        raise ValueError(i18n.t("magic 不符，不是 PBM"))
+
+    # 宽高之间可能夹 PNM 注释（# 到行尾）或空白，用 [^\d]*? 跳过非数字字符；
+    # 像素起点 pix_start 由 m.end() 之后跳过空白得到（见下）。
+    m = re.search(rb"P[14][^\d]*?(\d+)[^\d]*?(\d+)", data)
+    if not m:
+        raise ValueError(i18n.t("PBM 头缺少宽高"))
+    width = int(m.group(1))
+    height = int(m.group(2))
+    if width <= 0 or height <= 0:
+        raise ValueError(i18n.t("PBM 宽高非法"))
+    n_pixels = width * height
+    pix_start = m.end()
+    # 宽高之后的空白（换行/空格/制表/回车）属于头部，跳过再定位像素数据起点；
+    # 否则 P4 二进制起点会错位一个字节（P1 逐字符扫描忽略空白所以无此问题）。
+    while pix_start < len(data) and data[pix_start] in (0x20, 0x09, 0x0a, 0x0d):
+        pix_start += 1
+
+    out = bytearray()
+    if magic == b"P1":
+        # 逐字符扫描像素流，只认 0/1，忽略空白与注释字符。
+        count = 0
+        for ch in data[pix_start:]:
+            if ch == 0x30:        # '0' -> 白 -> 255
+                out.append(255)
+                count += 1
+            elif ch == 0x31:      # '1' -> 黑 -> 0
+                out.append(0)
+                count += 1
+            if count >= n_pixels:
+                break
+        if count < n_pixels:
+            raise ValueError(i18n.t("PBM 像素数据不完整"))
+    else:  # P4 二进制
+        row_bytes = (width + 7) // 8
+        expected = row_bytes * height
+        raw = data[pix_start:pix_start + expected]
+        if len(raw) < expected:
+            raise ValueError(i18n.t("PBM 像素数据不完整"))
+        for y in range(height):
+            row = raw[y * row_bytes:(y + 1) * row_bytes]
+            for x in range(width):
+                byte_idx = x // 8
+                bit = 7 - (x % 8)
+                val = (row[byte_idx] >> bit) & 1
+                out.append(0 if val else 255)
 
     return b"P5\n%d %d\n255\n" % (width, height) + bytes(out)
 

@@ -164,7 +164,6 @@
     "启用高级参数": "Enable advanced parameters",
     "命令返回错误（退出码 %d）：%s": "Command returned an error (exit code %d): %s",
     "噪声合成 (--noise)": "Noise synthesis",
-    "图像文件 (*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.jxl *.avif);;所有文件 (*.*)": "Image files (*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.jxl *.avif);;All files (*.*)",
     "处理出错：%s": "Processing error: %s",
     "处理失败：%s": "Processing failed: %s",
     "多部件：是": "Multipart: yes",
@@ -495,5 +494,11 @@
     "汉明": "Hamming",
     "白色": "White",
     "黑色": "Black",
-    "重采样算法：LANCZOS 最平滑（默认），双三次/双线性适合通用缩放，方框最快，汉明/最近邻适合缩小或保留硬边缘。": "Resampling algorithm: LANCZOS is smoothest (default); Bicubic/Bilinear for general scaling; Box is fastest; Hamming/Nearest for downscaling or preserving hard edges."
+    "重采样算法：LANCZOS 最平滑（默认），双三次/双线性适合通用缩放，方框最快，汉明/最近邻适合缩小或保留硬边缘。": "Resampling algorithm: LANCZOS is smoothest (default); Bicubic/Bilinear for general scaling; Box is fastest; Hamming/Nearest for downscaling or preserving hard edges.",
+    "图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif);;所有文件 (*.*)": "Image files (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif);;All files (*.*)",
+    "文件过小，不是 PBM": "File too small, not a PBM",
+    "magic 不符，不是 PBM": "Bad magic, not a PBM",
+    "PBM 头缺少宽高": "PBM header missing width/height",
+    "PBM 宽高非法": "PBM width/height invalid",
+    "PBM 像素数据不完整": "PBM pixel data incomplete"
 }
