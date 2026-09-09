@@ -1,6 +1,6 @@
 # JxlForge Converter
 
-基于 **PySide6** 的 [libjxl](https://github.com/libjxl/libjxl)（cjxl / djxl）图形前端，把 JPEG XL 的编码 / 解码做成可视化的桌面操作工具。
+一个基于 **PySide6** 的 [libjxl](https://github.com/libjxl/libjxl) GUI，把 JPEG XL 的编码 / 解码做成可视化的桌面操作工具。
 
 > 本项目全部代码均以自然语言形式在 AI 辅助下完成。
 
@@ -94,7 +94,9 @@ JxlForge-Converter/
 
 **GPL v3**（详见 [LICENSE](LICENSE)）。
 
-### 依赖
+---
+
+## 依赖
 
 - [libjxl](https://github.com/libjxl/libjxl)（cjxl/djxl，运行时由用户自备，BSD-3-Clause）
 - [PySide6](https://doc.qt.io/qtforpython/)（Qt 6 绑定，LGPL v3）
@@ -130,7 +132,7 @@ JxlForge-Converter/
 git clone <your-repo-url> JxlForge-Converter
 cd JxlForge-Converter
 pip install -r requirements.txt
-python main.py          REM 或双击 run.bat 无控制台启动
+python main.py          REM 或双击 run.bat/run.pyw（推荐） 无控制台启动
 ```
 
 打包发布版：
@@ -140,5 +142,6 @@ packaging\build_dist.bat
 ```
 
 > 打包产物输出到仓库外的 `JxlForge-Build/`，不进 git。
-
 它会：① 安全挪走旧 dist（避免触发安全守卫）② 用 spec 打包（已把 `jxlforge/i18n/*.json` 作为数据带进包）③ 跑 `exe --selftest` 自检，漏打资源会红字报警。
+
+发布包内置 `selftest` 自检：命令行 `JxlForge Converter.exe --selftest` 可验证 i18n 资源与端到端转码管线（仅当 libjxl 在 PATH 时执行转码用例，缺失则标记 SKIP）。
