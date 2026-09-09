@@ -21,9 +21,12 @@ import os
 import subprocess
 import sys
 
-# 缺省 exe 位置（与 packaging/build_dist.bat 的 --distpath 对应）。
-_DEFAULT_EXE = (r"F:\Agent工作空间\JxlForge-Build\dist"
-                r"\JxlForge Converter\JxlForge Converter.exe")
+# 缺省 exe 位置（与 packaging/build_dist.bat 的 --distpath 对应；基于本文件位置推算，
+# 不硬编码盘符，换机器克隆到任意盘都能自动落到「仓库同级 JxlForge-Build」）。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_EXE = os.path.join(
+    os.path.dirname(_HERE), "..", "JxlForge-Build", "dist",
+    "JxlForge Converter", "JxlForge Converter.exe")
 
 
 def main():

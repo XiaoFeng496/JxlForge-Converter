@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication, QGridLayout, QHBoxLayout
 QSettings.setDefaultFormat(QSettings.IniFormat)
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp))
 
-sys.path.insert(0, r"F:\Agent工作空间\JxlForge-Converter")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # 仓库根
 import jxlforge.main_window as mw
 
 app = QApplication.instance() or QApplication([])
