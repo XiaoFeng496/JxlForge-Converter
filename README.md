@@ -1,8 +1,14 @@
 # JxlForge Converter
 
+![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+
 一个基于 **PySide6** 的 [libjxl](https://github.com/libjxl/libjxl) GUI，把 JPEG XL 的编码 / 解码做成可视化的桌面操作工具。
 
+**简体中文** | [繁體中文](README_TW.md) | [English](README_EN.md)
+
 > 本项目全部代码均以自然语言形式在 AI 辅助下完成。
+
+> **平台**：当前仅提供 **Windows** 的打包与测试。代码层面基于跨平台的 PySide6 与 cjxl/djxl，理论可在 macOS / Linux 运行，但未经打包与验证；相关平台请自行安装依赖后执行 `python main.py`。
 
 ---
 

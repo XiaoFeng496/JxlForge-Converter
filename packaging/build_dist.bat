@@ -23,6 +23,10 @@ set SPEC=%~dp0JxlForge Converter.spec
 set DIST=%BUILD%\dist\JxlForge Converter
 set EXE=%DIST%\JxlForge Converter.exe
 set OLD=%BUILD%\_dist_old_bak
+REM 自记录日志：双击运行时窗口可能很快被关掉，把关键过程与 PyInstaller 真实报错
+REM 落盘到 packaging\build_dist.log，方便事后排查「为什么没打包成功」。
+set LOG=%~dp0build_dist.log
+echo [%date% %time%] ===== build_dist 启动 ===== > "%LOG%"
 
 REM 解析 Python 解释器（跨机器可移植，不再绑定作者机器 E: 盘）：
 REM   逐个候选探测「能否真正调起 PyInstaller」——优先 PATH 中的 python、
@@ -43,10 +47,13 @@ if not defined PY (
     echo [FAIL] 找不到可用的 Python 解释器（需能 import PyInstaller）。
     echo        请安装 Python 3.10+ 并加入 PATH，或安装到 E:\Python\Python312。
     echo        也可手动编辑本脚本 PY 变量指向你的 python.exe。
+    echo        完整日志：%LOG%
+    echo [%date% %time%] [FAIL] 未解析到任何可用解释器（PATH python / py -3 / E:\Python\Python312 均 import PyInstaller 失败）>> "%LOG%"
     pause
     exit /b 1
 )
 echo [INFO] 使用 Python：%PY%
+echo [%date% %time%] 解析到的解释器: %PY% >> "%LOG%"
 
 REM 打包前把旧 dist 改名挪走，避免 PyInstaller COLLECT 阶段删旧目录触发
 REM safe-delete 守卫（历史实测会卡住）。rename 不算删除，安全。旧备份推到
@@ -57,13 +64,21 @@ if exist "%DIST%" (
 )
 
 cd /d "%REPO%"
-"%PY%" -m PyInstaller "%SPEC%" --noconfirm --distpath "%BUILD%\dist" --workpath "%BUILD%\build"
+echo [%date% %time%] 开始 PyInstaller ... >> "%LOG%"
+"%PY%" -m PyInstaller "%SPEC%" --noconfirm --distpath "%BUILD%\dist" --workpath "%BUILD%\build" > "%LOG%.tmp" 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo [FAIL] 打包失败，退出码 %ERRORLEVEL%
+    echo         完整日志：%LOG%
+    echo ----- PyInstaller 报错末尾（%LOG%.tmp）-----
+    powershell -NoProfile -Command "Get-Content '%LOG%.tmp' -Tail 30"
+    echo -------------------------------------------
+    copy /b "%LOG%" + "%LOG%.tmp" "%LOG%" >nul 2>&1
     pause
     exit /b %ERRORLEVEL%
 )
+echo [%date% %time%] PyInstaller 完成 >> "%LOG%"
+del /q "%LOG%.tmp" 2>nul
 
 REM 打包后冒烟自检：验证 i18n 等资源没漏（刚那个 bug 的回归防线）。
 echo.
