@@ -165,8 +165,6 @@ packaging\make_release_zh.bat   REM 中文輸出
 
 輸出到 `JxlForge-Build\release\`，檔名自動帶版本號 `JxlForge-Converter_v<版本>_win64.zip` / `.7z`（版本號從 `jxlforge/__init__.py` 讀取，不用手改）。打包前有門禁：dist 或 exe 缺失即中止，`selftest_report.txt` 非 PASS 會警告。
 
-- **ZIP**：優先呼叫 7-Zip（`-tzip -mx=9`），未安裝 7-Zip 時回退 Python 標準函式庫 `zipfile`（零依賴，始終可用）。
-- **7Z**：需要 7-Zip（`winget install 7zip.7zip`）或 `pip install py7zr`；兩者皆無則跳過 7Z、只出 ZIP。
-- **7Z 明顯更小**：實測 90 MB 的 dist → ZIP 約 36 MB、7Z 約 24 MB。原因是 ZIP 用 deflate、逐檔案獨立壓縮，無法跨檔案重複利用重複內容（格式限制，非腳本問題）。建議主推 7Z，ZIP 作為相容備案。
+ZIP 零依賴、必定產出（優先 7-Zip，未安裝則用標準函式庫 `zipfile`）；7Z 需 7-Zip 或 `py7zr`，但明顯更小——實測 90 MB 的 dist → ZIP 36 MB / 7Z 24 MB，建議主推 7Z。
 
 發布包內建 `selftest` 自檢：命令列 `JxlForge Converter.exe --selftest` 可驗證 i18n 資源與端到端轉碼管線（僅當 libjxl 在 PATH 時執行轉碼用例，缺失則標記 SKIP）。
