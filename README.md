@@ -48,7 +48,7 @@
 
 ## 下载与运行（发布版）
 
-1. 在 [Releases](../../releases) 下载 `JxlForge-Converter_vX.X.X_win64.zip`，解压到任意目录。
+1. 前往 [Releases 最新版](../../releases/latest)，下载 `JxlForge-Converter_v<版本号>_win64.zip` 并解压到任意目录。
 2. 装好 libjxl 并加入 PATH。
 3. 运行 `JxlForge Converter\JxlForge Converter.exe`。
 
@@ -66,9 +66,12 @@ JxlForge-Converter/
 ├── setup.py            # 环境与 libjxl 检测 / 安装脚本
 ├── install_deps.sh     # 跨平台（macOS / Linux / WSL）依赖安装脚本
 ├── requirements.txt    # Python 依赖清单
-├── packaging/          # 打包配置
-│   ├── JxlForge Converter.spec   # PyInstaller 打包规格（Tier2 精简版）
-│   ├── build_dist.bat           # 一键打包 + 自检门禁
+├── packaging/          # 打包与发布配置
+│   ├── JxlForge Converter.spec   # PyInstaller 打包规格（Tier2 精简版，随包带 LICENSE 与 i18n 字典）
+│   ├── build_dist.bat           # 一键打包 + 自检门禁（英文输出，构建过程实时流式打印）
+│   ├── build_dist_zh.bat/.py    # 同上，中文输出版
+│   ├── make_release.bat/.py     # dist → 发布压缩包 ZIP + 7Z（英文输出）
+│   ├── make_release_zh.bat/.py  # 同上，中文输出版
 │   └── _launch_app.py           # 生产打包入口（调用 run()）
 ├── jxlforge/           # 主程序包
 │   ├── __main__.py     # 入口 run()、--selftest 自检
@@ -142,14 +145,28 @@ pip install -r requirements.txt
 python main.py          REM 或双击 run.bat/run.pyw（推荐） 无控制台启动
 ```
 
-打包发布版：
+打包发布版（英文 / 中文输出二选一）：
 
 ```bat
-packaging\build_dist.bat
+packaging\build_dist.bat        REM 英文输出
+packaging\build_dist_zh.bat     REM 中文输出
 ```
 
-> 打包产物输出到仓库外、与仓库**同级**的 `JxlForge-Build/`（具体位置由 `packaging/build_dist.bat` 按仓库实际所在盘符/路径自动推算，例如仓库在 `D:\x\JxlForge-Converter` 则落到 `D:\x\JxlForge-Build`），不进 git。Python 解释器同样自动解析（PATH → `py -3` → `E:\Python\Python312`），无需固定盘符。
+> 打包产物输出到仓库外、与仓库**同级**的 `JxlForge-Build/`（具体位置由 `packaging/build_dist.bat` 按仓库实际所在盘符/路径自动推算，例如仓库在 `D:\x\JxlForge-Converter` 则落到 `D:\x\JxlForge-Build`），不进 git。Python 解释器同样自动解析（`E:\Python\Python312\python.exe` → `py` → PATH 上的 `python`），无需固定盘符。
 
-它会：① 安全挪走旧 dist（避免触发安全守卫）② 用 spec 打包（已把 `jxlforge/i18n/*.json` 作为数据带进包）③ 跑 `exe --selftest` 自检，漏打资源会红字报警。
+它会：① 安全挪走旧 dist（避免触发安全守卫）② 用 spec 打包（已把 `jxlforge/i18n/*.json` 与 LICENSE 作为数据带进包）③ 跑 `exe --selftest` 自检，漏打资源会红字报警。
+
+打包成分发压缩包（须先完成上一步）：
+
+```bat
+packaging\make_release.bat      REM 英文输出
+packaging\make_release_zh.bat   REM 中文输出
+```
+
+输出到 `JxlForge-Build\release\`，文件名自动带版本号 `JxlForge-Converter_v<版本>_win64.zip` / `.7z`（版本号从 `jxlforge/__init__.py` 读取，不用手改）。打包前有门禁：dist 或 exe 缺失即中止，`selftest_report.txt` 非 PASS 会警告。
+
+- **ZIP**：优先调用 7-Zip（`-tzip -mx=9`），未装 7-Zip 时回退 Python 标准库 `zipfile`（零依赖，始终可用）。
+- **7Z**：需要 7-Zip（`winget install 7zip.7zip`）或 `pip install py7zr`；两者皆无则跳过 7Z、只出 ZIP。
+- **7Z 明显更小**：实测 90 MB 的 dist → ZIP 约 36 MB、7Z 约 24 MB。原因是 ZIP 用 deflate、逐文件独立压缩，无法跨文件复用重复内容（格式限制，非脚本问题）。建议主推 7Z，ZIP 作兼容兜底。
 
 发布包内置 `selftest` 自检：命令行 `JxlForge Converter.exe --selftest` 可验证 i18n 资源与端到端转码管线（仅当 libjxl 在 PATH 时执行转码用例，缺失则标记 SKIP）。

@@ -48,7 +48,7 @@ This program **does not ship the cjxl / djxl / jxlinfo engines**. Choose your ow
 
 ## Download & Run (Release Build)
 
-1. Download `JxlForge-Converter_vX.X.X_win64.zip` from [Releases](../../releases) and extract it anywhere.
+1. Go to [the latest release](../../releases/latest), download `JxlForge-Converter_v<version>_win64.zip`, and extract it anywhere.
 2. Install libjxl and add it to PATH.
 3. Run `JxlForge Converter\JxlForge Converter.exe`.
 
@@ -66,9 +66,12 @@ JxlForge-Converter/
 ├── setup.py            # Environment / libjxl detection and install script
 ├── install_deps.sh     # Cross-platform dependency installer (macOS / Linux / WSL)
 ├── requirements.txt    # Python dependencies
-├── packaging/          # Packaging config
-│   ├── JxlForge Converter.spec   # PyInstaller spec (Tier2 trimmed build)
-│   ├── build_dist.bat           # One-click build + self-test gate
+├── packaging/          # Packaging & release config
+│   ├── JxlForge Converter.spec   # PyInstaller spec (Tier2 trimmed; bundles LICENSE + i18n dicts)
+│   ├── build_dist.bat           # One-click build + self-test gate (English, live streaming output)
+│   ├── build_dist_zh.bat/.py    # Same, Chinese output
+│   ├── make_release.bat/.py     # dist -> release archives ZIP + 7Z (English output)
+│   ├── make_release_zh.bat/.py  # Same, Chinese output
 │   └── _launch_app.py           # Production entry point (calls run())
 ├── jxlforge/           # Main package
 │   ├── __main__.py     # Entry run() and --selftest
@@ -142,14 +145,28 @@ pip install -r requirements.txt
 python main.py          REM Or double-click run.bat / run.pyw (recommended) for console-free launch
 ```
 
-Build a release package:
+Build a release package (English or Chinese output):
 
 ```bat
-packaging\build_dist.bat
+packaging\build_dist.bat        REM English output
+packaging\build_dist_zh.bat     REM Chinese output
 ```
 
-> Build output goes to `JxlForge-Build/`, which sits **next to** the repo directory, not inside git. The exact path is automatically derived from the repo location by `packaging/build_dist.bat` (e.g. repo at `D:\x\JxlForge-Converter` → output at `D:\x\JxlForge-Build`). The Python interpreter is also auto-detected (PATH → `py -3` → `E:\Python\Python312`), so no fixed drive letter is required.
+> Build output goes to `JxlForge-Build/`, which sits **next to** the repo directory, not inside git. The exact path is automatically derived from the repo location by `packaging/build_dist.bat` (e.g. repo at `D:\x\JxlForge-Converter` → output at `D:\x\JxlForge-Build`). The Python interpreter is also auto-detected (`E:\Python\Python312\python.exe` → `py` → `python` on PATH), so no fixed drive letter is required.
 
-It will: ① safely move the old `dist` (to avoid triggering the safe-delete guard) ② build with the spec (which already bundles `jxlforge/i18n/*.json` as data) ③ run `exe --selftest`; missing resources will fail loudly.
+It will: ① safely move the old `dist` (to avoid triggering the safe-delete guard) ② build with the spec (which already bundles `jxlforge/i18n/*.json` and `LICENSE` as data) ③ run `exe --selftest`; missing resources will fail loudly.
+
+Pack the build into distributable archives (run the step above first):
+
+```bat
+packaging\make_release.bat      REM English output
+packaging\make_release_zh.bat   REM Chinese output
+```
+
+Output goes to `JxlForge-Build\release\` with the version baked into the file name: `JxlForge-Converter_v<version>_win64.zip` / `.7z`. The version is read from `jxlforge/__init__.py`, so there is nothing to edit by hand. A pre-pack gate aborts if `dist` or the exe is missing, and warns when `selftest_report.txt` is not PASS.
+
+- **ZIP**: uses 7-Zip (`-tzip -mx=9`) when present, otherwise falls back to the Python stdlib `zipfile` (zero dependencies, always available).
+- **7Z**: requires 7-Zip (`winget install 7zip.7zip`) or `pip install py7zr`. If neither exists, 7Z is skipped and only the ZIP is produced.
+- **7Z is much smaller**: measured on a 90 MB dist → ZIP ≈ 36 MB, 7Z ≈ 24 MB. ZIP uses deflate with per-file independent compression, so it cannot reuse redundancies across files (a format limitation, not a script bug). Prefer 7Z and keep ZIP as a compatibility fallback.
 
 The release build includes a `selftest`: run `JxlForge Converter.exe --selftest` from the command line to verify i18n resources and the end-to-end conversion pipeline (transcoding test cases run only when libjxl is on PATH; otherwise they are marked SKIP).

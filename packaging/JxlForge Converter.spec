@@ -63,6 +63,9 @@ a = Analysis(
         # HEIC 解码能力自检资源：随包落入 <bundle>/jxlforge/test_assets/，
         # 让冻结版 --selftest 能验证 HEIC 解码链（libheif+libde265）确实可用。
         (os.path.join(REPO, 'tools', 'test_assets'), 'jxlforge/test_assets'),
+        # GPL v3 协议全文：随包落到分发根目录（与 exe 同级），满足 GPL 分发须附协议的要求。
+        # 走 spec 自动带入，发版时无需手工拷贝，也不会遗漏。
+        (os.path.join(REPO, 'LICENSE'), '.'),
     ],
     hiddenimports=['pi_heif'],
     hookspath=[],
