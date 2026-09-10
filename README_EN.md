@@ -165,6 +165,4 @@ packaging\make_release_zh.bat   REM Chinese output
 
 Output goes to `JxlForge-Build\release\` with the version baked into the file name: `JxlForge-Converter_v<version>_win64.zip` / `.7z`. The version is read from `jxlforge/__init__.py`, so there is nothing to edit by hand. A pre-pack gate aborts if `dist` or the exe is missing, and warns when `selftest_report.txt` is not PASS.
 
-ZIP is always produced (7-Zip `-tzip -mx=9` when installed, otherwise the stdlib `zipfile`); 7Z needs 7-Zip or `py7zr` but is much smaller — measured on a 90 MB dist: ZIP 36 MB vs 7Z 24 MB — so 7Z is the one to publish.
-
 The release build includes a `selftest`: run `JxlForge Converter.exe --selftest` from the command line to verify i18n resources and the end-to-end conversion pipeline (transcoding test cases run only when libjxl is on PATH; otherwise they are marked SKIP).
