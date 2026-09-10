@@ -135,11 +135,24 @@ def find_7z_exe():
     return _find_exe(("7z", "7za"), extra)
 
 
+def _remove_stale_archive(path):
+    """Delete a previous archive before packing.
+
+    7-Zip's "a" (add) command never removes entries that already exist in the
+    archive, it only adds/updates. Re-packing onto an old archive would
+    therefore keep excluded files (e.g. selftest_report.txt) forever. Always
+    start from a fresh archive so exclusion actually takes effect.
+    """
+    if os.path.exists(path):
+        os.remove(path)
+
+
 def make_zip(out_path):
     """Pack ZIP. Prefer 7-Zip (-tzip -mx=9); fall back to stdlib zipfile(level 9).
 
     Returns the file count, or None when produced by 7-Zip.
     """
+    _remove_stale_archive(out_path)
     sevenz = find_7z_exe()
     if sevenz:
         print("[ZIP] Using 7-Zip: %s" % sevenz)
@@ -193,6 +206,7 @@ def make_7z_with_py7zr(out_path):
 
 def make_7z(out_path):
     """Probe 7-Zip -> py7zr. False if neither is available (ZIP unaffected)."""
+    _remove_stale_archive(out_path)
     sevenz = find_7z_exe()
     if sevenz:
         make_7z_with_7zip(sevenz, out_path)

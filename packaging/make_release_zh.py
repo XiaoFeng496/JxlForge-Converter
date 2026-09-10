@@ -138,11 +138,23 @@ def find_7z_exe():
     return _find_exe(("7z", "7za"), extra)
 
 
+def _remove_stale_archive(path):
+    """打包前先删掉旧压缩包。
+
+    7-Zip 的 a（add）命令只添加/更新，从不删除归档里已有的旧条目；
+    若直接覆打到旧包上，被排除的文件（如 selftest_report.txt）会一直留着。
+    所以每次都从全新归档开始，排除才真正生效。
+    """
+    if os.path.exists(path):
+        os.remove(path)
+
+
 def make_zip(out_path):
     """打 ZIP：优先 7-Zip（-tzip -mx=9），否则回退标准库 zipfile（级别 9）。
 
     返回文件数；若由 7-Zip 生成则返回 None。
     """
+    _remove_stale_archive(out_path)
     sevenz = find_7z_exe()
     if sevenz:
         print("[ZIP] 使用 7-Zip：%s" % sevenz)
@@ -197,6 +209,7 @@ def make_7z_with_py7zr(out_path):
 
 def make_7z(out_path):
     """按 7-Zip → py7zr 探测后端；都无则返回 False（不阻断 ZIP）。"""
+    _remove_stale_archive(out_path)
     sevenz = find_7z_exe()
     if sevenz:
         make_7z_with_7zip(sevenz, out_path)
