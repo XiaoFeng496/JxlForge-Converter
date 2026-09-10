@@ -12,6 +12,10 @@ import sys
 import subprocess
 import datetime
 
+# 双击 .bat 时由 bat 自己显示「按任意键」并 pause，本脚本就不再等一次按键
+# （否则要按两次才能关窗）。直接跑 .py 时才自己等待。
+NO_PAUSE = "--no-pause" in sys.argv[1:]
+
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, ".."))
@@ -117,10 +121,29 @@ def main():
         return rc
 
 
-if __name__ == "__main__":
-    code = main()
+def wait_any_key(msg):
+    """等任意键关闭。
+
+    真控制台下用 msvcrt.getch() 实现「任意键」；若 stdin 被重定向/无 tty
+    （管道、CI、pythonw 等）则回退 input()，避免 getch 读不到控制台而卡死。
+    """
+    print(msg, end="", flush=True)
     try:
-        input("构建脚本结束（rc=%s）。按回车键关闭。" % code)
+        if os.name == "nt" and sys.stdin is not None and sys.stdin.isatty():
+            import msvcrt
+            msvcrt.getch()
+            print()
+            return
+    except Exception:
+        pass
+    try:
+        input()
     except EOFError:
         pass
+
+
+if __name__ == "__main__":
+    code = main()
+    if not NO_PAUSE:
+        wait_any_key("构建脚本结束（rc=%s）。按任意键关闭。" % code)
     sys.exit(code)
