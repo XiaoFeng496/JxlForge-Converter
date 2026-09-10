@@ -12,6 +12,14 @@ A **PySide6**-based GUI for [libjxl](https://github.com/libjxl/libjxl), making J
 
 ---
 
+## Screenshots
+
+<img src="docs/images/ui_actions_en.png" width="100%" alt="Actions tab: chained image processing with live preview">
+
+| Input | Output |
+|:---:|:---:|
+| <img src="docs/images/ui_input_en.png" width="380" alt="Input tab: thumbnail list with filtering"> | <img src="docs/images/ui_output_en.png" width="380" alt="Output tab: JXL encoding parameters and destination"> |
+
 ## Features
 
 - **Input formats (encode to JXL)**: PNG / APNG / GIF / JPEG / JPE / JFIF / EXR / PPM / PGM / PFM / PAM / PGX / PBM / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF

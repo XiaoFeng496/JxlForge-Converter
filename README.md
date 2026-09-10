@@ -12,6 +12,14 @@
 
 ---
 
+## 界面预览
+
+<img src="docs/images/ui_actions_zh.png" width="100%" alt="动作页：链式图像处理与实时预览">
+
+| 输入 | 输出 |
+|:---:|:---:|
+| <img src="docs/images/ui_input_zh.png" width="380" alt="输入页：缩略图列表与筛选"> | <img src="docs/images/ui_output_zh.png" width="380" alt="输出页：JXL 编码参数与输出位置"> |
+
 ## 功能特性
 
 - **支持输入格式（编码为 JXL）**：PNG / APNG / GIF / JPEG / JPE / JFIF / EXR / PPM / PGM / PFM / PAM / PGX / PBM / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF

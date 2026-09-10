@@ -12,6 +12,14 @@
 
 ---
 
+## 介面預覽
+
+<img src="docs/images/ui_actions_tw.png" width="100%" alt="動作頁：鏈式影像處理與即時預覽">
+
+| 輸入 | 輸出 |
+|:---:|:---:|
+| <img src="docs/images/ui_input_tw.png" width="380" alt="輸入頁：縮圖清單與篩選"> | <img src="docs/images/ui_output_tw.png" width="380" alt="輸出頁：JXL 編碼參數與輸出路徑"> |
+
 ## 功能特性
 
 - **支援輸入格式（編碼為 JXL）**：PNG / APNG / GIF / JPEG / JPE / JFIF / EXR / PPM / PGM / PFM / PAM / PGX / PBM / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF
