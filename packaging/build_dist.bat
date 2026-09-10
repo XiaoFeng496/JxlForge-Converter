@@ -1,100 +1,114 @@
 @echo off
+chcp 65001 >nul
+REM Switch console to UTF-8 so the Python selftest's Chinese output renders correctly.
+setlocal EnableExtensions
 REM ===========================================================================
-REM JxlForge Converter - 一键打包（one-folder, windowed）
-REM
-REM 本脚本位于仓库 packaging/ 目录，是打包流程的 canonical 版本（已入库）。
-REM 打包产物（dist/build）输出到仓库外的 JxlForge-Build，不进 git。
-REM
-REM 必须用本 spec 打包：spec 已把 jxlforge/i18n/*.json 作为数据文件带进包。
-REM 若直接用 `pyinstaller _launch_app.py` 而不带 --add-data，语言下拉会扫不到
-REM en_US / zh_TW，英文界面会整片失效（已知坑，见项目记忆）。
-REM
-REM 打包完成后会自动跑 `JxlForge Converter.exe --selftest` 做完整性自检：
-REM 漏打 i18n 等资源会让自检 FAIL 并红字报警，防止「打包漏功能」漏到用户手上。
+REM JxlForge Converter - one-click build (one-folder, windowed)
+REM Pure ASCII + CRLF. Logs every step to packaging\build_dist.log so a
+REM double-click failure is never silent.
+REM Resolution uses where/existence only (never runs python) to avoid any
+REM probe crash; the real build step below is the actual test.
+REM NOTE: goto-style control flow only (no multi-line if-blocks). A multi-line
+REM if (...) ( ... ) block whose body contains a line with parentheses (e.g.
+REM echo ... (%VAR%) ...) confuses cmd's parenthesis nesting when the condition
+REM is false, making it scan to EOF, error out, and close the window silently.
+REM PyInstaller output is streamed LIVE to the console (no redirect) so the
+REM ~1 minute build is visible and never looks frozen.
 REM ===========================================================================
+set "REPO=%~dp0.."
+set "BUILD=%~dp0..\..\JxlForge-Build"
+set "SPEC=%~dp0JxlForge Converter.spec"
+set "DIST=%BUILD%\dist\JxlForge Converter"
+set "EXE=%DIST%\JxlForge Converter.exe"
+set "OLD=%BUILD%\_dist_old_bak"
+set "LOG=%~dp0build_dist.log"
+echo [%date% %time%] ===== build_dist start ===== > "%LOG%"
+echo [%date% %time%] REPO=%REPO% >> "%LOG%"
 
-REM 仓库根目录（packaging/ 的上一级）—— 全程基于 bat 自身位置 %~dp0 推算，
-REM 不硬编码任何盘符；换台机器克隆到任意盘，构建产物会自动落在「仓库同级」目录。
-set REPO=%~dp0..
-REM 外部构建目录（与仓库同级，不在 git 内；存放 dist/build 产物）。
-REM 例：仓库若在 D:\x\JxlForge-Converter，则产物落到 D:\x\JxlForge-Build。
-set BUILD=%~dp0..\..\JxlForge-Build
-set SPEC=%~dp0JxlForge Converter.spec
-set DIST=%BUILD%\dist\JxlForge Converter
-set EXE=%DIST%\JxlForge Converter.exe
-set OLD=%BUILD%\_dist_old_bak
-REM 自记录日志：双击运行时窗口可能很快被关掉，把关键过程与 PyInstaller 真实报错
-REM 落盘到 packaging\build_dist.log，方便事后排查「为什么没打包成功」。
-set LOG=%~dp0build_dist.log
-echo [%date% %time%] ===== build_dist 启动 ===== > "%LOG%"
-
-REM 解析 Python 解释器（跨机器可移植，不再绑定作者机器 E: 盘）：
-REM   逐个候选探测「能否真正调起 PyInstaller」——优先 PATH 中的 python、
-REM   Windows Python Launcher `py -3`、回退作者固定安装 E:\Python\Python312；
-REM   探测失败（如 PATH 上那个 python 损坏）会自动跳过下一个候选。都不可用则报错退出。
-set PY=
-python -m PyInstaller --version >nul 2>&1 && set "PY=python"
+REM Resolve interpreter: prefer explicit known-good path, then py launcher,
+REM then bare python on PATH. We only TEST existence/where, never run python
+REM during resolution (a bad PATH python can crash the probe console).
+set "PY="
+if exist "E:/Python/Python312/python.exe" set "PY=E:/Python/Python312/python.exe"
 if not defined PY (
-    py -3 -m PyInstaller --version >nul 2>&1 && set "PY=py -3"
+    where py >nul 2>&1 && set "PY=py"
 )
 if not defined PY (
-    if exist "E:\Python\Python312\python.exe" (
-        E:\Python\Python312\python.exe -m PyInstaller --version >nul 2>&1 && set "PY=E:\Python\Python312\python.exe"
-    )
+    where python >nul 2>&1 && set "PY=python"
 )
-if not defined PY (
-    echo.
-    echo [FAIL] 找不到可用的 Python 解释器（需能 import PyInstaller）。
-    echo        请安装 Python 3.10+ 并加入 PATH，或安装到 E:\Python\Python312。
-    echo        也可手动编辑本脚本 PY 变量指向你的 python.exe。
-    echo        完整日志：%LOG%
-    echo [%date% %time%] [FAIL] 未解析到任何可用解释器（PATH python / py -3 / E:\Python\Python312 均 import PyInstaller 失败）>> "%LOG%"
-    pause
-    exit /b 1
-)
-echo [INFO] 使用 Python：%PY%
-echo [%date% %time%] 解析到的解释器: %PY% >> "%LOG%"
+echo [%date% %time%] interpreter=%PY% >> "%LOG%"
+if not defined PY goto :no_py
 
-REM 打包前把旧 dist 改名挪走，避免 PyInstaller COLLECT 阶段删旧目录触发
-REM safe-delete 守卫（历史实测会卡住）。rename 不算删除，安全。旧备份推到
-REM 随机名以免覆盖；长期可手动清理 _dist_old_bak* 占的空间。
+echo [INFO] Using Python: %PY%
+echo [%date% %time%] Using Python: %PY% >> "%LOG%"
+
+REM Rename old dist aside before build (not a delete; safe-delete guard safe).
 if exist "%DIST%" (
     if exist "%OLD%" move "%OLD%" "%OLD%_%RANDOM%" >nul 2>&1
     move "%DIST%" "%OLD%"
 )
 
 cd /d "%REPO%"
-echo [%date% %time%] 开始 PyInstaller ... >> "%LOG%"
-"%PY%" -m PyInstaller "%SPEC%" --noconfirm --distpath "%BUILD%\dist" --workpath "%BUILD%\build" > "%LOG%.tmp" 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo [FAIL] 打包失败，退出码 %ERRORLEVEL%
-    echo         完整日志：%LOG%
-    echo ----- PyInstaller 报错末尾（%LOG%.tmp）-----
-    powershell -NoProfile -Command "Get-Content '%LOG%.tmp' -Tail 30"
-    echo -------------------------------------------
-    copy /b "%LOG%" + "%LOG%.tmp" "%LOG%" >nul 2>&1
-    pause
-    exit /b %ERRORLEVEL%
-)
-echo [%date% %time%] PyInstaller 完成 >> "%LOG%"
-del /q "%LOG%.tmp" 2>nul
+echo.
+echo [BUILD] Running PyInstaller ... this takes about 1 minute.
+echo         The lines below are LIVE build output -- a blank pause is normal, not stuck.
+echo [%date% %time%] starting PyInstaller ... >> "%LOG%"
+"%PY%" -m PyInstaller "%SPEC%" --noconfirm --distpath "%BUILD%\dist" --workpath "%BUILD%\build"
+set "RC=%ERRORLEVEL%"
+echo [%date% %time%] PyInstaller rc=%RC% >> "%LOG%"
+if %RC% NEQ 0 goto :build_fail
 
-REM 打包后冒烟自检：验证 i18n 等资源没漏（刚那个 bug 的回归防线）。
+echo [%date% %time%] PyInstaller done >> "%LOG%"
+
 echo.
-echo [SELFTEST] 启动打包产物做完整性自检...
+echo [SELFTEST] Running packaged exe integrity check...
+echo [%date% %time%] selftest start >> "%LOG%"
+if not exist "%EXE%" goto :exe_missing
 "%EXE%" --selftest
-if %ERRORLEVEL%==0 (
-    echo.
-    echo [OK] 打包完成且自检通过
-    echo      分发包：%DIST%
-) else (
-    echo.
-    echo [FAIL] 自检未通过！分发包可能漏了运行时资源（如 i18n）。
-    echo        详见：%DIST%\selftest_report.txt
-)
+set "RC=%ERRORLEVEL%"
+echo [%date% %time%] selftest rc=%RC% >> "%LOG%"
+if %RC%==0 goto :selftest_ok
+
 echo.
-echo ===== 自检报告 =====
-if exist "%DIST%\selftest_report.txt" (type "%DIST%\selftest_report.txt") else (echo （无报告文件）)
+echo [FAIL] Self-test FAILED! Dist may miss runtime resources (e.g. i18n).
+echo        See: %DIST%\selftest_report.txt
+goto :halt
+
+:selftest_ok
+echo.
+echo [OK] Build complete and self-test passed
+echo       Dist: %DIST%
+echo.
+echo ===== Self-test report =====
+if exist "%DIST%\selftest_report.txt" (type "%DIST%\selftest_report.txt") else echo (no report file)
 echo ====================
+goto :halt
+
+:exe_missing
+echo.
+echo [FAIL] Built exe not found: %EXE%
+echo        PyInstaller may have used an unexpected output name.
+goto :halt
+
+:build_fail
+echo.
+echo [FAIL] Build failed, exit code %RC%
+echo        The PyInstaller output above shows the cause. Step log: %LOG%
+goto :halt
+
+:no_py
+echo.
+echo [FAIL] No usable Python interpreter found.
+echo        Expected E:/Python/Python312/python.exe, or py/python on PATH.
+echo        Install Python 3.10+ with PyInstaller, then retry.
+echo [%date% %time%] [FAIL] no interpreter resolved >> "%LOG%"
+set "RC=1"
+goto :halt
+
+:halt
+if not defined RC set "RC=0"
+echo.
+echo Build script finished (rc=%RC%). Press any key to close.
+echo Log: %LOG%
 pause
+exit /b %RC%

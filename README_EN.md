@@ -20,7 +20,8 @@ A **PySide6**-based GUI for [libjxl](https://github.com/libjxl/libjxl), making J
   - EXR is floating-point HDR; only header metadata is parsed, pixel thumbnails are not rendered.
 - **Encode (→ JXL)**
   - Lossy (distance) / lossless (including JPEG lossless recompression `--lossless_jpeg=1`)
-  - Advanced options: `effort` 1–10, `--faster_decoding` 0–4, custom commands
+  - Advanced parameters: compression level `effort` 1–10, faster-decode tier `--faster_decoding` 0–4
+  - Custom commands supported
 - **Decode (JXL → PNG/PNM)** and basic info view (jxlinfo)
 - **Action pipeline**: move up / move down / remove, two-line per-action layout, batch conversion
 - **Dual-queue scheduling**: tasks are split by pixel count into "large" and "small" images — very large images use all cores one at a time, while the remaining small images run in parallel with leftover cores. No idle cores and no one task dragging down the whole batch. The threshold is auto-calibrated on first launch.
