@@ -20,7 +20,7 @@ A **PySide6**-based GUI for [libjxl](https://github.com/libjxl/libjxl), making J
   - EXR is floating-point HDR; only header metadata is parsed, pixel thumbnails are not rendered.
 - **Encode (→ JXL)**
   - Lossy (distance) / lossless (including JPEG lossless recompression `--lossless_jpeg=1`)
-  - Advanced parameters: compression level `effort` 1–10, faster-decode tier `--faster_decoding` 0–4
+  - Advanced parameters: compression level `effort` 1–10, faster-decode tier `--faster_decoding` 0–4, etc.
   - Custom commands supported
 - **Decode (JXL → PNG/PNM)** and basic info view (jxlinfo)
 - **Action pipeline**: move up / move down / remove, two-line per-action layout, batch conversion
@@ -139,7 +139,7 @@ Issues / PRs are welcome. For development, keep the headless regression tests in
 git clone <your-repo-url> JxlForge-Converter
 cd JxlForge-Converter
 pip install -r requirements.txt
-python main.py          REM Or double-click run.bat / run.pyw for console-free launch
+python main.py          REM Or double-click run.bat / run.pyw (recommended) for console-free launch
 ```
 
 Build a release package:
