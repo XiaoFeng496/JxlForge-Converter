@@ -1,6 +1,6 @@
 # JxlForge Converter
 
-![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue) ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
 A **PySide6**-based GUI for [libjxl](https://github.com/libjxl/libjxl), making JPEG XL encoding / decoding a visual desktop tool.
 
@@ -8,7 +8,7 @@ A **PySide6**-based GUI for [libjxl](https://github.com/libjxl/libjxl), making J
 
 > All code in this project is written in natural language with AI assistance.
 
-> **Platform**: Pre-built binaries and testing are currently available only for **Windows**. The codebase is built on cross-platform PySide6 and cjxl/djxl, so it *should* run on macOS / Linux in principle, but it has not been packaged or verified for those platforms. On those platforms, install the dependencies and run `python main.py`.
+> **Platform**: Pre-built binaries and testing are currently available only for **Windows 10 / 11**. On Windows 10 the immersive dark title bar and rounded window corners are not available, but all other features (including the custom dark theme and system light/dark following) work normally. The codebase is built on cross-platform PySide6 and cjxl/djxl, so it *should* run on macOS / Linux in principle, but it has not been packaged or verified for those platforms. On those platforms, install the dependencies and run `python main.py`.
 
 ---
 

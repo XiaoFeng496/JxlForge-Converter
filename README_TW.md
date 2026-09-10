@@ -1,6 +1,6 @@
 # JxlForge Converter
 
-![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue) ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
 一個基於 **PySide6** 的 [libjxl](https://github.com/libjxl/libjxl) GUI，把 JPEG XL 的編碼 / 解碼做成可視化的桌面操作工具。
 
@@ -8,7 +8,7 @@
 
 > 本專案全部程式碼均以自然語言形式在 AI 輔助下完成。
 
-> **平台**：目前僅提供 **Windows** 的打包與測試。程式碼層面基於跨平台的 PySide6 與 cjxl/djxl，理論可在 macOS / Linux 執行，但未經打包與驗證；相關平台請自行安裝依賴後執行 `python main.py`。
+> **平台**：目前僅提供 **Windows 10 / 11** 的打包與測試。Windows 10 上沉浸式暗色標題欄與視窗圓角兩項視覺特性不生效，其餘功能（含自訂暗色主題、跟隨系統明暗）均正常；程式碼層面基於跨平台的 PySide6 與 cjxl/djxl，理論可在 macOS / Linux 執行，但未經打包與驗證；相關平台請自行安裝依賴後執行 `python main.py`。
 
 ---
 
