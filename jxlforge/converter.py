@@ -211,6 +211,38 @@ def get_cjxl_version():
     return banner
 
 
+def get_djxl_version():
+    """Return the djxl version banner, e.g.
+
+    ``JPEG XL decoder v0.12.0 4128790 [_AVX2_,SSE4,SSE2] {Clang 22.1.3}``
+
+    ``--version`` prints ``djxl v0.12.0 ...``; we normalize the leading
+    ``djxl `` to ``JPEG XL decoder `` so the banner matches the first line
+    emitted by running djxl with no arguments. Returns ``None`` when djxl is
+    missing or its version cannot be read.
+    """
+    path = find_tool("djxl")
+    if not path:
+        return None
+    try:
+        result = subprocess.run(
+            [path, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            creationflags=_CREATE_NO_WINDOW,
+        )
+    except (OSError, ValueError):
+        return None
+    line = (result.stdout or result.stderr or "").strip().splitlines()
+    if not line:
+        return None
+    banner = line[0].strip()
+    if banner.startswith("djxl "):
+        banner = "JPEG XL decoder " + banner[len("djxl "):]
+    return banner
+
+
 _cjxl_exr_support = None
 
 

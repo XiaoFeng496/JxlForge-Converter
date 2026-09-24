@@ -3347,6 +3347,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.status_tab, i18n.t("状态"))
         self.settings_tab = self._build_settings_tab()
         self.tabs.addTab(self.settings_tab, i18n.t("设置"))
+        # 「关于」放最后：纯展示页，无配置、不持久化，排在设置之后符合使用动线。
+        self.about_tab = self._build_about_tab()
+        self.tabs.addTab(self.about_tab, i18n.t("关于"))
         root.addWidget(self.tabs, stretch=1)
 
         # Persistent bottom bar: 转换 (left) + 停止 + 关闭 (right).
@@ -4877,6 +4880,230 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
         return widget
+
+    def _build_about_tab(self):
+        """构建「关于 / 系统信息」页：版本快照、第三方许可、诊断信息复制。
+
+        内容在构建时探测一次后即为静态（引擎与解释器版本在运行期不变；界面
+        语言切换同样按既有约定重启生效），因此不像设置页那样注册进
+        ``_apply_theme`` —— 控件继承 palette，亮/暗色自动跟随，无需额外处理。
+        """
+        import platform
+        import sys as _sys
+
+        from jxlforge import __version__ as app_version
+        from PySide6 import __version__ as pyside6_version
+        from PySide6.QtCore import __version__ as qt_version
+
+        # Pillow 属「有则用、无则降级」的可选依赖（见 processor.AVAILABLE）：
+        # 探测不到只把该行标成「未检测到」，不让整页构建失败。
+        try:
+            from PIL import Image
+            pillow_version = Image.__version__
+        except Exception:
+            pillow_version = i18n.t("未检测到")
+        missing = i18n.t("未检测到")
+        cjxl_path = converter.find_tool("cjxl")
+        djxl_path = converter.find_tool("djxl")
+        cjxl_version = converter.get_cjxl_version() or missing
+        djxl_version = converter.get_djxl_version() or missing
+        project_url = "https://github.com/XiaoFeng496/JxlForge-Converter"
+        # 显示文本去掉协议头，与用户手敲的地址条一致；跳转仍用完整 URL。
+        project_host = project_url[len("https://"):]
+
+        # 与输入 / 操作 / 状态页完全同构：整页就是一个 QWidget + QVBoxLayout，
+        # 不套 QScrollArea、不动 autoFillBackground —— 内置透明链会自然透出
+        # QTabWidget 面板色，浅色 / 深色都自动跟随。此前这里额外包了一层
+        # ScrollArea 并反复开关 autoFillBackground，反而让本页成了六页里唯一
+        # 底色异常的页面（详见本方法末尾注释）。内容量固定且不长，无需滚动。
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        # ---- 头部：程序名 / 版本 / 简介 / 作者 / 项目主页 ----
+        # 品牌名与版本号不进 i18n：项目约定是「品牌名不参与翻译」，版本更
+        # 该显示原文而非译文（避免与 tag 对不上）。
+        title = QLabel("JxlForge Converter v%s" % app_version)
+        title.setWordWrap(True)
+        layout.addWidget(title)
+        desc = QLabel(i18n.t(
+            "本程序是一个基于 cjxl / djxl 的 JPEG XL 图形界面封装，"
+            "以 GPL v3 许可证发布。"))
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(desc)
+
+        # 作者与项目主页排成两列网格：第 0 列标签、第 1 列内容。中文的
+        # 「作者：」「项目主页：」同为三个全角字符，下面的网址与作者名天然
+        # 左对齐；英文界面下两列各取「较宽的那个」，同样对齐。不用手写空格
+        # 补位，切语言也不会错位。
+        # 这两行的颜色全部跟随主题（默认黑 / 白），不写死：此前标签用
+        # #c8c8c8、链接用纯白，浅色主题下整行几乎不可见。
+        contact = QGridLayout()
+        contact.setSpacing(4)
+        # 余量全给值列：否则两列按 sizeHint 均摊多余宽度，标签列被拉到
+        # 几百像素宽，值被推到窗口中部（系统信息区同款写法）。
+        contact.setColumnStretch(1, 1)
+
+        def _contact_row(row, label_text, value_label):
+            label = QLabel(label_text)
+            label.setWordWrap(True)
+            # 不写死颜色：此前用 #c8c8c8 是为了在暗色下比 #888 亮一档，但浅
+            # 色主题下浅灰几乎看不见。跟随主题的 WindowText 才是「默认黑 /
+            # 白」，两套主题都清晰。
+            label.setStyleSheet("font-size: 11px;")
+            contact.addWidget(label, row, 0, Qt.AlignTop)
+            contact.addWidget(value_label, row, 1, Qt.AlignTop)
+
+        def _value_label(html, allow_select=True):
+            label = QLabel(html)
+            label.setOpenExternalLinks(True)
+            # 允许在网址上用左键拖选文本（想手动复制片段时不必开右键菜单），
+            # 同时保留点击打开主页的能力。
+            label.setTextInteractionFlags(
+                Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse
+                if allow_select else Qt.LinksAccessibleByMouse)
+            # 链接同样跟随主题默认的黑 / 白，不再硬编码纯白（浅色主题下会
+            # 整行消失），也不再靠 span 内联死色。富文本锚点的取色来源是
+            # QPalette::Link，把它对齐到 WindowText 即可，主题切换后随
+            # palette 自动跟随。
+            pal = label.palette()
+            normal = pal.color(QPalette.WindowText)
+            pal.setColor(QPalette.Link, normal)
+            pal.setColor(QPalette.LinkVisited, normal)
+            label.setPalette(pal)
+            return label
+
+        def _copy_project_url():
+            try:
+                QApplication.clipboard().setText(project_url)
+            except Exception:
+                self.statusBar().showMessage(i18n.t("复制失败，请稍后重试。"))
+                return
+            self.statusBar().showMessage(i18n.t("已复制项目主页网址"), 5000)
+
+        # 作者名不进 i18n：人名按项目约定保持原文（与品牌名同规）。
+        _contact_row(0, i18n.t("作者："), _value_label("Xiaofeng496"))
+        home = _value_label('<a href="%s">%s</a>'
+                            % (project_url, project_host))
+        # Qt 自带的链接右键菜单文案不随界面语言切换（简中下会露英语），
+        # 因此自己挂一个走 i18n 的动作，文案与复制行为都可控。
+        home.setContextMenuPolicy(Qt.ActionsContextMenu)
+        copy_url_act = QAction(i18n.t("复制网址"), home)
+        copy_url_act.setStatusTip(i18n.t("把项目主页网址复制到剪贴板。"))
+        copy_url_act.triggered.connect(_copy_project_url)
+        home.addAction(copy_url_act)
+        _contact_row(1, i18n.t("项目主页："), home)
+        layout.addLayout(contact)
+
+        def _section(title_text):
+            g = QGroupBox(title_text)
+            box = QVBoxLayout(g)
+            box.setContentsMargins(10, 6, 10, 6)
+            box.setSpacing(8)
+            return g, box
+
+        # ---- 系统信息 ----
+        sys_group, sys_box = _section(i18n.t("系统信息"))
+        info_grid = QGridLayout()
+        info_grid.setSpacing(8)
+        # 左列留固定对齐宽度，右列吃掉余量且允许换行——cjxl/djxl 的 banner
+        # 带 SIMD 与编译器信息（如 "[_AVX2_,SSE4,SSE2] {Clang 22.1.3}"），
+        # 单行显示会把页面顶宽。
+        info_grid.setColumnMinimumWidth(0, 96)
+        info_grid.setColumnStretch(1, 1)
+
+        def _info_row(row, key_text, value_text):
+            key_label = QLabel(key_text)
+            value_label = QLabel(value_text)
+            value_label.setWordWrap(True)
+            # 允许用鼠标选中长版本串（尤其是引擎路径）直接复制。
+            value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            info_grid.addWidget(key_label, row, 0, Qt.AlignTop)
+            info_grid.addWidget(value_label, row, 1, Qt.AlignTop)
+
+        _info_row(0, i18n.t("程序版本"), "%s" % app_version)
+        _info_row(1, i18n.t("Python"), _sys.version.split()[0])
+        _info_row(2, i18n.t("PySide6"), pyside6_version)
+        _info_row(3, i18n.t("Qt"), qt_version)
+        _info_row(4, i18n.t("Pillow"), pillow_version)
+        _info_row(5, i18n.t("cjxl"), cjxl_version)
+        _info_row(6, i18n.t("djxl"), djxl_version)
+        # 不列 jxlinfo：它没有任何自报版本的入口（--version 会被当输入文件名，
+        # 处理真实 JXL 时输出的首行同样不带 banner），界面上的版本号只能从
+        # version.h / cjxl banner 借来，是推测值；且未安装 jxlinfo 时也会显示
+        # 版本号，反而掩盖真相。它的存在与否只影响 JPEG 校验速度，排障时看
+        # 诊断快照里的 "jxlinfo path" 即可。
+        _info_row(7, i18n.t("操作系统"), platform.platform())
+        _info_row(8, i18n.t("界面语言"), i18n.current_language())
+        sys_box.addLayout(info_grid)
+
+        # ---- 第三方依赖与许可证 ----
+        # 只列许可名、不内嵌全文：全文已随包分发（LICENSE），界面里再嵌一份
+        # 既难读，又可能与正式文本产生版本不一致。
+        lic_group, lic_box = _section(i18n.t("第三方依赖与许可证"))
+        licenses = QLabel(
+            i18n.t("PySide6（Qt 6）：LGPL v3") + "\n"
+            + i18n.t("Pillow：MIT-CMU / HPND") + "\n"
+            + i18n.t("libjxl（cjxl / djxl）：BSD 3-Clause") + "\n"
+            + i18n.t("JxlForge Converter：GPL v3"))
+        licenses.setWordWrap(True)
+        licenses.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lic_box.addWidget(licenses)
+        lic_note = QLabel(i18n.t("许可证全文见随包 LICENSE 文件。"))
+        lic_note.setStyleSheet("color: #888; font-size: 11px;")
+        lic_box.addWidget(lic_note)
+
+        layout.addWidget(sys_group)
+        layout.addWidget(lic_group)
+
+        # ---- 诊断信息复制 ----
+        # ⚠️ 诊断文本刻意不翻译：键名固定为英文，这样不同语言界面导出的快照
+        # 完全一致，报障时可以逐行对照，不受界面语言影响。
+        self._diagnostic_lines = [
+            "JxlForge Converter %s" % app_version,
+            "Python %s" % (_sys.version.split()[0],),
+            "PySide6 %s / Qt %s" % (pyside6_version, qt_version),
+            "Pillow %s" % pillow_version,
+            "cjxl %s" % cjxl_version,
+            "djxl %s" % djxl_version,
+            "cjxl path %s" % (cjxl_path or "not found",),
+            "djxl path %s" % (djxl_path or "not found",),
+            # jxlinfo 不在界面列（见上方说明），但排障要看它走的是哪一份，
+            # 故诊断快照里仍记可执行文件路径。
+            "jxlinfo path %s" % (converter.find_jxlinfo() or "not found",),
+            "OS %s" % platform.platform(),
+            "UI language %s" % i18n.current_language(),
+        ]
+        btn_row = QHBoxLayout()
+        copy_btn = QPushButton(i18n.t("复制诊断信息"))
+        copy_btn.setToolTip(i18n.t(
+            "把本页的版本与引擎路径拼成一段文本复制到剪贴板，反馈问题时可直接粘贴。"))
+        # clicked 会带一个 bool 实参，用 lambda 吞掉（项目既有约定）。
+        copy_btn.clicked.connect(lambda: self._copy_diagnostic_info())
+        btn_row.addWidget(copy_btn)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
+
+        layout.addStretch(1)
+        return widget
+
+    def _copy_diagnostic_info(self):
+        """把运行环境快照写入剪贴板（文本已在构建关于页时备好）。
+
+        剪贴板不可用（无剪贴板后端等）时只在状态栏提示，不弹窗打扰；
+        用户此时仍可手动从「系统信息」区选中复制。
+        """
+        lines = getattr(self, "_diagnostic_lines", None) or []
+        if not lines:
+            return
+        try:
+            QApplication.clipboard().setText("\n".join(lines))
+        except Exception:
+            self.statusBar().showMessage(i18n.t("复制失败，请稍后重试。"))
+            return
+        self.statusBar().showMessage(i18n.t("已复制到剪贴板"), 5000)
 
     def _on_cpu_priority_changed(self, _index):
         """Persist the CPU-priority choice whenever the user changes it."""
