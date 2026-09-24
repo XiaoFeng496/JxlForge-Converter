@@ -134,13 +134,13 @@ def run_job(src_size, dst_size, out_fmt="jxl", discard=True, delete_original=Fal
     with mock.patch.object(mw.ConvertWorker, "_encode_source",
                            return_value=(True, "ok", "tag")):
         res = wk._process_job(1, src, dst, True)
-    ok, message, tag, in_size, out_size, stopped, discarded = res
+    ok, message, tag, in_size, out_size, stopped, discarded, _warnings = res
     return src, dst, res, wk
 
 
 # 5) JXL 输出且更大 → 丢弃
 src, dst, res, wk = run_job(100, 200, out_fmt="jxl", discard=True)
-ok, message, tag, in_size, out_size, stopped, discarded = res
+ok, message, tag, in_size, out_size, stopped, discarded, _warnings = res
 check("JXL 更大：ok=True", ok is True)
 check("JXL 更大：discarded=True", discarded is True)
 check("JXL 更大：输出文件已删除", not os.path.exists(dst))
@@ -149,13 +149,13 @@ check("JXL 更大：返回 out_size=0", out_size == 0)
 
 # 6) JXL 输出且更小 → 保留
 src, dst, res, wk = run_job(200, 100, out_fmt="jxl", discard=True)
-ok, message, tag, in_size, out_size, stopped, discarded = res
+ok, message, tag, in_size, out_size, stopped, discarded, _warnings = res
 check("JXL 更小：discarded=False", discarded is False)
 check("JXL 更小：输出文件保留", os.path.exists(dst))
 
 # 7) PNG 输出且更大 → 不丢弃（选项对非 JXL 无效）
 src, dst, res, wk = run_job(100, 200, out_fmt="png", discard=True)
-ok, message, tag, in_size, out_size, stopped, discarded = res
+ok, message, tag, in_size, out_size, stopped, discarded, _warnings = res
 check("PNG 更大：discarded=False（非 JXL 不适用）", discarded is False)
 check("PNG 更大：输出文件保留", os.path.exists(dst))
 
@@ -163,14 +163,14 @@ check("PNG 更大：输出文件保留", os.path.exists(dst))
 # 8a) 丢弃时：源不被登记（不删源）
 src, dst, res, wk = run_job(100, 200, out_fmt="jxl", discard=True,
                             delete_original=True)
-ok, message, tag, in_size, out_size, stopped, discarded = res
+ok, message, tag, in_size, out_size, stopped, discarded, _warnings = res
 wk._record_result(1, src, ok, message, in_size, out_size, tag, discarded)
 check("丢弃+删原：源未被登记（不删源）", src not in wk._ok_sources)
 
 # 8b) 保留时：源被登记（将移回收站）
 src, dst, res, wk = run_job(200, 100, out_fmt="jxl", discard=True,
                             delete_original=True)
-ok, message, tag, in_size, out_size, stopped, discarded = res
+ok, message, tag, in_size, out_size, stopped, discarded, _warnings = res
 wk._record_result(1, src, ok, message, in_size, out_size, tag, discarded)
 check("保留+删原：源被登记（将移回收站）", src in wk._ok_sources)
 

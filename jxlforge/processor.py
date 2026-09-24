@@ -242,6 +242,23 @@ def _normalize_to_8bit(img):
     return img
 
 
+def is_high_bit_depth(img):
+    """返回 ``img`` 的高位深标签（``'16-bit'`` / ``'32-bit'`` / ``'浮点'``），非高位深返回 None。
+
+    与 :func:`_normalize_to_8bit` 覆盖的模式一致（``I;16*`` / ``I`` / ``F``）。这些
+    模式经 :func:`apply_actions` 会按比例降采样到 8-bit；经 Pillow 中转保存
+    （如 16-bit TIFF → 临时 PNG）也会落到 8-bit——都是**不可逆**的。状态页据此提醒用户。
+    """
+    mode = getattr(img, "mode", None)
+    if mode in ("I;16", "I;16B", "I;16L", "I;16N"):
+        return "16-bit"
+    if mode == "I":
+        return "32-bit"
+    if mode == "F":
+        return "浮点"
+    return None
+
+
 def apply_actions(image, actions):
     """Apply each action in ``actions`` (in order) to ``image`` and return the
     resulting ``PIL.Image`` (mode RGBA)."""

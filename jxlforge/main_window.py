@@ -8977,9 +8977,11 @@ class ConvertWorker(QThread):
         os.close(fd)
         return path
 
-    def _process_with_actions(self, src, out_path, out_is_jxl, actions, tmp_files):
+    def _process_with_actions(self, src, out_path, out_is_jxl, actions, tmp_files, warnings=None):
         """Open ``src`` (decoding .jxl via djxl first), run the Pillow actions,
         then write ``out_path`` as JXL (cjxl) or PNG. Returns ``(success, message)``.
+
+        ``warnings`` 为可选 list，命中高位深降采样时追加一条状态页提醒文案。
         """
         from PIL import Image  # local import; guarded by processor.AVAILABLE
 
@@ -8992,6 +8994,13 @@ class ConvertWorker(QThread):
             img = Image.open(tmp_src)
         else:
             img = Image.open(src)
+        # 高位深输入（I;16 / I / F）经 apply_actions 会被不可逆降采样到 8-bit。
+        _depth = processor.is_high_bit_depth(img)
+        if _depth and warnings is not None:
+            warnings.append(
+                i18n.t("输入为 %s 高位深图像，已降采样至 8-bit，高位深（HDR）数据不可逆丢失。")
+                % _depth
+            )
 
         img = processor.apply_actions(img, actions)
 
@@ -9021,7 +9030,7 @@ class ConvertWorker(QThread):
         ok, msg, err = converter._run(tokens, priority=self.priority)
         return ok, msg, converter.parse_encoding_tag(err)
 
-    def _encode_source(self, src, out_path, tmp_files):
+    def _encode_source(self, src, out_path, tmp_files, warnings=None):
         """Encode a non-.jxl source into ``out_path`` via cjxl.
 
         cjxl's built-in reader accepts PNG/APNG/GIF/JPEG/PPM/PFM/PAM/PGX (and
@@ -9045,6 +9054,13 @@ class ConvertWorker(QThread):
             try:
                 from PIL import Image
                 img = Image.open(src)
+                # 高位深输入经 Pillow 保存 PNG 会不可逆降采样到 8-bit。
+                _depth = processor.is_high_bit_depth(img)
+                if _depth and warnings is not None:
+                    warnings.append(
+                        i18n.t("输入为 %s 高位深图像，已降采样至 8-bit，高位深（HDR）数据不可逆丢失。")
+                        % _depth
+                    )
                 icc = img.info.get("icc_profile")
                 if icc:
                     img.save(out_path, "PNG", icc_profile=icc)
@@ -9068,7 +9084,7 @@ class ConvertWorker(QThread):
             # HEIC/HEIF 需要 pi-heif；缺失时直接给精准提示，不浪费失败尝试。
             if ext in _HEIF_EXTS and not _ensure_heif_opener():
                 return False, i18n.t("HEIC/HEIF 需要安装 pi-heif 才能转换：pip install pi-heif"), ""
-            return self._encode_via_pillow(src, out_path, tmp_files)
+            return self._encode_via_pillow(src, out_path, tmp_files, warnings=warnings)
         ok, message, tag = converter.encode(src, out_path, **self._encode_kwargs())
         if ok:
             return True, message, tag
@@ -9076,12 +9092,14 @@ class ConvertWorker(QThread):
         # 走 Pillow 中转——这就是“通用兜底”，未来 cjxl 支持新格式也不会退化。
         return self._encode_via_pillow(src, out_path, tmp_files, native_error=message)
 
-    def _encode_via_pillow(self, src, out_path, tmp_files, native_error=""):
+    def _encode_via_pillow(self, src, out_path, tmp_files, native_error="", warnings=None):
         """用 Pillow 解码 ``src`` 为临时 PNG（保留 ICC），再交给 cjxl 编码。
 
         用于 cjxl 原生读不了的输入（BMP/TIFF/WebP/AVIF，见 _PILLOW_TRANSIT_EXTS）
         或原生编码失败后的兜底。Pillow 解码失败时返回既有提示（cjxl 同样读不了
         这些格式，故无需再试 cjxl）。
+
+        ``warnings`` 为可选 list，命中高位深降采样时追加一条状态页提醒文案。
         """
         if not processor.AVAILABLE:
             base = (native_error + "\n    ") if native_error else ""
@@ -9090,6 +9108,13 @@ class ConvertWorker(QThread):
             from PIL import Image
             _ensure_heif_opener()  # 让 Pillow 能识别 HEIC/HEIF（若已装 pi-heif）
             img = Image.open(src)
+            # 高位深输入（如 16-bit TIFF）经 Pillow 中转会不可逆降采样到 8-bit。
+            _depth = processor.is_high_bit_depth(img)
+            if _depth and warnings is not None:
+                warnings.append(
+                    i18n.t("输入为 %s 高位深图像，已降采样至 8-bit，高位深（HDR）数据不可逆丢失。")
+                    % _depth
+                )
             tmp_png = self._make_temp(".png")
             tmp_files.append(tmp_png)
             icc = img.info.get("icc_profile")
@@ -9206,12 +9231,12 @@ class ConvertWorker(QThread):
                 try:
                     res = fut.result()
                 except Exception as exc:
-                    res = (False, i18n.t("处理出错：%s") % exc, 0, 0, True)
-                ok, message, tag, in_size, out_size, stopped, discarded = res
+                    res = (False, i18n.t("处理出错：%s") % exc, "", 0, 0, True, False, [])
+                ok, message, tag, in_size, out_size, stopped, discarded, warnings = res
                 if stopped:
                     continue
                 self._record_result(idx, src, ok, message, in_size,
-                                   out_size, tag, discarded)
+                                   out_size, tag, discarded, warnings)
             submit_next()
         if self._stopped:
             for fut in list(futures):
@@ -9226,10 +9251,10 @@ class ConvertWorker(QThread):
             return
         idx, job = indexed_job
         res = self._process_job(idx, *job)
-        ok, message, tag, in_size, out_size, stopped, discarded = res
+        ok, message, tag, in_size, out_size, stopped, discarded, warnings = res
         if stopped:
             return
-        self._record_result(idx, job[0], ok, message, in_size, out_size, tag, discarded)
+        self._record_result(idx, job[0], ok, message, in_size, out_size, tag, discarded, warnings)
 
     def _effective_cores(self):
         """返回有效核心数（'auto' -> 本机逻辑核心数）。"""
@@ -9299,11 +9324,11 @@ class ConvertWorker(QThread):
 
     def _process_job(self, index, src, out_path, out_is_jxl):
         """Process a single job synchronously (in its own thread) and return a
-        result tuple ``(ok, message, tag, in_size, out_size, stopped)``.
+        result tuple ``(ok, message, tag, in_size, out_size, stopped, discarded, warnings)``.
 
         ``stopped`` is True when the job failed only because the user pressed 停止
         mid-run (the child cjxl/djxl was terminated); such jobs are not counted as
-        errors by the caller.
+        errors by the caller. ``warnings`` 是命中高位深降采样等时收集的状态页提醒文案。
         """
         try:
             in_size = _safe_getsize(src)
@@ -9311,13 +9336,14 @@ class ConvertWorker(QThread):
                 i18n.t("正在处理 (%d/%d)：%s") % (index, self._total, os.path.basename(src))
             )
             tmp_files = []
+            warnings = []
             try:
                 if self.custom_cmd:
                     # 自定义命令模式：跳过 Pillow 动作与自动拼装，直接执行用户命令。
                     ok, message, tag = self._run_custom_command(src, out_path)
                 elif self.actions:
                     ok, message, tag = self._process_with_actions(
-                        src, out_path, out_is_jxl, self.actions, tmp_files
+                        src, out_path, out_is_jxl, self.actions, tmp_files, warnings
                     )
                 elif src.lower().endswith(".jxl"):
                     if out_is_jxl:
@@ -9333,7 +9359,9 @@ class ConvertWorker(QThread):
                         )
                         tag = ""
                 else:
-                    ok, message, tag = self._encode_source(src, out_path, tmp_files)
+                    ok, message, tag = self._encode_source(
+                        src, out_path, tmp_files, warnings
+                    )
             finally:
                 for t in tmp_files:
                     try:
@@ -9343,7 +9371,7 @@ class ConvertWorker(QThread):
                         pass
             # 若运行过程中被中止，子进程被杀会返回失败；标记为 stopped 不计入统计。
             if (not ok) and self._stopped:
-                return (False, message, "", in_size, 0, True, False)
+                return (False, message, "", in_size, 0, True, False, warnings)
             out_size = _safe_getsize(out_path) if ok else 0
             discarded = False
             # 编码结果更大时丢弃输出（保留原文件）：仅 JXL 输出适用。
@@ -9374,18 +9402,19 @@ class ConvertWorker(QThread):
                     self.log_signal.emit(
                         i18n.t("保持时间戳失败（已忽略）：%s —— %s") % (out_path, exc)
                     )
-            return (ok, message, tag, in_size, (0 if discarded else out_size), False, discarded)
+            return (ok, message, tag, in_size, (0 if discarded else out_size), False, discarded, warnings)
         except Exception as exc:
             stopped = self._stopped
-            return (False, i18n.t("处理出错：%s") % exc, "", in_size, 0, stopped, False)
+            return (False, i18n.t("处理出错：%s") % exc, "", in_size, 0, stopped, False, [])
 
     def _record_result(self, index, src, ok, message, in_size, out_size, tag,
-                       discarded=False):
+                       discarded=False, warnings=None):
         """Update running statistics and emit the per-file log block.
 
         The '>>> [n/m] path' header and the size/failure line are emitted here
         together at job completion (the orchestrator thread), so each file's two
         lines stay adjacent even under parallel execution — no scrambled order.
+        ``warnings`` 里的每条提醒缩进对齐到状态页格式、紧跟本文件日志块。
         """
         self.log_signal.emit(">>> [%d/%d] %s" % (index, self._total, src))
         self._stat_processed += 1
@@ -9409,6 +9438,9 @@ class ConvertWorker(QThread):
         else:
             self._stat_err += 1
             self.log_signal.emit(i18n.t("处理失败：%s") % message)
+        # 高位深降采样提醒：紧跟本文件日志块，缩进对齐（与 _format_size_change 同款 tab）。
+        for _w in (warnings or []):
+            self.log_signal.emit("\t" + _w)
 
 
 class ActionParamDialog(QDialog):

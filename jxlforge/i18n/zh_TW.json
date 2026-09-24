@@ -501,5 +501,6 @@
     "PBM 宽高非法": "PBM 寬高非法",
     "PBM 像素数据不完整": "PBM 像素數據不完整",
     "图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有文件 (*.*)": "圖像檔案 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有檔案 (*.*)",
-    "当前 libjxl 构建不支持 EXR（OpenEXR）输入，无法转换为 JXL。请改用支持 EXR 的 libjxl 版本，或将 EXR 先转为 PNG/TIFF。": "目前的 libjxl 建置不支援 EXR（OpenEXR）輸入，無法轉換為 JXL。請改用支援 EXR 的 libjxl 版本，或將 EXR 先轉為 PNG/TIFF。"
+    "当前 libjxl 构建不支持 EXR（OpenEXR）输入，无法转换为 JXL。请改用支持 EXR 的 libjxl 版本，或将 EXR 先转为 PNG/TIFF。": "目前的 libjxl 建置不支援 EXR（OpenEXR）輸入，無法轉換為 JXL。請改用支援 EXR 的 libjxl 版本，或將 EXR 先轉為 PNG/TIFF。",
+    "输入为 %s 高位深图像，已降采样至 8-bit，高位深（HDR）数据不可逆丢失。": "輸入為 %s 高位深影像，已降採樣至 8-bit，高位深（HDR）資料不可逆遺失。"
 }
