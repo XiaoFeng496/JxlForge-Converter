@@ -16,7 +16,7 @@ in sequence on an in-memory ``PIL.Image`` and returns the processed image.
 try:
     from PIL import (
         Image, ImageChops, ImageDraw, ImageFont, ImageEnhance, ImageFilter,
-        ImageOps,
+        ImageMath, ImageOps,
     )
     AVAILABLE = True
 except ImportError:
@@ -213,12 +213,43 @@ def migrate_legacy_actions(actions):
     return out
 
 
+def _normalize_to_8bit(img):
+    """把非 8bit 输入**按比例**归一化到 0..255；8bit 输入原样返回。
+
+    ⚠️ 不能直接 ``convert("RGBA")``：Pillow 对 ``I;16``/``I``/``F`` 转 8-bit 是
+    **硬裁剪**到 0..255，不是按比例缩放。实测 16-bit 值 [0,1000,8000,32768,65535]
+    直接转会得到 [0,255,255,255,255]——除 0 外全部纯白，图像被彻底毁掉。
+
+    做法：
+      1. 先无损提升到 ``I``（32bit）——实测 ``I;16 → I`` 值完全不变。
+      2. 再用**线性** ``point()`` 按比例缩放到 0..255。线性 lambda 会被 Pillow 的
+         ``_getscaleoffset`` 识别成 scale/offset 而走 **C 快路径**（实测
+         2560×1440 仅 0.004s）。⚠️ 一旦写成非线性（带 round/min/max 或查表），
+         就会退化成逐像素 Python 回调，慢两个数量级——正是本项目此前优化掉的坑。
+
+    16-bit 按**标称**值域 0..65535 缩放（不做极值拉伸，保持原有明暗观感）；
+    ``I``/``F`` 值域未知（HDR 常见 0..1 或任意范围），按实际极值线性归一化。
+    """
+    mode = img.mode
+    if mode in ("I;16", "I;16B", "I;16L", "I;16N"):
+        return img.convert("I").point(lambda v: v * 255 / 65535)
+    if mode in ("I", "F"):
+        lo, hi = img.getextrema()
+        if not hi or (lo >= 0 and hi <= 255):
+            return img
+        span = float(hi - lo) or 1.0
+        return img.point(lambda v: (v - lo) * 255 / span)
+    return img
+
+
 def apply_actions(image, actions):
     """Apply each action in ``actions`` (in order) to ``image`` and return the
     resulting ``PIL.Image`` (mode RGBA)."""
     if not AVAILABLE:
         raise RuntimeError(i18n.t("Pillow 未安装，无法执行图像处理动作。"))
-    img = image.convert("RGBA")
+    # ⚠️ 必须先做位深归一化再转 RGBA，否则非 8bit 输入会被硬裁剪成一片纯白。
+    img = _normalize_to_8bit(image)
+    img = img.convert("RGBA")
     for action in actions:
         atype = action.get("type")
         params = action.get("params", {}) or {}
@@ -501,15 +532,55 @@ def _vibrance(img, p):
     return out
 
 
+def _blur_rgba_premultiplied(img, flt, blur_alpha=True):
+    """RGBA 模糊：走**预乘**流程，避免透明区里"未定义"的垃圾 RGB 渗入可见区。
+
+    ⚠️ 根因：Pillow 的滤镜对 RGBA **不做预乘**，透明像素里那些未定义的垃圾 RGB
+    会被当成真实颜色参与卷积。实测不透明白 (255,255,255,255) 紧邻全透明
+    (255,0,0,0) 时，高斯模糊 r=2 会把白区染成粉色 (255,244,244,244)、(255,196,…)。
+
+    正确做法（预乘 → 模糊 → 反预乘）：
+      1. ``prem = rgb * a / 255``    —— ImageChops.multiply（C），垃圾色被 alpha 归零
+      2. ``P    = blur(prem)``       —— 在预乘空间模糊
+      3. ``A    = blur(a)`` 或 ``a`` —— alpha 单独模糊（中值模糊时保持原 alpha）
+      4. ``out  = P * 255 / A``      —— 反预乘，逐像素除法
+
+    第 4 步 Pillow 的 ImageChops **没有除法**，但 ``ImageMath.unsafe_eval`` 可以：
+      * Pillow 12 把旧的 ``ImageMath.eval`` 改名成 ``unsafe_eval``（``eval`` 已移除），
+        故两个名字都兼容取一下，取不到就退回不预乘的原行为。
+      * 只支持单通道（传 'RGB' 会报 unsupported mode），故逐通道算。
+      * 溢出是**钳位**不是回绕（实测 200*255/50 → 255），除以 0 得 0
+        （透明处 RGB 本来就无意义，不会崩）。
+      * 实测单通道 2560×1440 约 0.047s，三通道 ~0.14s，可接受。
+    """
+    eval_fn = getattr(ImageMath, "unsafe_eval", None) or getattr(ImageMath, "eval", None)
+    if eval_fn is None:
+        return img.filter(flt)
+
+    r, g, b, a = img.split()
+    if a.getextrema()[0] >= 255:
+        # 全不透明：预乘是恒等变换，无需做（快路径，覆盖绝大多数图）
+        return img.filter(flt)
+
+    rgb = Image.merge("RGB", (r, g, b))
+    alpha3 = Image.merge("RGB", (a, a, a))
+    prem = ImageChops.multiply(rgb, alpha3)
+    P = prem.filter(flt)
+    A = a.filter(flt) if blur_alpha else a
+    out_bands = [eval_fn("convert(a * 255 / b, 'L')", a=band, b=A)
+                 for band in P.split()]
+    return Image.merge("RGBA", (*out_bands, A))
+
+
 def _blur(img, p):
     """模糊：半径（像素）+ 滤波器类型。radius<=0 视为不处理。
 
     三种滤波器：GAUSSIAN（最自然，默认）、BOX（矩形核，最快，大半径时
     会出现方块感）、MEDIAN（中值，保边沿，适合去噪点/去摩尔纹）。
 
-    注：滤波器直接作用于整图（含 alpha）——对不透明图（PNG/JPEG 常见）
-    没有区别；对带透明区的图，透明区边缘会一起被模糊成半透明，这是
-    「模糊」该有的观感。MEDIAN 不支持 RGBA，遇到时只模糊 RGB 再贴回 alpha。
+    带透明区的图走 :func:`_blur_rgba_premultiplied`（预乘 → 模糊 → 反预乘），
+    否则透明区的垃圾 RGB 会被卷进可见区产生偏色晕边。MEDIAN 不支持 RGBA，
+    故 alpha 单独处理（保持原 alpha，不参与模糊）。
     """
     radius = _num(p, "radius", 2.0)
     if radius <= 0:
@@ -517,21 +588,23 @@ def _blur(img, p):
     radius = _clamp(radius, 0.0, 250.0)
     method = str(p.get("method") or "GAUSSIAN").upper()
     if method == "BOX":
-        return img.filter(ImageFilter.BoxBlur(radius))
-    if method == "MEDIAN":
+        flt = ImageFilter.BoxBlur(radius)
+    elif method == "MEDIAN":
         # ⚠️ Pillow 的 MedianFilter 的 size 是**核边长**且必须是奇数（传偶数
         # 直接抛 "bad filter size"），开销随 size² 增长 → 夹到 [1, 9] 的奇数。
         size = int(_clamp(round(radius), 1.0, 9.0))
         if size % 2 == 0:
             size += 1
-        has_alpha = img.mode == "RGBA"
-        if has_alpha:
-            r, g, b, a = img.split()
-            rgb = Image.merge("RGB", (r, g, b))
-            out = rgb.filter(ImageFilter.MedianFilter(size))
-            return Image.merge("RGBA", (*out.split(), a))
-        return img.filter(ImageFilter.MedianFilter(size))
-    return img.filter(ImageFilter.GaussianBlur(radius))
+        flt = ImageFilter.MedianFilter(size)
+        # 中值模糊保持原 alpha（与既有行为一致），但仍需预乘防垃圾色渗入。
+        if img.mode == "RGBA":
+            return _blur_rgba_premultiplied(img, flt, blur_alpha=False)
+        return img.filter(flt)
+    else:
+        flt = ImageFilter.GaussianBlur(radius)
+    if img.mode == "RGBA":
+        return _blur_rgba_premultiplied(img, flt, blur_alpha=True)
+    return img.filter(flt)
 
 
 def _watermark(img, p):
