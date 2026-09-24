@@ -500,5 +500,6 @@
     "PBM 头缺少宽高": "PBM 頭缺少寬高",
     "PBM 宽高非法": "PBM 寬高非法",
     "PBM 像素数据不完整": "PBM 像素數據不完整",
-    "图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有文件 (*.*)": "圖像檔案 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有檔案 (*.*)"
+    "图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有文件 (*.*)": "圖像檔案 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有檔案 (*.*)",
+    "当前 libjxl 构建不支持 EXR（OpenEXR）输入，无法转换为 JXL。请改用支持 EXR 的 libjxl 版本，或将 EXR 先转为 PNG/TIFF。": "目前的 libjxl 建置不支援 EXR（OpenEXR）輸入，無法轉換為 JXL。請改用支援 EXR 的 libjxl 版本，或將 EXR 先轉為 PNG/TIFF。"
 }

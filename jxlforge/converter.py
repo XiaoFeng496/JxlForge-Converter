@@ -211,6 +211,45 @@ def get_cjxl_version():
     return banner
 
 
+_cjxl_exr_support = None
+
+
+def cjxl_supports_exr():
+    """Return True iff the resolved cjxl build can read OpenEXR (.exr) input.
+
+    OpenEXR is NOT compiled into every libjxl build. The official Windows build
+    of libjxl v0.12.0 (and many others) ships a cjxl *without* an EXR decoder:
+    its ``--help`` input-format list omits EXR, the binary contains no "exr"
+    string, and feeding a real .exr yields "Getting pixel data failed." We detect
+    by scanning ``cjxl --help`` for an EXR mention; when absent we treat EXR as
+    unsupported so the UI shows a precise hint instead of a cryptic failure.
+    The result is cached for the process lifetime.
+    """
+    global _cjxl_exr_support
+    if _cjxl_exr_support is not None:
+        return _cjxl_exr_support
+    exe = find_tool("cjxl")
+    if not exe:
+        _cjxl_exr_support = False
+        return False
+    try:
+        result = subprocess.run(
+            [exe, "--help"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+            creationflags=_CREATE_NO_WINDOW,
+            timeout=15,
+        )
+        out = (result.stdout or "") + (result.stderr or "")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        out = ""
+    supported = "exr" in out.lower()
+    _cjxl_exr_support = supported
+    return supported
+
+
 def build_args(
     input_path,
     output_path,

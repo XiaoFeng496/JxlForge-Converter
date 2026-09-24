@@ -9024,8 +9024,10 @@ class ConvertWorker(QThread):
     def _encode_source(self, src, out_path, tmp_files):
         """Encode a non-.jxl source into ``out_path`` via cjxl.
 
-        cjxl's built-in reader only accepts PNG/APNG/GIF/JPEG/EXR/PPM/PFM/PAM/
-        PGX (and JXL). Formats like WebP/BMP/TIFF are NOT readable by cjxl, which
+        cjxl's built-in reader accepts PNG/APNG/GIF/JPEG/PPM/PFM/PAM/PGX (and
+        JXL) on this build; EXR is gated behind cjxl_supports_exr() because many
+        builds ship cjxl without an EXR decoder. Formats like WebP/BMP/TIFF are
+        NOT readable by cjxl, which
         then fails with "Getting pixel data failed". As a fallback we decode
         such a source with Pillow into a temporary PNG — preserving the embedded
         ICC profile so colors stay accurate — and re-encode that.
@@ -9055,6 +9057,13 @@ class ConvertWorker(QThread):
         # cjxl 原生读不了的格式（BMP/TIFF/WebP/AVIF/ICO，HEIC/HEIF 需 pi-heif）：
         # 直接走 Pillow 中转，跳过注定失败的 cjxl 原生尝试（集合见 _PILLOW_TRANSIT_EXTS）。
         ext = os.path.splitext(src)[1].lower()
+        if ext == ".exr":
+            # EXR 是浮点 HDR 格式。本机常见 libjxl 构建并未编译 OpenEXR 解码器：
+            # cjxl 读 EXR 会报 "Getting pixel data failed."，Pillow 也打不开。先探测，
+            # 不支持时立即给精准提示，避免一次注定失败的 cjxl 调用。
+            if not converter.cjxl_supports_exr():
+                return False, i18n.t("当前 libjxl 构建不支持 EXR（OpenEXR）输入，无法转换为 JXL。请改用支持 EXR 的 libjxl 版本，或将 EXR 先转为 PNG/TIFF。"), ""
+            return converter.encode(src, out_path, **self._encode_kwargs())
         if ext in _PILLOW_TRANSIT_EXTS:
             # HEIC/HEIF 需要 pi-heif；缺失时直接给精准提示，不浪费失败尝试。
             if ext in _HEIF_EXTS and not _ensure_heif_opener():

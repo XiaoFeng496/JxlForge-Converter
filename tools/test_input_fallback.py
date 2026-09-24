@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Headless tests for input-format routing in ConvertWorker._encode_source.
 
-cjxl's native reader only accepts PNG/APNG/GIF/JPEG/EXR/PPM/PFM/PAM/PGX/JXL.
+cjxl's native reader accepts PNG/APNG/GIF/JPEG/PPM/PFM/PAM/PGX/JXL on this build;
+EXR is gated behind cjxl_supports_exr() (many builds lack an EXR decoder).
 Formats like BMP/TIFF/WebP (and AVIF with pillow-avif) are NOT readable by
 cjxl, so _encode_source must route them through Pillow (decode -> temp PNG ->
 cjxl) WITHOUT first attempting a guaranteed-fail native cjxl call. Native-
@@ -126,6 +127,21 @@ else:
         dec_h = _decode_to_temp_file(heic_src)
         check("HEIC preview decodes to temp png",
               isinstance(dec_h, str) and dec_h.lower().endswith(".png"))
+
+# --- EXR 输入：本机 libjxl 未编 OpenEXR 时给精准提示，不静默失败 ---
+calls.clear()
+src_exr = os.path.join(tmpdir, "sample.exr")
+Image.new("RGB", (16, 16), (10, 20, 30)).save(src_exr, "PNG")  # 占位名，仅路径后缀
+worker = ConvertWorker([], [])
+ok_exr, msg_exr, _texr = worker._encode_source(
+    src_exr, os.path.join(tmpdir, "e.jxl"), [])
+if conv_mod.cjxl_supports_exr():
+    # 罕见：该构建支持 EXR（cjxl 原生读）-> 走原生路径（stub 下成功）。
+    check("EXR supported build routes to native encode", ok_exr is True)
+else:
+    # 本机官方构建：探测为不支持 -> 立即返回精准提示，绝不走到 cjxl 调用。
+    check("EXR unsupported build returns False with hint",
+          ok_exr is False and "EXR" in msg_exr)
 
 # --- Native format: PNG tries cjxl directly, succeeds without Pillow ---
 calls.clear()
