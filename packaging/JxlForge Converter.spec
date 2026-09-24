@@ -46,12 +46,17 @@ _DROP_BIN = {
 
 # 不 import 的 PySide6 子模块（纯 Widgets 程序无需 QML/网络/PDF/虚拟键盘）。
 # 仅删 .pyd，底层 Qt6*.dll 已在上面 _DROP_BIN 按 basename 一并过滤。
+# numpy：项目零依赖（代码与 Pillow 均不 import numpy；高位深处理走 Pillow C 快路径）。
+#   但若打包机装了 numpy，PyInstaller 自带的 hook-numpy 会把它整包（含 ~21MB 的
+#   numpy.libs OpenBLAS + 6MB 的 .pyd）收进包，导致 0.1.0→0.1.1 体积暴涨约 27MB。
+#   显式排除后回到纯运行期依赖。
 _EXCLUDE_MODULES = [
     'PySide6.QtQml',
     'PySide6.QtQuick',
     'PySide6.QtNetwork',
     'PySide6.QtPdf',
     'PySide6.QtVirtualKeyboard',
+    'numpy',
 ]
 
 a = Analysis(
