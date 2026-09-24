@@ -143,6 +143,27 @@ else:
     check("EXR unsupported build returns False with hint",
           ok_exr is False and "EXR" in msg_exr)
 
+# --- EXR + 编辑动作：挂动作也必须精准拦截，不泄漏 Pillow "cannot identify" ---
+src_exr_act = os.path.join(tmpdir, "act.exr")
+Image.new("RGB", (16, 16), (10, 20, 30)).save(src_exr_act, "PNG")  # 占位名，仅路径后缀
+_act_worker = ConvertWorker([], [{"type": "resize", "params": {"scale": 0.5}}])
+_real_supports = conv_mod.cjxl_supports_exr
+try:
+    conv_mod.cjxl_supports_exr = lambda: False
+    ok_a, msg_a, _ta = _act_worker._process_with_actions(
+        src_exr_act, os.path.join(tmpdir, "act.jxl"), True,
+        _act_worker.actions, [])
+    check("EXR+action unsupported build: False with libjxl hint",
+          ok_a is False and "EXR" in msg_a and "cannot identify" not in msg_a)
+    conv_mod.cjxl_supports_exr = lambda: True
+    ok_b, msg_b, _tb = _act_worker._process_with_actions(
+        src_exr_act, os.path.join(tmpdir, "act2.jxl"), True,
+        _act_worker.actions, [])
+    check("EXR+action supported build: False with Pillow hint",
+          ok_b is False and "Pillow" in msg_b and "cannot identify" not in msg_b)
+finally:
+    conv_mod.cjxl_supports_exr = _real_supports
+
 # --- Native format: PNG tries cjxl directly, succeeds without Pillow ---
 calls.clear()
 (ok, msg, _tag), tmp_files = run_encode(".png")

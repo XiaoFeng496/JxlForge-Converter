@@ -502,5 +502,6 @@
     "PBM 像素数据不完整": "PBM pixel data incomplete",
     "图像文件 (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;所有文件 (*.*)": "Image files (*.jpg *.jpeg *.jpe *.jfif *.png *.bmp *.gif *.tif *.tiff *.webp *.ppm *.pgm *.pbm *.jxl *.avif *.pfm *.pam *.pgx *.exr *.heic *.heif *.ico *.apng);;All files (*.*)",
     "当前 libjxl 构建不支持 EXR（OpenEXR）输入，无法转换为 JXL。请改用支持 EXR 的 libjxl 版本，或将 EXR 先转为 PNG/TIFF。": "The current libjxl build does not support EXR (OpenEXR) input and cannot convert it to JXL. Use a libjxl build that supports EXR, or convert the EXR to PNG/TIFF first.",
-    "输入为 %s 高位深图像，已降采样至 8-bit，高位深（HDR）数据不可逆丢失。": "Input is a %s high-bit-depth image; it was downsampled to 8-bit during processing, so the extra depth (HDR) is irreversibly lost."
+    "输入为 %s 高位深图像，已降采样至 8-bit，高位深（HDR）数据不可逆丢失。": "Input is a %s high-bit-depth image; it was downsampled to 8-bit during processing, so the extra depth (HDR) is irreversibly lost.",
+    "已为 EXR 启用编辑动作，但 Pillow 无法解码 EXR 像素（仅 libjxl 能读取）。请取消动作直接转换为 JXL，或先将 EXR 转为 PNG/TIFF 后再处理。": "Editing actions are enabled for an EXR file, but Pillow cannot decode EXR pixels (only libjxl can read them). Cancel the actions to convert directly to JXL, or convert the EXR to PNG/TIFF first and then process it."
 }

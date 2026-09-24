@@ -8985,6 +8985,20 @@ class ConvertWorker(QThread):
         """
         from PIL import Image  # local import; guarded by processor.AVAILABLE
 
+        if src.lower().endswith(".exr"):
+            # EXR 是浮点 HDR，Pillow 无法解码像素（仅 libjxl 能读）。挂动作意味着
+            # 必须进 Pillow 像素管线，故在 Image.open 之前精准拦截，避免泄漏
+            # "cannot identify image file" 这类不指向根因的异常。
+            if not converter.cjxl_supports_exr():
+                return False, i18n.t(
+                    "当前 libjxl 构建不支持 EXR（OpenEXR）输入，无法转换为 JXL。"
+                    "请改用支持 EXR 的 libjxl 版本，或将 EXR 先转为 PNG/TIFF。"
+                ), ""
+            return False, i18n.t(
+                "已为 EXR 启用编辑动作，但 Pillow 无法解码 EXR 像素（仅 libjxl 能读取）。"
+                "请取消动作直接转换为 JXL，或先将 EXR 转为 PNG/TIFF 后再处理。"
+            ), ""
+
         if src.lower().endswith(".jxl"):
             tmp_src = self._make_temp(".png")
             tmp_files.append(tmp_src)
