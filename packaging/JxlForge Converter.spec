@@ -72,7 +72,9 @@ a = Analysis(
         # 走 spec 自动带入，发版时无需手工拷贝，也不会遗漏。
         (os.path.join(REPO, 'LICENSE'), '.'),
     ],
-    hiddenimports=['pi_heif'],
+    # win32timezone：pywintypes 运行时动态 import（时区转换），静态分析抓不到，
+    # 缺了会让「保持原创建时间」在打包版失效（报 No module named 'win32timezone'）。
+    hiddenimports=['pi_heif', 'win32timezone'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

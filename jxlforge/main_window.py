@@ -552,9 +552,18 @@ def _preserve_ctime(src, dst):
         raise RuntimeError(
             i18n.t("未安装 pywin32，无法保持创建时间；请先安装：pip install pywin32")
         )
+    # pywintypes 会在运行时动态 import win32timezone（时区转换），源码里没有静态
+    # 引用，PyInstaller 的静态分析抓不到 → 打包后抛 "No module named
+    # 'win32timezone'"，导致保持创建时间静默失效。此处显式引入让打包能收集到它。
+    # 单独 try + 静默忽略：该模块只是 pywintypes 的内部依赖，缺失时 SetFileTime
+    # 仍可正常工作，不能因为"预热导入"把可选模块升级成硬性依赖、反过来判死功能。
+    try:
+        import win32timezone  # noqa: F401  (供 PyInstaller 收集，非直接使用)
+    except ImportError:
+        pass
     # 部分 pywin32 构建未在 win32con/win32file 暴露 FILE_WRITE_ATTRIBUTES
     # （访问掩码 0x100，仅需写属性的最小权限，无需写文件数据）。缺失时回退字面量，
-    # 避免 AttributeError 导致「保持时间戳失败」频繁误报。
+    # 避免 AttributeError 导致「保持创建时间失败」频繁误报。
     FILE_WRITE_ATTRIBUTES = getattr(win32con, "FILE_WRITE_ATTRIBUTES", 0x100)
     # 用标准库 datetime（UTC 时区感知）构造创建时间：新版 pywin32 的
     # win32file.SetFileTime 内部会对时间参数调用 .astimezone()，而旧写法
@@ -9634,15 +9643,27 @@ class ConvertWorker(QThread):
             # 保持时间戳：成功且未丢弃时，把输出文件的时间属性还原为与原文件一致。
             # 任一失败都不影响转换结果（ok 保持 True），仅记日志；丢弃的输出已不存在。
             if ok and not discarded and (self.preserve_mtime or self.preserve_ctime):
-                try:
-                    if self.preserve_mtime:
+                # 修改时间与创建时间各自独立容错：任一项失败都不拖累另一项
+                # （此前合并在一个 try 里，mtime 成功后 ctime 一失败就整块跳过），
+                # 且提示能明确指出失败的是哪一项，便于定位（如打包版缺
+                # win32timezone 只影响创建时间，不影响修改时间）。
+                # 任一失败都不影响转换结果（ok 保持 True），仅记日志。
+                if self.preserve_mtime:
+                    try:
                         _preserve_mtime(src, out_path)
-                    if self.preserve_ctime:
+                    except Exception as exc:
+                        self.log_signal.emit(
+                            i18n.t("保持修改时间失败（已忽略）：%s —— %s")
+                            % (out_path, exc)
+                        )
+                if self.preserve_ctime:
+                    try:
                         _preserve_ctime(src, out_path)
-                except Exception as exc:
-                    self.log_signal.emit(
-                        i18n.t("保持时间戳失败（已忽略）：%s —— %s") % (out_path, exc)
-                    )
+                    except Exception as exc:
+                        self.log_signal.emit(
+                            i18n.t("保持创建时间失败（已忽略）：%s —— %s")
+                            % (out_path, exc)
+                        )
             return (ok, message, tag, in_size, (0 if discarded else out_size), False, discarded, warnings)
         except Exception as exc:
             stopped = self._stopped
