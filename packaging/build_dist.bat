@@ -43,9 +43,13 @@ echo [INFO] Using Python: %PY%
 echo [%date% %time%] Using Python: %PY% >> "%LOG%"
 
 REM Rename old dist aside before build (not a delete; safe-delete guard safe).
+REM On Windows a move fails (WinError 32) if the dir has open file handles.
+REM If it fails we MUST abort -- otherwise PyInstaller will try to clean the
+REM same locked folder and may silently ship the old exe as the new build.
 if exist "%DIST%" (
     if exist "%OLD%" move "%OLD%" "%OLD%_%RANDOM%" >nul 2>&1
     move "%DIST%" "%OLD%"
+    if errorlevel 1 goto :move_old_fail
 )
 
 cd /d "%REPO%"
@@ -88,6 +92,16 @@ goto :halt
 echo.
 echo [FAIL] Built exe not found: %EXE%
 echo        PyInstaller may have used an unexpected output name.
+goto :halt
+
+:move_old_fail
+echo.
+echo [FAIL] Cannot move old dist aside (WinError 32: file in use by another process).
+echo        Most likely the previously built JxlForge Converter.exe is still
+echo        running, or Explorer preview pane / antivirus is holding the folder.
+echo        Close the locking process and retry -- do NOT continue, or the old
+echo        exe may be shipped as the new build. Step log: %LOG%
+set "RC=1"
 goto :halt
 
 :build_fail

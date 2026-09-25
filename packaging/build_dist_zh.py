@@ -76,6 +76,14 @@ def main():
             log("旧 dist 已移开 -> %s" % bak)
         except Exception as e:
             log("移开旧 dist 失败：%s" % e)
+            print("[失败] 无法移开旧 dist：%s" % e)
+            print("       通常是其它程序占用该目录，最常见：")
+            print("       ① 上一次构建的 JxlForge Converter.exe 仍在运行；")
+            print("       ② 资源管理器打开着该文件夹（预览窗格也会锁文件）；")
+            print("       ③ 杀软正在扫描 dist 目录。")
+            print("       请关闭占用进程后重试，不要继续打包——否则可能把")
+            print("       旧 exe 当新包发出去，静默发错版本。")
+            return 1
 
     os.chdir(REPO)
     log("开始 PyInstaller ...")
