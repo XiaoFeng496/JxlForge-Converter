@@ -8557,6 +8557,7 @@ class MainWindow(QMainWindow):
 
         self.convert_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.stop_button.setText(i18n.t("停止"))
         self._lock_ui_for_convert()
         self._stop_requested = False
         # Jump to the 状态 tab so the user can watch progress live.
@@ -8703,6 +8704,7 @@ class MainWindow(QMainWindow):
 
         self.convert_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.stop_button.setText(i18n.t("停止"))
         self._unlock_ui_after_convert()
         if worker is not None:
             worker.deleteLater()
@@ -8804,10 +8806,20 @@ class MainWindow(QMainWindow):
     def _on_convert_stop(self):
         if self._convert_worker is None or not self._convert_worker.isRunning():
             return
-        self._stop_requested = True
+        # 第一段：点「停止」= 优雅停止——不再派发新文件，当前在跑的图自然跑完。
+        # 按钮变为「强制停止」并保持可点击；此时并不杀进程。
+        if not self._stop_requested:
+            self._stop_requested = True
+            self._convert_worker.request_stop()
+            self.stop_button.setText(i18n.t("强制停止"))
+            self.log_edit.appendPlainText(
+                i18n.t("正在停止……（当前文件处理完毕后中止；如需立即结束进程请点「强制停止」）")
+            )
+            return
+        # 第二段：用户在优雅停止期间再点「强制停止」——立即杀掉在途进程。
         self.stop_button.setEnabled(False)
-        self.log_edit.appendPlainText(i18n.t("正在停止……（当前文件处理完毕后中止）"))
-        self._convert_worker.request_stop()
+        self.log_edit.appendPlainText(i18n.t("正在强制停止……（立即结束当前进程）"))
+        self._convert_worker.request_force_stop()
 
     def _current_output_format(self):
         """返回输出格式键：jxl / png / jpg（按 format_combo 当前文本判断）。
@@ -9225,9 +9237,16 @@ class ConvertWorker(QThread):
         return "[%s]" % codec
 
     def request_stop(self):
-        """Ask the loop to stop. Sets a flag checked between files and kills
-        the in-flight cjxl/djxl child process so a long single-file job does
-        not block the stop request."""
+        """第一段「停止」：优雅停止——仅置位 _stopped 标志，调度层不再派发新文件，
+        但当前在途的 cjxl/djxl 会自然跑完。真正的杀进程由 request_force_stop 负责。
+
+        这样「点停止」默认只会等当前图处理完再停，不会中途掐断正在编码的文件。"""
+        self._stopped = True
+
+    def request_force_stop(self):
+        """第二段「强制停止」：立即杀掉当前在途的 cjxl/djxl 子进程，
+        使长时间单文件任务立即中止（而非等其跑完）。同时置位 _stopped，
+        保证调度层停止派发新任务、且被杀任务触发半成品清理（见 _process_job）。"""
         self._stopped = True
         converter.terminate_current()
 
@@ -9363,6 +9382,11 @@ class ConvertWorker(QThread):
         ok, message, tag = converter.encode(src, out_path, **self._encode_kwargs())
         if ok:
             return True, message, tag
+        # 用户已停止：原生编码因被强杀而失败，此时不要再回退到 Pillow 中转重试——
+        # 否则会再 spawn 一个 cjxl 并跑到自然结束，使「停止」形同虚设。直接返回失败，
+        # 由调用方按 stopped 处理（不计入错误统计、清理半成品输出）。
+        if self._stopped:
+            return False, message, tag
         # 原生编码失败（文件损坏 / cjxl 报错等）：对未列入上述集合的罕见格式兜底
         # 走 Pillow 中转——这就是“通用兜底”，未来 cjxl 支持新格式也不会退化。
         return self._encode_via_pillow(src, out_path, tmp_files, native_error=message)
@@ -9485,13 +9509,17 @@ class ConvertWorker(QThread):
         pending = list(indexed_jobs)
 
         def submit_next():
-            while pending and len(futures) < max(1, pool_size):
+            # 优雅停止后不再派发新任务，但已提交的在途任务会继续跑完。
+            while pending and len(futures) < max(1, pool_size) and not self._stopped:
                 idx, job = pending.pop(0)
                 fut = executor.submit(self._process_job, idx, *job)
                 futures[fut] = (idx, job[0])
 
         submit_next()
-        while futures and not self._stopped:
+        # 注意：while 条件不含 not self._stopped —— 优雅停止时仍需等待在途任务
+        # 自然跑完；只有「强制停止」会经 terminate_current 杀掉在途进程，使
+        # futures 尽快清空。submit_next 内部已用 self._stopped 拦截新派发。
+        while futures:
             done, _ = cf.wait(
                 list(futures), timeout=0.1,
                 return_when=cf.FIRST_COMPLETED,
@@ -9513,12 +9541,9 @@ class ConvertWorker(QThread):
                 self._record_result(idx, src, ok, message, in_size,
                                    out_size, tag, discarded, warnings)
             submit_next()
-        if self._stopped:
-            for fut in list(futures):
-                fut.cancel()
-            executor.shutdown(wait=False, cancel_futures=True)
-        else:
-            executor.shutdown(wait=True)
+        # 优雅停止：在途任务已自然跑完，正常关闭；强制停止：被终止任务的
+        # 线程在 proc.wait 返回后即结束，shutdown(wait=True) 快速收尾。
+        executor.shutdown(wait=True)
 
     def _run_single(self, indexed_job):
         """同步处理单个（大图）任务，使用当前 ``_per_file_threads``（调用方设为满核）。"""
@@ -9646,6 +9671,13 @@ class ConvertWorker(QThread):
                         pass
             # 若运行过程中被中止，子进程被杀会返回失败；标记为 stopped 不计入统计。
             if (not ok) and self._stopped:
+                # 删除被杀进程留下的半成品输出（cjxl/djxl 被强杀时文件通常只写了一半），
+                # 避免残留破文件误导用户；输出不存在时静默跳过。
+                try:
+                    if out_path and os.path.exists(out_path):
+                        os.remove(out_path)
+                except OSError:
+                    pass
                 return (False, message, "", in_size, 0, True, False, warnings)
             out_size = _safe_getsize(out_path) if ok else 0
             discarded = False

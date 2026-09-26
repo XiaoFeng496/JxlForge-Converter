@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Headless test for the 停止 (stop) feature on the conversion worker.
+"""Headless test for the two-stage 停止 (stop) feature on the conversion worker.
+
+两段式停止：
+- 第一段（点「停止」）：优雅停止——置位 _stopped，调度层不再派发新文件，
+  当前在途任务自然跑完；按钮变为「强制停止」并保持可点击，此时不杀进程。
+- 第二段（点「强制停止」）：请求 request_force_stop，立即杀掉在途子进程。
 
 Verifies:
-- 停止 button is created, disabled at idle, enabled during conversion.
-- Pressing 停止 requests a stop: the in-flight child process is interrupted via
-  converter.terminate_current() and the loop breaks early (not-yet-started
-  files are skipped); the log reports 已停止 / 转换停止.
-- 并行池下，每个文件的 `>>> [N]` 头在「完成时」才打印，且必紧接其大小/失败行
-  （顺序修复：不串位）。本测试验证此不变量。
-- convert button is re-enabled and stop button disabled once finished.
+- 停止 button created, disabled at idle, enabled during conversion.
+- First press: button stays enabled, text -> 强制停止, _stopped set,
+  terminate_current NOT yet called (在途进程未被杀).
+- Second press: button disabled, terminate_current called, FakeProc terminated.
+- 并行池下日志顺序不变量（>>> [N] 头紧接大小/失败行）。
+- finished 后 convert button 重新启用、stop button 禁用且文案复位为「停止」。
 """
 import os
 import sys
@@ -70,6 +74,18 @@ _real_decode = conv_mod.decode
 conv_mod.encode = fake_run
 conv_mod.decode = lambda *a, **k: (True, "")
 
+# spy on terminate_current：统计是否真的杀过进程
+_terminate_calls = []
+_real_terminate = conv_mod.terminate_current
+
+
+def _spy_terminate():
+    _terminate_calls.append(1)
+    _real_terminate()
+
+
+conv_mod.terminate_current = _spy_terminate
+
 tmpdir = tempfile.mkdtemp()
 files = []
 for i in range(5):
@@ -88,22 +104,32 @@ window.log_edit.appendPlainText = lambda s: logs.append(s)
 window.statusBar().showMessage = lambda s: None
 
 # --- Idle state -----------------------------------------------------------
-check("stop button disabled at idle", window.stop_button.isEnabled() is False)
-check("convert button enabled at idle", window.convert_button.isEnabled() is True)
+check("空闲时 stop 按钮禁用", window.stop_button.isEnabled() is False)
+check("空闲时 convert 按钮启用", window.convert_button.isEnabled() is True)
 
 # --- Start conversion -----------------------------------------------------
 window._on_convert()
 worker = window._convert_worker
-check("worker running after 转换", worker is not None and worker.isRunning())
-check("convert button disabled during run", window.convert_button.isEnabled() is False)
-check("stop button enabled during run", window.stop_button.isEnabled() is True)
+check("点转换后 worker 在跑", worker is not None and worker.isRunning())
+check("运行中 convert 按钮禁用", window.convert_button.isEnabled() is False)
+check("运行中 stop 按钮启用", window.stop_button.isEnabled() is True)
+check("启动时 stop 按钮文案为「停止」", window.stop_button.text() == "停止")
 
-# Let the first (slow) job begin, then request a stop.
+# --- First press: 优雅停止 -------------------------------------------------
 time.sleep(0.15)
 window._on_convert_stop()
-check("stop button disabled right after press", window.stop_button.isEnabled() is False)
-check("worker stop flag set", worker._stopped is True)
-check("current process terminated",
+check("第一段后按钮仍可用（可点强制停止）", window.stop_button.isEnabled() is True)
+check("第一段后按钮文案变为「强制停止」", window.stop_button.text() == "强制停止")
+check("第一段后 worker _stopped 置位", worker._stopped is True)
+check("第一段未调用 terminate_current（不杀进程）", len(_terminate_calls) == 0)
+check("第一段后 FakeProc 未被终止",
+      conv_mod._current_process is None or conv_mod._current_process._terminated is False)
+
+# --- Second press: 强制停止 -----------------------------------------------
+window._on_convert_stop()
+check("第二段后按钮禁用", window.stop_button.isEnabled() is False)
+check("第二段调用了 terminate_current", len(_terminate_calls) >= 1)
+check("第二段后 FakeProc 被终止",
       conv_mod._current_process is None or conv_mod._current_process._terminated is True)
 
 worker.wait(10000)
@@ -113,10 +139,11 @@ for _ in range(50):
     _app.processEvents()
 
 # --- Post-stop state ------------------------------------------------------
-check("convert button re-enabled after stop", window.convert_button.isEnabled() is True)
-check("stop button disabled after finish", window.stop_button.isEnabled() is False)
-check("log reports 已停止", any("已停止" in s for s in logs))
-check("log reports 转换停止", any("转换停止：" in s for s in logs))
+check("停止后 convert 按钮重新启用", window.convert_button.isEnabled() is True)
+check("结束后 stop 按钮禁用", window.stop_button.isEnabled() is False)
+check("结束后 stop 按钮文案复位为「停止」", window.stop_button.text() == "停止")
+check("log 报告 已停止", any("已停止" in s for s in logs))
+check("log 报告 转换停止", any("转换停止：" in s for s in logs))
 # 顺序修复不变量：每个 >>> [N] 头必紧接其大小/失败行（头以 \t 或「处理失败」开头）。
 header_idx = [i for i, s in enumerate(logs) if s.startswith(">>> [")]
 orphan = False
@@ -130,6 +157,7 @@ check("每个 >>> [N] 头紧接其大小/失败行（无串位）", not orphan)
 # Restore and cleanup
 conv_mod.encode = _real_encode
 conv_mod.decode = _real_decode
+conv_mod.terminate_current = _real_terminate
 shutil.rmtree(tmpdir, ignore_errors=True)
 
 failed = [n for n, ok in results if not ok]

@@ -56,6 +56,10 @@ def terminate_current():
     The parallel pool may run several cjxl/djxl processes at once, so this kills
     all of them (not just the most recent). Safe to call from a different thread
     than the ones running _run(). Processes that already exited are skipped.
+
+    ``_run`` no longer pipes stdout/stderr (it redirects to a temp file and waits
+    on the process handle), so terminating the process makes ``proc.wait()``
+    return reliably — there is no pipe-reader thread that could otherwise stall.
     """
     global _current_process
     for proc in list(_active_processes):
@@ -569,20 +573,24 @@ def _detect_jpeg_recon(path):
 
 
 def _run(args, priority=DEFAULT_PRIORITY):
-    """Execute a command and return (success: bool, message: str).
+    """Execute a command and return (success: bool, message: str, stderr: str).
 
-    Uses :class:`subprocess.Popen` so the child process is spawned explicitly;
-    ``communicate()`` blocks until it finishes and captures stdout/stderr
-    (functionally equivalent to the old ``subprocess.run`` call, but built on
-    Popen as the underlying primitive). The running process is registered in
-    ``_current_process`` (most-recent) and ``_active_processes`` (all live ones)
-    so the parallel pool can interrupt them via :func:`terminate_current`.
+    用 :class:`subprocess.Popen` 显式 spawn 子进程，并登记到 ``_current_process``
+    / ``_active_processes`` 供 :func:`terminate_current` 中断。
 
-    命令名 ``cjxl`` / ``djxl`` / ``jxlinfo`` 会先经 :func:`find_tool` 解析成
-    完整路径再 spawn——这样即便 libjxl 只装在默认目录（``C:\\Program Files\\
-    libjxl\\bin``）而不在系统 PATH 上，子进程也能找到，避免 ``find_tool``
-    报"已发现"却 spawn 出 ``FileNotFoundError`` 的矛盾。（``build_args`` 仍返回
-    裸命令名用于「命令预览」显示，只在此处执行时解析，互不影响。）
+    **刻意不使用 ``communicate()`` 抓输出**：``communicate()`` 会起读线程读
+    stdout/stderr 管道；在 Windows 上，当子进程被「另一线程」（GUI 线程按停止）
+    经 ``TerminateProcess`` 杀掉时，OS 拆进程是异步的，读线程常常迟迟收不到 EOF，
+    导致 ``communicate()`` 一直阻塞到子进程「自然跑完」——停止按钮形同虚设
+    （真实 cjxl 在 PySide6 QThread / ThreadPoolExecutor 下实测复现：杀进程后
+    communicate 仍卡到自然结束）。
+
+    因此这里把 stderr 重定向到一次性临时文件、stdout 直接丢弃（cjxl/djxl 的像素
+    数据写输出文件，不写 stdout；只有进度/诊断写 stderr），随后用 ``proc.wait()``
+    等待——``WaitForSingleObject`` 在进程退出（无论被杀还是自然结束）后**可靠返回**，
+    完全不涉及管道与读线程，从而让「停止」即时生效。
+
+    命令名 cjxl/djxl/jxlinfo 先经 :func:`find_tool` 解析成完整路径再 spawn（见下）。
     """
     global _current_process
     # 解析已知 libjxl 工具名 -> 完整路径（PATH / 默认安装位 / 同目录均可）。
@@ -591,29 +599,75 @@ def _run(args, priority=DEFAULT_PRIORITY):
         if resolved:
             args = [resolved] + list(args[1:])
     flag = _PRIORITY_FLAGS.get(priority, _PRIORITY_FLAGS[DEFAULT_PRIORITY])
+
+    # stderr 落临时文件；stdout 丢弃。两者都不走 PIPE，避开 communicate() 死锁。
+    err_fd, err_path = tempfile.mkstemp(prefix="jxlforge_stderr_", suffix=".txt")
     try:
-        proc = subprocess.Popen(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            creationflags=_CREATE_NO_WINDOW | flag,
-        )
-    except FileNotFoundError:
-        _current_process = None
-        return False, i18n.t("未找到可执行文件：%s（请确认其已加入系统 PATH）") % args[0]
-    except OSError as exc:
-        _current_process = None
-        return False, i18n.t("执行命令失败：%s") % exc
+        try:
+            proc = subprocess.Popen(
+                args,
+                stdout=subprocess.DEVNULL,
+                stderr=err_fd,
+                creationflags=_CREATE_NO_WINDOW | flag,
+            )
+        except FileNotFoundError:
+            try:
+                os.close(err_fd)
+            except OSError:
+                pass
+            _safe_remove(err_path)
+            _current_process = None
+            return False, i18n.t("未找到可执行文件：%s（请确认其已加入系统 PATH）") % args[0]
+        except OSError as exc:
+            try:
+                os.close(err_fd)
+            except OSError:
+                pass
+            _safe_remove(err_path)
+            _current_process = None
+            return False, i18n.t("执行命令失败：%s") % exc
+        # Popen 已接管 err_fd 并会关闭它
+        err_fd = None
+    except Exception:
+        if err_fd is not None:
+            try:
+                os.close(err_fd)
+            except OSError:
+                pass
+        _safe_remove(err_path)
+        raise
+
     _current_process = proc
     _active_processes.add(proc)
     try:
-        stdout, stderr = proc.communicate()
+        try:
+            proc.wait()
+        except Exception:
+            # wait() 极少见地抛错，忽略，下面按 returncode 处理
+            pass
     finally:
         _active_processes.discard(proc)
         if _current_process is proc:
             _current_process = None
+
+    # 进程已退出，读取 stderr（临时文件可直接读）
+    stderr_text = ""
+    try:
+        with open(err_path, "rb") as fh:
+            stderr_text = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        stderr_text = ""
+    _safe_remove(err_path)
+
     if proc.returncode != 0:
-        detail = (stderr or "").strip() or i18n.t("未知错误")
-        return False, i18n.t("命令返回错误（退出码 %d）：%s") % (proc.returncode, detail), stderr
-    return True, (stdout or "").strip() or i18n.t("操作成功完成。"), stderr
+        detail = (stderr_text or "").strip() or i18n.t("未知错误")
+        return False, i18n.t("命令返回错误（退出码 %d）：%s") % (proc.returncode, detail), stderr_text
+    return True, i18n.t("操作成功完成。"), stderr_text
+
+
+def _safe_remove(path):
+    """Best-effort 删除临时文件；不存在或删除失败均静默忽略。"""
+    try:
+        os.remove(path)
+    except OSError:
+        pass
