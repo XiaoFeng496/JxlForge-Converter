@@ -48,7 +48,7 @@ _DROP_BIN = {
 # 仅删 .pyd，底层 Qt6*.dll 已在上面 _DROP_BIN 按 basename 一并过滤。
 # numpy：项目零依赖（代码与 Pillow 均不 import numpy；高位深处理走 Pillow C 快路径）。
 #   但若打包机装了 numpy，PyInstaller 自带的 hook-numpy 会把它整包（含 ~21MB 的
-#   numpy.libs OpenBLAS + 6MB 的 .pyd）收进包，导致 0.1.0→0.1.1 体积暴涨约 27MB。
+#   numpy.libs OpenBLAS + 6MB 的 .pyd）收进包，导致 0.1.0→0.2.0 体积暴涨约 27MB。
 #   显式排除后回到纯运行期依赖。
 _EXCLUDE_MODULES = [
     'PySide6.QtQml',

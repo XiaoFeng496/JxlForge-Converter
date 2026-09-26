@@ -1,4 +1,4 @@
 # -*- coding: utf-8 -*-
 """JxlForge Converter - a small PySide6 front-end for the cjxl / djxl tools."""
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
