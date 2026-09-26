@@ -3351,7 +3351,8 @@ class MainWindow(QMainWindow):
         # 记录索引，供 _update_tab_titles 按索引刷新标题上的数量统计。
         self._input_tab_index = self.tabs.addTab(self.input_tab, i18n.t("输入"))
         self._actions_tab_index = self.tabs.addTab(self._build_actions_tab(), i18n.t("动作"))
-        self.tabs.addTab(self._build_output_tab(), i18n.t("输出"))
+        self.output_tab = self._build_output_tab()
+        self.tabs.addTab(self.output_tab, i18n.t("输出"))
         self.status_tab = self._build_status_tab()
         self.tabs.addTab(self.status_tab, i18n.t("状态"))
         self.settings_tab = self._build_settings_tab()
@@ -4400,21 +4401,39 @@ class MainWindow(QMainWindow):
         self._apply_adv_threads_state(self.adv_threads_toggle.isChecked())
 
     def _lock_ui_for_convert(self):
-        """转换进行中调用：禁用输入/输出/动作/设置四页的全部可编辑控件，
-        仅保留状态页（看进度）与底部「停止」按钮可用，防止用户中途改动
-        已冻结的 jobs 快照而产生『改了没反应』的困惑。"""
-        for i in range(self.tabs.count()):
-            w = self.tabs.widget(i)
-            if w is not self.status_tab:
-                w.setEnabled(False)
+        """转换进行中调用：仅禁用『改动会影响转换』的控件，其余保持可交互。
+
+        锁定原则：job 配置在转换开始时已冻结，出于防呆仍锁定确实作用于转换的控件，
+        但不再「整页一刀切」，以免把明显与转换无关的展示/外观/布局项也锁死：
+
+        - 输入 / 动作 / 输出 三页整页均为转换参数 → 整页锁定；
+        - 设置页只锁定「转换进程」「大图并发校准」「高级参数」三个分组框
+          （CPU 优先级 / CPU 核心数 / 一键校准 / 全部高级参数都直接作用于转换调度），
+          其余「常规」（主题 / 控件样式 / 语言）、「窗口布局」（一键居中 / 6×3）、
+          「选项」（退出保存动作列表）与转换无关 → 保持可用；
+        - 关于页纯展示 + 复制诊断信息，与转换无关 → 整页保持可用；
+        - 状态页始终可用（看进度）。
+
+        底部「停止」按钮由调用方另行控制，不在此处处理。
+        """
+        for w in (self.input_tab, self.actions_tab, self.output_tab):
+            w.setEnabled(False)
+        # 设置页：仅锁定确实作用于转换进程的分组框，其余保持可交互。
+        for w in getattr(self, "_settings_convert_lock_widgets", ()):
+            w.setEnabled(False)
 
     def _unlock_ui_after_convert(self):
-        """转换结束后调用：恢复四页可交互，并依据当前『自定义命令』勾选态
-        重建输出页各控件的细分 enabled 态（与转换开始前保持一致）。"""
-        for i in range(self.tabs.count()):
-            w = self.tabs.widget(i)
-            if w is not self.status_tab:
-                w.setEnabled(True)
+        """转换结束后调用：恢复被锁定的控件，并重建各页细分 enabled 态
+        （与转换开始前保持一致）。"""
+        # 输入 / 动作 / 输出 三页整体恢复可交互。
+        for w in (self.input_tab, self.actions_tab, self.output_tab):
+            w.setEnabled(True)
+        # 设置页：先恢复三个分组框本身可用，再按高级参数母开关重建子项细分态
+        # （母开关关闭时子项须仍置灰，与转换前一致）。
+        for w in getattr(self, "_settings_convert_lock_widgets", ()):
+            w.setEnabled(True)
+        if getattr(self, "adv_threads_toggle", None) is not None:
+            self._apply_adv_threads_state(self.adv_threads_toggle.isChecked())
         # 输出页编码控件可能原本就因『自定义命令』而禁用，需按当前开关重建，
         # 不能无脑全部启用（否则自定义命令模式下编码参数会错误地变可用）。
         if getattr(self, "custom_cmd_check", None) is not None \
@@ -4880,6 +4899,12 @@ class MainWindow(QMainWindow):
         adv_params_layout.addWidget(self.preserve_ext_check)
 
         self.adv_params_group = adv_params_group
+        # 转换锁收口：设置页里「确实作用于转换进程」的三个分组框在转换进行中锁定；
+        # 其余（常规 / 窗口布局 / 选项）与转换无关，转换时仍可调。详见
+        # _lock_ui_for_convert / _unlock_ui_after_convert。
+        self.proc_group = proc_group
+        self.calib_group = calib_group
+        self._settings_convert_lock_widgets = (proc_group, calib_group, adv_params_group)
         layout.addWidget(adv_params_group)
 
         layout.addStretch(1)
