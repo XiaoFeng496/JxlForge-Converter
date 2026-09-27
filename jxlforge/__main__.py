@@ -293,6 +293,23 @@ def _run_e2e_checks(add):
         _shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _parse_launch_paths(argv):
+    """从 argv 类列表抽出「非 flag 且真实存在的文件/文件夹」路径。
+
+    供 MainWindow 在首帧展示时自动加入输入：支持把文件拖到 exe、
+    「打开方式」关联、以及命令行直接传参启动。以 ``-`` 开头的参数视为
+    flag（如 ``--selftest``）跳过；相对路径按当前工作目录解析为绝对路径。
+    """
+    paths = []
+    for arg in argv[1:]:
+        if arg.startswith("-"):
+            continue
+        p = os.path.abspath(arg)
+        if os.path.isfile(p) or os.path.isdir(p):
+            paths.append(p)
+    return paths
+
+
 def run():
     """Create the QApplication and show the main window."""
     # 打包后自检入口：--selftest / --verify 不建窗口，只做资源完整性检查。
@@ -300,6 +317,10 @@ def run():
     if "--selftest" in sys.argv or "--verify" in sys.argv:
         sys.exit(_selftest(deep="--deep" in sys.argv))
 
+    # 启动参数带入的文件/文件夹：从 sys.argv 抽取「非 flag 且真实存在的路径」，
+    # 传给 MainWindow，在首帧展示时自动加入输入——支持把文件拖到 exe、
+    # 「打开方式」关联、以及命令行直接传参启动。
+    launch_paths = _parse_launch_paths(sys.argv)
     # Persist settings to a portable .ini file instead of the Windows registry.
     # Must be set before any QSettings object is constructed.
     QSettings.setDefaultFormat(QSettings.IniFormat)
@@ -312,7 +333,7 @@ def run():
     # 必须在读任何设置之前：语言偏好、主题、校准值都在旧 ini 里。
     _migrate_legacy_settings()
     _apply_persisted_language()
-    window = MainWindow()
+    window = MainWindow(initial_paths=launch_paths)
     window._app_start = app_start
     # 真实启动：允许「首次启动自动校准大图阈值」（headless 测试不会置此标志，
     # 避免测试期间触发耗时的 cjxl 基准测量）。

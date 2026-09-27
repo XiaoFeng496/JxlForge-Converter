@@ -2851,7 +2851,7 @@ class MainWindow(QMainWindow):
     # 首次启动、尚未校准时，等窗口完全展示后再自动跑一次校准的延迟（毫秒）。
     CALIBRATION_DELAY_MS = 2000
 
-    def __init__(self):
+    def __init__(self, initial_paths=None):
         super().__init__()
         # 品牌名不参与翻译：任何语言下都显示同一个名字，因此不走 i18n.t()。
         self.setWindowTitle("JxlForge Converter")
@@ -2886,6 +2886,10 @@ class MainWindow(QMainWindow):
         # 值为该文件被添加时所属文件夹（添加文件夹则为其本身，添加单文件则为其父目录）；
         # 缺失时回退到 os.path.dirname(src)。
         self.input_roots = {}
+        # 启动参数传入的文件/文件夹（拖到 exe / 「打开方式」/ 命令行传参）：
+        # 在首次 showEvent 时自动加入输入。用一次性标志保证只处理一次。
+        self._launch_paths = list(initial_paths) if initial_paths else []
+        self._launch_paths_consumed = False
         self._convert_worker = None  # background conversion thread (or None)
         self._stop_requested = False  # True while a user-initiated stop is pending
         self._thumb_cache = {}  # (path, px) -> QImage  (线程安全；主线程 fromImage 成 QPixmap)
@@ -3072,6 +3076,13 @@ class MainWindow(QMainWindow):
             # current tab on first show) is visible, so the "一键 6×3 排版"
             # button stays correct even when clicked from another tab.
             QTimer.singleShot(0, self._cache_window_frame)
+        # 启动参数传入的文件/文件夹：首次展示时自动加入输入列表（拖到 exe /
+        # 「打开方式」/ 命令行传参启动都走这条路径）。一次性标志保证只处理一次。
+        if not self._launch_paths_consumed:
+            self._launch_paths_consumed = True
+            if self._launch_paths:
+                self._add_from_local_paths(self._launch_paths, source="launch")
+                self._launch_paths = []
         # Detect cjxl/djxl + write the env log/status line OFF the startup
         # critical path: it is pure I/O + log/status text, the window does not
         # need it to paint its first frame. Running it after show() (deferred
@@ -5739,30 +5750,11 @@ class MainWindow(QMainWindow):
             event.ignore()
 
     def dropEvent(self, event):
-        urls = event.mimeData().urls()
-        # 按 root 分组收集：文件夹拖入时其根=该文件夹，单文件拖入时根=None
-        # （由 _add_input_paths 回退到文件自身所在目录）。
-        by_root = {}
-        for url in urls:
+        paths = []
+        for url in event.mimeData().urls():
             if url.isLocalFile():
-                path = os.path.normpath(url.toLocalFile())
-                if os.path.isfile(path):
-                    by_root.setdefault(None, []).append(path)
-                elif os.path.isdir(path):
-                    by_root.setdefault(path, []).extend(
-                        self._collect_images_from_folder(path)
-                    )
-        added_total = sum(len(v) for v in by_root.values())
-        if added_total:
-            self.tabs.setCurrentWidget(self.input_tab)
-            before = len(self.input_files)
-            for root, files in by_root.items():
-                self._add_input_paths(files, root=root)
-            self.log_edit.appendPlainText(
-                i18n.t("通过拖拽添加了 %d 个文件。") % (len(self.input_files) - before)
-            )
-        else:
-            self.log_edit.appendPlainText(i18n.t("拖拽内容中没有可添加的文件。"))
+                paths.append(url.toLocalFile())
+        self._add_from_local_paths(paths, source="drag")
         event.acceptProposedAction()
 
     def _collect_images_from_folder(self, folder):
@@ -5774,6 +5766,50 @@ class MainWindow(QMainWindow):
                 if ext in IMAGE_EXTENSIONS:
                     result.append(os.path.join(root, name))
         return result
+
+    def _add_from_local_paths(self, paths, source="drag"):
+        """把本地文件/文件夹路径加入输入列表（拖拽与启动参数共用）。
+
+        文件夹递归展开为其中支持的图像文件；单文件直接加入。加入后切到
+        输入标签页并写入日志。``source`` 区分「drag」（窗口拖拽）与「launch」
+        （启动参数带入），仅影响日志措辞。
+
+        返回实际加入的文件数（不含去重剔除的重复项）。
+        """
+        by_root = {}
+        for raw in paths:
+            path = os.path.normpath(os.path.abspath(raw))
+            if os.path.isfile(path):
+                by_root.setdefault(None, []).append(path)
+            elif os.path.isdir(path):
+                by_root.setdefault(path, []).extend(
+                    self._collect_images_from_folder(path)
+                )
+        added_total = sum(len(v) for v in by_root.values())
+        if added_total:
+            self.tabs.setCurrentWidget(self.input_tab)
+            before = len(self.input_files)
+            for root, files in by_root.items():
+                self._add_input_paths(files, root=root)
+            added = len(self.input_files) - before
+            if source == "launch":
+                self.log_edit.appendPlainText(
+                    i18n.t("已通过启动参数添加 %d 个文件。") % added
+                )
+            else:
+                self.log_edit.appendPlainText(
+                    i18n.t("通过拖拽添加了 %d 个文件。") % added
+                )
+        else:
+            if source == "launch":
+                self.log_edit.appendPlainText(
+                    i18n.t("启动参数中没有可添加的文件。")
+                )
+            else:
+                self.log_edit.appendPlainText(
+                    i18n.t("拖拽内容中没有可添加的文件。")
+                )
+        return added_total
 
     # ------------------------------------------------------------------
     # Input tab slots

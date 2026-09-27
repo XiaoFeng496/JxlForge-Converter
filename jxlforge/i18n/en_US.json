@@ -487,6 +487,8 @@
     "透明度 (0-255):": "Opacity (0-255):",
     "通过 Pillow 兼容解码（输入格式 cjxl 不支持）后编码完成。": "Encoding finished after Pillow-compatible decoding (input format not supported by cjxl).",
     "通过拖拽添加了 %d 个文件。": "Added %d file(s) by drag and drop.",
+    "已通过启动参数添加 %d 个文件。": "Added %d file(s) from launch arguments.",
+    "启动参数中没有可添加的文件。": "No addable files found in launch arguments.",
     "通道：%s": "Channels: %s",
     "速度/质量权衡 (--effort)：": "Speed/quality trade-off (--effort):",
     "重命名": "Rename",
