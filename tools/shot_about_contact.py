@@ -81,7 +81,7 @@ if not win.grab().save(out):
 print("--- head widgets (geometry) ---")
 for lab in win.about_tab.findChildren(QLabel):
     t = lab.text()
-    if "href" in t or "Xiaofeng496" in t or "作者" in t or "项目主页" in t:
+    if "href" in t or "XiaoFeng496" in t or "作者" in t or "项目主页" in t:
         r = lab.geometry()
         print("x=%-4d y=%-4d w=%-4d  %r" % (r.x(), r.y(), r.width(), t[:60]))
 print("saved:", out)

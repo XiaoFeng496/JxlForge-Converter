@@ -135,7 +135,7 @@ from PySide6.QtGui import QAction  # noqa: E402
 about_labels = [lab for lab in window.about_tab.findChildren(QLabel)
                 if lab.text().strip()]
 texts = [lab.text() for lab in about_labels]
-check("author row present", "Xiaofeng496" in texts)
+check("author row present", "XiaoFeng496" in texts)
 check("project url shown host only",
       any("github.com/XiaoFeng496/JxlForge-Converter" in t for t in texts))
 # 不列 jxlinfo 版本：实测 jxlinfo 没有任何自报版本的入口（--version 被当输入

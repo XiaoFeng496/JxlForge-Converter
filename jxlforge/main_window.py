@@ -5085,7 +5085,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(i18n.t("已复制项目主页网址"), 5000)
 
         # 作者名不进 i18n：人名按项目约定保持原文（与品牌名同规）。
-        _contact_row(0, i18n.t("作者："), _value_label("Xiaofeng496"))
+        _contact_row(0, i18n.t("作者："), _value_label("XiaoFeng496"))
         home = _value_label('<a href="%s">%s</a>'
                             % (project_url, project_host))
         # Qt 自带的链接右键菜单文案不随界面语言切换（简中下会露英语），
