@@ -2756,6 +2756,19 @@ class FolderMenu(QMenu):
 # 免得在核心数更少的机器上暴露永远用不到的档位。
 _LOGICAL_CORES = os.cpu_count() or 1
 
+# ---- 「停用大图双队列（仅建议 effort10 下启用）」的并行进程上限 -------------
+# effort 10 下 libjxl 会禁用 chunked encoding（见 libjxl 官方 doc/encode_effort.md：
+# “e10 = e9 + global MA tree / more thorough adaptive quantization, **disables
+# chunked encoding**”），单张图能吃到的并行线程数很低，实测 2560x1440 跑 e10
+# 时 CPU 基本没跑满。此时「大图独占全部核心 + 逐张串行」反而把空闲核心白放着，
+# 整批进一个并行池（多进程并发）才是唯一能把 CPU 吃满的办法。
+#
+# 进程数不必开到核心数那么多：cap 个进程 × (核心数 // cap) 线程恰好约等于「CPU
+# 核心使用数」预算，且内存占用只有开满时的 1/(核心数/cap)。实测 2560x1440 跑 e10
+# 单进程约 550MB，开满 20 核即 20 份 ≈ 11GB，开 4 份 ≈ 2.2GB —— 后者更稳。
+DEFAULT_FLAT_POOL_CAP = 4
+FLAT_POOL_CAP_CHOICES = (1, 2, 3, 4, 6, 8, 12, 16)
+
 # --num_threads 的三个特殊档位说明（cjxl v0.12 与 djxl 语义一致，见
 # ``cjxl -v -v --help`` / ``djxl -v -v --help``）。
 _NUM_THREADS_TIP = (
@@ -4851,7 +4864,50 @@ class MainWindow(QMainWindow):
         self.adv_num_threads_toggle.toggled.connect(self._on_adv_num_threads_toggled)
         adv_params_layout.addWidget(self.adv_num_threads_toggle)
 
-        # 子项 2：解锁 effort 第 10 档。默认禁用（母开关关闭时置灰）。
+        # 子项 2：停用大图双队列（整批进一个并行池）。默认禁用（母开关关闭时置灰）。
+        # 仅建议 effort 10 下启用：该档位会禁用 libjxl 的 chunked encoding，
+        # 单图并行度低，原来的「大图独占满核 + 逐张串行」会闲置大量核心。
+        self.adv_disable_dual_queue_toggle = QCheckBox(
+            i18n.t("停用大图双队列（仅建议 effort10 下启用）")
+        )
+        self.adv_disable_dual_queue_toggle.setToolTip(
+            i18n.t("勾选后不再按像素数区分大图 / 小图，整批进入同一个并行池并发转换"
+            "（进程数见下方「并行进程上限」）。\n"
+            "libjxl 在 e10 会禁用 chunked encoding，单图并行度低，只有多图并发才能"
+            "吃满 CPU；e10 以下则相反，留着双队列更快。")
+        )
+        self.adv_disable_dual_queue_toggle.setChecked(False)
+        self.adv_disable_dual_queue_toggle.setEnabled(False)
+        self.adv_disable_dual_queue_toggle.toggled.connect(
+            self._on_adv_disable_dual_queue_toggled
+        )
+        adv_params_layout.addWidget(self.adv_disable_dual_queue_toggle)
+
+        # 子项 2 的子选项：并行进程上限。默认禁用（母开关关闭时置灰）。
+        flat_cap_layout = QHBoxLayout()
+        # 缩进一层，视觉上从属于上一行子项，表明它只在子项 2 勾选时才有意义。
+        flat_cap_layout.setContentsMargins(24, 0, 0, 0)
+        flat_cap_layout.addWidget(QLabel(i18n.t("并行进程上限：")))
+        self.adv_flat_pool_cap_combo = NoFlickerComboBox()
+        self.adv_flat_pool_cap_combo.setToolTip(
+            i18n.t("同时运行的 cjxl 进程数上限；每图线程数 = 核心使用数 ÷ 本上限，"
+            "总线程仍约等于核心数。\n默认 4，内存吃紧（转 4K 以上）时先调低到 2 或 3。")
+        )
+        for cap in FLAT_POOL_CAP_CHOICES:
+            self.adv_flat_pool_cap_combo.addItem(str(cap), int(cap))
+        self._set_combo_min_width(self.adv_flat_pool_cap_combo)
+        self.adv_flat_pool_cap_combo.setCurrentIndex(
+            self.adv_flat_pool_cap_combo.findData(DEFAULT_FLAT_POOL_CAP)
+        )
+        self.adv_flat_pool_cap_combo.setEnabled(False)
+        self.adv_flat_pool_cap_combo.currentIndexChanged.connect(
+            self._on_adv_flat_pool_cap_changed
+        )
+        flat_cap_layout.addWidget(self.adv_flat_pool_cap_combo)
+        flat_cap_layout.addStretch(1)
+        adv_params_layout.addLayout(flat_cap_layout)
+
+        # 子项 3：解锁 effort 第 10 档。默认禁用（母开关关闭时置灰）。
         self.adv_effort10_toggle = QCheckBox(i18n.t("解锁 effort 第 10 档（最慢、质量最高）"))
         self.adv_effort10_toggle.setToolTip(
             i18n.t("开启后，输出页「速度/质量权衡 (--effort)」可选范围由 1–9 扩展到 1–10"
@@ -5384,6 +5440,33 @@ class MainWindow(QMainWindow):
             self._update_cmd_preview()
         self._save_conversion_settings()
 
+    def _sync_flat_pool_cap_row(self):
+        """「并行进程上限」子选项可用性 = 母开关 且 子项「停用大图双队列」勾选。
+
+        它从属于子项「停用大图双队列」，故母开关或该子项任一关闭时一并置灰；
+        勾选态本身保留，重新勾选后自动可用。
+        """
+        combo = getattr(self, "adv_flat_pool_cap_combo", None)
+        if combo is None:
+            return
+        combo.setEnabled(bool(
+            self.adv_threads_toggle.isChecked()
+            and self.adv_disable_dual_queue_toggle.isChecked()
+        ))
+
+    def _on_adv_disable_dual_queue_toggled(self, _checked):
+        """子项「停用大图双队列」勾选变化：刷新「并行进程上限」可用性并持久化。
+
+        调度行为在 ConvertWorker 内按本开关即时生效（见 ``_flat_pool_enabled``），
+        不改变 cjxl 命令行，故无需刷新命令预览。
+        """
+        self._sync_flat_pool_cap_row()
+        self._save_conversion_settings()
+
+    def _on_adv_flat_pool_cap_changed(self, _index):
+        """「并行进程上限」变化：仅持久化（调度时按当前值取并发进程数）。"""
+        self._save_conversion_settings()
+
     def _on_jpeg_hard_skip_toggled(self, _checked):
         """「JPEG 输出不可重建 JXL 直接跳过」开关变化：仅持久化（拦截逻辑在
         _on_convert 建 job 时按本开关即时生效，无需额外联动）。"""
@@ -5448,18 +5531,21 @@ class MainWindow(QMainWindow):
         与 effort 范围到当前子项勾选态，并更新母开关 tooltip。控件未构建时安全跳过。"""
         # 解锁 / 置灰子项按钮（子项自身勾选态不变，由 checked 决定生效与否）。
         # jpeg_hard_skip_check / decode_threads_check 同样是母开关子项，一并跟随禁用。
-        for t in (self.adv_num_threads_toggle, self.adv_effort10_toggle,
+        for t in (self.adv_num_threads_toggle, self.adv_disable_dual_queue_toggle,
+                  self.adv_effort10_toggle,
                   self.jpeg_hard_skip_check, self.decode_threads_check):
             t.setEnabled(enabled)
         # 同步输出页：num_threads 行可用性 + effort 可选范围。
         self._sync_num_threads_row()
+        self._sync_flat_pool_cap_row()
         self._set_effort_range(self._effort_allow_ten())
         # 母开关说明文字并入 tooltip。
         if hasattr(self, "adv_threads_toggle"):
             if enabled:
+                # 不逐个列举子项名称：新增子项时不必再回来改这里的文案。
                 self.adv_threads_toggle.setToolTip(
-                    i18n.t("已启用：下方「手动设置每文件线程数」「解锁 effort 第 10 档」"
-                    "已解锁，可逐项单独开启；关闭则全部恢复默认行为。")
+                    i18n.t("已启用：下方各高级子项已解锁，可逐项单独开启；"
+                    "关闭则全部恢复默认行为。")
                 )
             else:
                 self.adv_threads_toggle.setToolTip(
@@ -7851,6 +7937,30 @@ class MainWindow(QMainWindow):
 
         self._output_loading = False
 
+    def _set_flat_pool_cap(self, value):
+        """把「并行进程上限」下拉恢复到给定值；不在档位内则回退默认值。
+
+        ``value`` 可能来自 QSettings 反解析的 float，故按 userData 的**数值**匹配
+        而非按 index。恢复期不阻断信号：``_save_conversion_settings`` 在
+        ``_conversion_loading`` 为真时本就早退，与既有子项恢复写法一致。
+        """
+        combo = getattr(self, "adv_flat_pool_cap_combo", None)
+        if combo is None:
+            return
+        idx = -1
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            idx = combo.findData(int(value))
+        if idx < 0:
+            idx = combo.findData(DEFAULT_FLAT_POOL_CAP)
+        combo.setCurrentIndex(max(0, idx))
+
+    def _flat_pool_cap_value(self):
+        """返回当前「并行进程上限」整数值，缺省（None / 非法）回退默认值。"""
+        cap = self.adv_flat_pool_cap_combo.currentData()
+        if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
+            return DEFAULT_FLAT_POOL_CAP
+        return cap
+
     # ---- conversion-process settings persistence (QSettings) ----------
     def _save_conversion_settings(self):
         """Persist the conversion-process settings (CPU priority, core count,
@@ -7867,6 +7977,11 @@ class MainWindow(QMainWindow):
         settings.setValue("cpu_cores", self.cpu_cores_combo.currentData())
         settings.setValue("adv_threads_enabled", self.adv_threads_toggle.isChecked())
         settings.setValue("adv_num_threads", self.adv_num_threads_toggle.isChecked())
+        settings.setValue(
+            "adv_disable_dual_queue",
+            self.adv_disable_dual_queue_toggle.isChecked(),
+        )
+        settings.setValue("adv_flat_pool_cap", self._flat_pool_cap_value())
         settings.setValue("adv_effort10", self.adv_effort10_toggle.isChecked())
         settings.setValue(
             "jpeg_hard_skip", getattr(self, "jpeg_hard_skip_check", None)
@@ -7892,6 +8007,10 @@ class MainWindow(QMainWindow):
         cores = settings.value("cpu_cores", "auto")
         adv_enabled = settings.value("adv_threads_enabled", False, type=bool)
         adv_num_threads = settings.value("adv_num_threads", False, type=bool)
+        adv_disable_dual_queue = settings.value(
+            "adv_disable_dual_queue", False, type=bool)
+        adv_flat_pool_cap = settings.value("adv_flat_pool_cap", DEFAULT_FLAT_POOL_CAP,
+                                           type=int)
         adv_effort10 = settings.value("adv_effort10", False, type=bool)
         jpeg_hard_skip = settings.value("jpeg_hard_skip", False, type=bool)
         decode_threads = settings.value("decode_threads", False, type=bool)
@@ -7910,6 +8029,7 @@ class MainWindow(QMainWindow):
         self.cpu_cores_combo.setCurrentIndex(self.cpu_cores_combo.findData(cores))
         # 子项勾选态需在母开关联动前恢复，_apply_adv_threads_state 按其刷新输出页。
         self.adv_num_threads_toggle.setChecked(bool(adv_num_threads))
+        self.adv_disable_dual_queue_toggle.setChecked(bool(adv_disable_dual_queue))
         self.adv_effort10_toggle.setChecked(bool(adv_effort10))
         if getattr(self, "jpeg_hard_skip_check", None) is not None:
             self.jpeg_hard_skip_check.setChecked(bool(jpeg_hard_skip))
@@ -7918,6 +8038,8 @@ class MainWindow(QMainWindow):
         self.adv_threads_toggle.setChecked(bool(adv_enabled))
         # 高级参数子项按钮可用性由母开关控制；此时输出页已构建，可安全联动。
         self._apply_adv_threads_state(bool(adv_enabled))
+        # 并行进程上限需等子项勾选态与母开关都恢复后再落值，否则会被联动逻辑置灰。
+        self._set_flat_pool_cap(float(adv_flat_pool_cap))
         self._conversion_loading = False
 
     # ---- application theme (persisted) --------------------------------
@@ -8371,6 +8493,17 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Convert
     # ------------------------------------------------------------------
+    def _scroll_log_to_bottom(self):
+        """把状态页日志滚到最底部。
+
+        每次开始新一批转换前调用：用户在上一批转换中向上翻看历史后，日志可视区
+        会停在中段；不显式回到底部的话，新批次打出的分隔线与「开始转换」就看不见
+        （``appendPlainText`` 只在光标原本贴底时才跟随滚动，不能可靠地复位）。
+        """
+        sb = self.log_edit.verticalScrollBar()
+        if sb is not None:
+            sb.setValue(sb.maximum())
+
     def _on_convert(self):
         if not self.input_files:
             self.statusBar().showMessage(i18n.t("错误：请先在「输入」中添加文件"))
@@ -8598,23 +8731,17 @@ class MainWindow(QMainWindow):
         self._stop_requested = False
         # Jump to the 状态 tab so the user can watch progress live.
         self.tabs.setCurrentWidget(self.status_tab)
+        # 新批次开始：日志先回到底部，避免停在上一批的历史位置。
+        self._scroll_log_to_bottom()
         self._convert_worker = ConvertWorker(
             jobs, actions, effort, distance, quality_arg, lossless_jpeg,
-            self.cpu_priority_combo.currentData(), advanced=adv,
-            custom_cmd=custom_cmd,
-            cpu_cores=self.cpu_cores_combo.currentData(),
-            adv_threads_enabled=self.adv_num_threads_toggle.isChecked(),
-            # 解码侧线程控制是「启用高级参数」的子项：母开关关闭时即便此前勾选过也不生效。
-            decode_threads_enabled=bool(
-                self.adv_threads_toggle.isChecked()
-                and getattr(self, "decode_threads_check", None) is not None
-                and self.decode_threads_check.isChecked()
-            ),
-            out_fmt=out_fmt,
-            delete_original=self.delete_original_check.isChecked(),
-            discard_if_larger=self.discard_if_larger_check.isChecked(),
-            preserve_ctime=self.preserve_ctime_check.isChecked(),
-            preserve_mtime=self.preserve_mtime_check.isChecked(),
+            **self._build_convert_worker_kwargs(
+                cpu_priority=self.cpu_priority_combo.currentData(),
+                advanced=adv,
+                custom_cmd=custom_cmd,
+                cpu_cores=self.cpu_cores_combo.currentData(),
+                out_fmt=out_fmt,
+            )
         )
         self._convert_worker.log_signal.connect(self.log_edit.appendPlainText)
         self._convert_worker.status_signal.connect(self.statusBar().showMessage)
@@ -8627,6 +8754,48 @@ class MainWindow(QMainWindow):
         self.eta_label.setText(i18n.t("预计剩余：--"))
         self._convert_start_time = time.time()
         self._convert_worker.start()
+
+    def _build_convert_worker_kwargs(self, cpu_priority, advanced, custom_cmd,
+                                     cpu_cores, out_fmt):
+        """UI 勾选态 → :class:`ConvertWorker` 构造参数的**唯一出口**。
+
+        抽成方法而不是内联在 ``_start_conversion`` 里，是为了让「多勾选态组合 →
+        worker 参数」这条链路可被直接断言：worker 内的调度开关（如
+        ``_flat_pool_enabled``）依赖若干 UI 勾选态的合取，一旦这里取错某个开关，
+        表现就是「界面上明明勾了、跑起来却不生效」（见 ``adv_threads_enabled``
+        的取值说明）。测试 ``tools/test_disable_dual_queue.py`` 依赖本方法。
+        """
+        return {
+            "priority": cpu_priority,
+            "advanced": advanced,
+            "custom_cmd": custom_cmd,
+            "cpu_cores": cpu_cores,
+            # 注意：这里取的是「启用高级参数」**母开关**，不是子项
+            # 「手动设置每文件线程数」。worker 把本参数当作「高级参数已启用」的
+            # 前提判断（见 ConvertWorker._flat_pool_enabled），若误取子项勾选态，
+            # 用户只勾「停用大图双队列」而不勾「手动设置每文件线程数」时会静默失效。
+            "adv_threads_enabled": self.adv_threads_toggle.isChecked(),
+            # 高级参数子项「停用大图双队列」：同样以母开关开启为前提。
+            "adv_disable_dual_queue": bool(
+                self.adv_threads_toggle.isChecked()
+                and self.adv_disable_dual_queue_toggle.isChecked()
+            ),
+            "flat_pool_cap": int(
+                self.adv_flat_pool_cap_combo.currentData()
+                or DEFAULT_FLAT_POOL_CAP
+            ),
+            # 解码侧线程控制是「启用高级参数」的子项：母开关关闭时即便此前勾选过也不生效。
+            "decode_threads_enabled": bool(
+                self.adv_threads_toggle.isChecked()
+                and getattr(self, "decode_threads_check", None) is not None
+                and self.decode_threads_check.isChecked()
+            ),
+            "out_fmt": out_fmt,
+            "delete_original": self.delete_original_check.isChecked(),
+            "discard_if_larger": self.discard_if_larger_check.isChecked(),
+            "preserve_ctime": self.preserve_ctime_check.isChecked(),
+            "preserve_mtime": self.preserve_mtime_check.isChecked(),
+        }
 
     def _maybe_prompt_jxlinfo(self):
         """JPEG 输出 + 非自定义命令时，若系统未安装 jxlinfo，弹窗推荐安装
@@ -9116,6 +9285,7 @@ class ConvertWorker(QThread):
                  quality=None, lossless_jpeg=False,
                  priority=converter.DEFAULT_PRIORITY, advanced=None,
                  custom_cmd=None, cpu_cores="auto", adv_threads_enabled=False,
+                 adv_disable_dual_queue=False, flat_pool_cap=DEFAULT_FLAT_POOL_CAP,
                  decode_threads_enabled=False,
              out_fmt="jxl", discard_if_larger=False,
              delete_original=False,
@@ -9138,6 +9308,11 @@ class ConvertWorker(QThread):
         self.cpu_cores = cpu_cores
         # 是否启用高级参数手动设置每文件线程数（--num_threads）。
         self.adv_threads_enabled = adv_threads_enabled
+        # 是否停用大图双队列（高级参数子项「停用大图双队列」，需母开关同时开启）。
+        # 启用后整批进一个并行池，不再按像素数区分大图 / 小图。
+        self.adv_disable_dual_queue = adv_disable_dual_queue
+        # 停用双队列时的并行进程上限（见 DEFAULT_FLAT_POOL_CAP 处说明）。
+        self.flat_pool_cap = flat_pool_cap
         # 解码侧线程控制：默认关闭（djxl 自己吃满核心最快，见 _decode_kwargs 说明）。
         self.decode_threads_enabled = decode_threads_enabled
         # 输出格式键（jxl / png / jpg），供 _encode_tag 在解码/重建路径下
@@ -9476,6 +9651,10 @@ class ConvertWorker(QThread):
             多张小图同时转、不超订；
           * 大图 -> 独占全部核心、逐个串行，单张大图不会让其余 CPU 闲置。
 
+        若「停用大图双队列」子项生效（:meth:`_flat_pool_enabled`），跳过上述分类，
+        整批进一个并行池按 :meth:`_flat_pool_size` 的进程数并发（effort 10 下用，
+        见 ``DEFAULT_FLAT_POOL_CAP`` 处说明）。
+
         每文件线程数经 ``_encode_kwargs`` 注入（覆盖高级参数里的 num_threads），
         使总 CPU 占用贴近「CPU 核心使用数」预算。
         """
@@ -9491,9 +9670,16 @@ class ConvertWorker(QThread):
         auto = not isinstance(self.cpu_cores, int)
         try:
             self.log_signal.emit(_LOG_SEPARATOR)
+            # 调度模式随「停用大图双队列」变化，此处如实反映：否则日志会自相矛盾
+            # （一边说双队列、一边下面又打「已停用大图双队列」）。
             self.log_signal.emit(
-                i18n.t("并发设置：核心数=%s，双队列调度（大图独占满核 / 小图并行均分）")
-                % (self.cpu_cores if not auto else i18n.t("自动"))
+                i18n.t("并发设置：核心数=%s，%s")
+                % (
+                    self.cpu_cores if not auto else i18n.t("自动"),
+                    i18n.t("单一并行池调度（不区分大图 / 小图）")
+                    if self._flat_pool_enabled()
+                    else i18n.t("双队列调度（大图独占满核 / 小图并行均分）"),
+                )
             )
             self.log_signal.emit("")
             self.log_signal.emit(i18n.t("开始转换：") + _format_datetime(self._stat_started))
@@ -9502,12 +9688,27 @@ class ConvertWorker(QThread):
                 return
 
             all_indexed = list(enumerate(self.jobs, start=1))
-            small, big, nt_small, pool_small = self._classify_jobs(all_indexed)
+            flat = self._flat_pool_enabled()
+            if flat:
+                # 停用双队列：整批进一个并行池，不再区分大图 / 小图。进程数受
+                # 「并行进程上限」约束，每图线程数 = 核心数 // 进程数。
+                pool_small = self._flat_pool_size(len(all_indexed))
+                small, big = all_indexed, []
+                nt_small = max(1, cores // pool_small)
+            else:
+                small, big, nt_small, pool_small = self._classify_jobs(all_indexed)
             nt_big = self._big_threads(cores)
-            self.log_signal.emit(
-                i18n.t("调度分类：小图 %d 张（每图 %d 线程并行）/ 大图 %d 张（每图 %d 线程）")
-                % (len(small), nt_small, len(big), nt_big)
-            )
+            if flat:
+                self.log_signal.emit(
+                    i18n.t("调度分类：已停用大图双队列，整批 %d 张进并行池"
+                    "（每图 %d 线程，最多 %d 张同时）")
+                    % (len(small), nt_small, pool_small)
+                )
+            else:
+                self.log_signal.emit(
+                    i18n.t("调度分类：小图 %d 张（每图 %d 线程并行）/ 大图 %d 张（每图 %d 线程）")
+                    % (len(small), nt_small, len(big), nt_big)
+                )
             self.log_signal.emit("")
 
             # 阶段 1：小图并行池。整批跑完后才放大图，保证大图启动时无小图在跑、
@@ -9598,6 +9799,24 @@ class ConvertWorker(QThread):
         if not isinstance(cores, int) or cores < 1:
             cores = os.cpu_count() or 1
         return cores
+
+    def _flat_pool_enabled(self):
+        """是否已停用大图双队列（母开关 + 子项「停用大图双队列」同时生效）。
+
+        停用后不再按像素数分大 / 小图，整批进同一个并行池多进程并发。适用场景是
+        effort 10：该档位 libjxl 禁用 chunked encoding，单图本来就跑不满核心，
+        「大图独占满核 + 逐张串行」只会把剩余核心闲置。
+        """
+        return bool(self.adv_threads_enabled and self.adv_disable_dual_queue)
+
+    def _flat_pool_size(self, k):
+        """停用双队列时整批并行池的进程数：``min(文件数, 有效核心数, 进程上限)``。
+
+        每图线程数由调用方按 ``cores // pool`` 算，因此总线程仍约等于「CPU 核心
+        使用数」预算，不会超订；进程上限（默认 4）只是把并发进程数压到内存和
+        e10 单图并行天花板都吃得下的水平。
+        """
+        return max(1, min(k or 1, self._effective_cores(), self.flat_pool_cap))
 
     def _classify_jobs(self, indexed_jobs):
         """把 ``[(index, job), ...]`` 分为小图 / 大图两个队列。

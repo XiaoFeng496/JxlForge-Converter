@@ -132,8 +132,13 @@ check("子项勾选但 check 未勾选时值控件仍禁用",
 num_check.setChecked(True)
 window._sync_num_threads_row()
 check("勾选后 num_threads 值控件被启用", num_val.isEnabled() is True)
-check("打开时说明文字并入开关悬停浮窗（手动 --num_threads）",
-      "手动" in tip_toggle.toolTip() or "--num_threads" in tip_toggle.toolTip())
+# 母开关说明文字用通用文案（不逐个列举子项名，新增子项不必回来改这里），
+# 子项自身的说明仍并入各自悬停浮窗。
+check("打开时说明文字并入开关悬停浮窗（已启用通用文案）",
+      "已启用" in tip_toggle.toolTip())
+check("「手动设置每文件线程数」说明并入子项自身悬停浮窗（--num_threads）",
+      "手动" in window.adv_num_threads_toggle.toolTip()
+      or "--num_threads" in window.adv_num_threads_toggle.toolTip())
 
 
 # 4. _resolve_concurrency + _encode_kwargs 映射。

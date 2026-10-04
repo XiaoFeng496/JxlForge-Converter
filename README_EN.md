@@ -129,7 +129,7 @@ JxlForge-Converter/
 - No code signing.
 - JPEG XR (.jxr / HD Photo) is not supported: Pillow is not built with the corresponding decoder, adding the dependency has low benefit, so it is not included for now.
 - Multi-page TIFF only converts page 0 (remaining pages are ignored).
-- This is the first release of my first project; feedback via Issues is welcome.
+- As this is my first project, there are inevitably some shortcomings. feedback via Issues is welcome.
 
 ---
 
