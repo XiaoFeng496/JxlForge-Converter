@@ -68,8 +68,13 @@ a = Analysis(
         # HEIC 解码能力自检资源：随包落入 <bundle>/jxlforge/test_assets/，
         # 让冻结版 --selftest 能验证 HEIC 解码链（libheif+libde265）确实可用。
         (os.path.join(REPO, 'tools', 'test_assets'), 'jxlforge/test_assets'),
-        # GPL v3 协议全文：随包落到分发根目录（与 exe 同级），满足 GPL 分发须附协议的要求。
-        # 走 spec 自动带入，发版时无需手工拷贝，也不会遗漏。
+        # GPL v3 协议全文：走 spec 自动带入，发版时无需手工拷贝、也不会遗漏。
+        # ⚠️ 落点说明：PyInstaller 6 的 COLLECT 会把 dest '.' 的数据一并收进
+        #    _internal/，故实际路径是 <bundle>/_internal/LICENSE，并非与 exe 同级
+        #    （实测顶层只有 exe 与 _internal/）。这是有意为之：顶层只留 exe，
+        #    用户解压后一眼就知道点哪个；协议全文仍随包分发（压缩包内含），
+        #    满足 GPL「分发须附协议」的要求。
+        #    不要为了让 LICENSE 出现在根目录而在构建脚本里额外拷贝一份。
         (os.path.join(REPO, 'LICENSE'), '.'),
     ],
     # win32timezone：pywintypes 运行时动态 import（时区转换），静态分析抓不到，
