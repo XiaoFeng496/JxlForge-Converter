@@ -2,6 +2,14 @@
 
 本项目所有重要改动记录于此。格式参考 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [未发布 / Unreleased]
+
+### 文档 / Docs
+- **README 首屏重构（简体 / 繁体 / 英文三语同步）**：首句由技术栈说明（「一个基于 PySide6 的 libjxl GUI」）改为能力描述，PySide6 / libjxl 退为第二段的技术补充；语言切换行下方新增「下载最新版」直达链接，让访客在首屏即可拿到发行包；平台说明精简，删去沉浸式暗色标题栏、弹窗圆角等边缘细节，只保留结论与跨平台说明；界面预览改为「输入 / 输出」两图打头（一眼看懂核心流程），动作页下移并标注为进阶能力。
+- **README 新增 Release 徽章**：使用绿色 `#2ea44f`，与左侧三个蓝色徽章（License / Platform / Python）区分；徽章整体包为超链接指向最新发行版。
+- **README 下载指引改为推荐 7z**：原文只指引下载 `.zip`，但三版发行文件的实际累计下载量中 zip 为 0 次，指引与真实选择相反；现改为推荐 `.7z`（约 25 MB，Windows 11 可直接解压），同时保留 `.zip`（约 38 MB）供旧系统使用。
+- **README 输入格式列表合并重复扩展名**：`JPEG / JPE / JFIF` 实为同一格式的不同扩展名（对应 `JPEG_EXTENSIONS`）；`HEIC / HEIF` 亦由同一个 pi-heif 解码器处理（`_HEIF_EXTS`，pi_heif 单次注册即同时含这两个扩展名，MIME 同为 `image/heif`）。原先各自并列易被误读为独立格式，现改为 `JPEG（.jpg / .jpeg / .jpe / .jfif）` 与 `HEIC（.heic / .heif）` 写法，格式总数由 21 项更正为准确的 18 种。
+
 ## [0.3.0] - 2026-10-04
 
 ### 新增 / Added

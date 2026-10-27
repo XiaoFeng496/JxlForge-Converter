@@ -1,28 +1,34 @@
 # JxlForge Converter
 
-![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue) ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) [![Release](https://img.shields.io/github/v/release/XiaoFeng496/JxlForge-Converter?color=2ea44f&label=release)](../../releases/latest)
 
-一個基於 **PySide6** 的 [libjxl](https://github.com/libjxl/libjxl) GUI，把 JPEG XL 的編碼 / 解碼做成可視化的桌面操作工具。
+把 PNG / JPEG / HEIC / AVIF 等 18 種格式批次轉成 **JPEG XL** 的 Windows 桌面工具，支援鏈式影像處理、即時預覽與雙佇列並行排程。
+
+底層為 **PySide6** 封裝的 [libjxl](https://github.com/libjxl/libjxl)（cjxl / djxl / jxlinfo），把 JPEG XL 的編碼 / 解碼做成可視化的桌面操作。
 
 [簡體中文](README.md) | **繁體中文** | [English](README_EN.md)
 
+**[下載最新版 →](../../releases/latest)** · 免安裝 · 解壓即用 · 約 25 MB
+
 > 本專案全部程式碼均以自然語言形式在 AI 輔助下完成。
 
-> **平台**：目前僅提供 **Windows 10 / 11** 的打包與測試。Windows 10 上沉浸式暗色標題欄與視窗圓角兩項視覺特性不生效，其餘功能（含自訂暗色主題、跟隨系統明暗）均正常；程式碼層面基於跨平台的 PySide6 與 cjxl/djxl，理論可在 macOS / Linux 執行，但未經打包與驗證；相關平台請自行安裝依賴後執行 `python main.py`。
+> **平台**：Windows 10 / 11（Windows 10 上暗色標題欄與視窗圓角不生效，其餘功能正常）。基於跨平台的 PySide6 與 cjxl/djxl，理論可在 macOS / Linux 執行，但未經打包驗證，需自行安裝依賴後執行 `python main.py`。
 
 ---
 
 ## 介面預覽
 
-<img src="docs/images/ui_actions_tw.png" width="100%" alt="動作頁：鏈式影像處理與即時預覽">
-
 | 輸入 | 輸出 |
 |:---:|:---:|
 | <img src="docs/images/ui_input_tw.png" width="380" alt="輸入頁：縮圖清單與篩選"> | <img src="docs/images/ui_output_tw.png" width="380" alt="輸出頁：JXL 編碼參數與輸出路徑"> |
 
+**進階：動作頁** —— 把「調整大小 → 銳化 → 壓縮」串成一條鏈，一次跑完整批。
+
+<img src="docs/images/ui_actions_tw.png" width="100%" alt="動作頁：鏈式影像處理與即時預覽">
+
 ## 功能特性
 
-- **支援輸入格式（編碼為 JXL）**：PNG / APNG / GIF / JPEG / JPE / JFIF / EXR / PPM / PGM / PFM / PAM / PGX / PBM / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF
+- **支援輸入格式（編碼為 JXL）**：PNG / APNG / GIF / JPEG（.jpg / .jpeg / .jpe / .jfif）/ EXR / PPM / PGM / PFM / PAM / PGX / PBM / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC（.heic / .heif）
   - WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF 經 Pillow 中轉解碼為暫時 PNG 後交給 cjxl，保留 ICC 配置（HEIC/HEIF 需先裝 pi-heif 外掛，見依賴）
   - 其餘格式由 cjxl 原生直轉
   - EXR 為浮點 HDR，僅解析頭部後設資料、不渲染像素縮圖
@@ -56,7 +62,7 @@
 
 ## 下載與執行（發布版）
 
-1. 前往 [Releases 最新版](../../releases/latest)，下載 `JxlForge-Converter_v<版本號>_win64.zip` 並解壓到任意目錄。
+1. 前往 [Releases 最新版](../../releases/latest)，下載 `JxlForge-Converter_v<版本號>_win64.7z`（**推薦**，約 25 MB，Win11 可直接解壓）或同版本 `..._win64.zip`（約 38 MB），解壓到任意目錄。
 2. 裝好 libjxl 並加入 PATH。
 3. 執行 `JxlForge Converter\JxlForge Converter.exe`。
 

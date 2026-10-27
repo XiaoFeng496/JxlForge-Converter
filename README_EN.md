@@ -1,28 +1,34 @@
 # JxlForge Converter
 
-![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue) ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) [![Release](https://img.shields.io/github/v/release/XiaoFeng496/JxlForge-Converter?color=2ea44f&label=release)](../../releases/latest)
 
-A **PySide6**-based GUI for [libjxl](https://github.com/libjxl/libjxl), making JPEG XL encoding / decoding a visual desktop tool.
+A Windows desktop tool that batch-converts 18 formats — including PNG / JPEG / HEIC / AVIF — to **JPEG XL**, with chained image processing, live preview, and dual-queue parallel scheduling.
+
+Under the hood it wraps [libjxl](https://github.com/libjxl/libjxl) (cjxl / djxl / jxlinfo) in **PySide6**, turning JPEG XL encoding / decoding into a visual desktop tool.
 
 [简体中文](README.md) | [繁體中文](README_TW.md) | **English**
 
+**[Download the latest release →](../../releases/latest)** · No installer · Unzip and run · ~25 MB
+
 > All code in this project is written in natural language with AI assistance.
 
-> **Platform**: Pre-built binaries and testing are currently available only for **Windows 10 / 11**. On Windows 10 the immersive dark title bar and rounded window corners are not available, but all other features (including the custom dark theme and system light/dark following) work normally. The codebase is built on cross-platform PySide6 and cjxl/djxl, so it *should* run on macOS / Linux in principle, but it has not been packaged or verified for those platforms. On those platforms, install the dependencies and run `python main.py`.
+> **Platform**: Windows 10 / 11 (on Windows 10 the dark title bar and rounded window corners are unavailable; everything else works). Built on cross-platform PySide6 and cjxl/djxl, so it should run on macOS / Linux, but those builds are neither packaged nor verified — install the dependencies and run `python main.py`.
 
 ---
 
 ## Screenshots
 
-<img src="docs/images/ui_actions_en.png" width="100%" alt="Actions tab: chained image processing with live preview">
-
 | Input | Output |
 |:---:|:---:|
 | <img src="docs/images/ui_input_en.png" width="380" alt="Input tab: thumbnail list with filtering"> | <img src="docs/images/ui_output_en.png" width="380" alt="Output tab: JXL encoding parameters and destination"> |
 
+**Advanced: Actions tab** — chain "resize → sharpen → compress" into one pipeline and run the whole batch once.
+
+<img src="docs/images/ui_actions_en.png" width="100%" alt="Actions tab: chained image processing with live preview">
+
 ## Features
 
-- **Input formats (encode to JXL)**: PNG / APNG / GIF / JPEG / JPE / JFIF / EXR / PPM / PGM / PFM / PAM / PGX / PBM / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF
+- **Input formats (encode to JXL)**: PNG / APNG / GIF / JPEG (.jpg / .jpeg / .jpe / .jfif) / EXR / PPM / PGM / PFM / PAM / PGX / PBM / JXL / WebP / AVIF / BMP / TIFF / ICO / HEIC (.heic / .heif)
   - WebP / AVIF / BMP / TIFF / ICO / HEIC / HEIF are decoded to a temporary PNG by Pillow before being passed to cjxl; ICC profiles are preserved (HEIC/HEIF requires the optional pi-heif plugin; see Dependencies).
   - All other formats are passed directly to cjxl.
   - EXR is floating-point HDR; only header metadata is parsed, pixel thumbnails are not rendered.
@@ -56,7 +62,7 @@ This program **does not ship the cjxl / djxl / jxlinfo engines**. Choose your ow
 
 ## Download & Run (Release Build)
 
-1. Go to [the latest release](../../releases/latest), download `JxlForge-Converter_v<version>_win64.zip`, and extract it anywhere.
+1. Go to [the latest release](../../releases/latest), download `JxlForge-Converter_v<version>_win64.7z` (**recommended**, ~25 MB, extracts natively on Windows 11) or the same version's `..._win64.zip` (~38 MB), and extract it anywhere.
 2. Install libjxl and add it to PATH.
 3. Run `JxlForge Converter\JxlForge Converter.exe`.
 
