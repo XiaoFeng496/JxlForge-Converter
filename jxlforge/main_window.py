@@ -825,6 +825,41 @@ def _event_pos(event):
     return event.pos()
 
 
+#: 会画出**圆角**边框、且边框由滚动区外层绘制的样式名（Windows 11 起才有）。
+#: 只有这些样式需要「保住四角」，见 _frame_preserving_viewport 的说明。
+ROUNDED_FRAME_STYLES = ("windows11",)
+
+
+def _frame_preserving_viewport(view, preserve=None):
+    """按需关掉 *子视口* 的自动底色，让外层圆角边框不被盖掉。
+
+    背景（2026-10-30 真机实测，150% 缩放 + Windows 11 原生样式）：QListWidget /
+    QListView / QTreeView 这类"带子视口"的控件，其 StyledPanel 圆角边框由滚动区
+    自己绘制，但子 viewport 会先用 Base 色铺满自己的矩形，而 viewport 的矩形是
+    从 contentsRect 算出来的、在 150% 下取整后正好压住四个角上那 1 逻辑像素宽的
+    圆弧 —— 结果四个角被方方正正地"切掉"，看起来像缺了个口子。QPlainTextEdit /
+    QTextEdit 没有独立子视口（内容与边框画在同一张画布上、边框后画），同样样式
+    下四个角完好 —— 状态页日志框就是参照物。
+
+    实测对照（同尺寸同位置，`tools/probe_frame_corner_cause.py`）：仅把 viewport 的
+    ``autoFillBackground`` 关掉，四角像素就与 QPlainTextEdit 逐字节一致
+    （角上 ``24 33 37 / 33 36 2d``、直边仍是 ``1e 26 38 2d``）。
+
+    ⚠️ 只在**圆角边框样式**下才关：Fusion 的边框是自绘直角、不靠外层画圆角，关掉
+    autofill 反而会让列表底下的窗口色（#353535）透上来顶替 Base（#2d2d2d），
+    实测这是一处回归。故 ``preserve`` 默认按当前样式名判断。
+    ⚠️ 不要改成"给 view 套 QSS border-radius"或"用 QFrame 包一层"：前者直边会从
+    x=0 起画、边框色/粗细都与原生不一致（实测直边 ``38 2b 2d ...``）；后者
+    viewport 依旧压在上面，四角照样缺（实测与基线一致）。
+    """
+    vp = view.viewport()
+    if vp is None:
+        return
+    if preserve is None:
+        preserve = QApplication.style().objectName() in ROUNDED_FRAME_STYLES
+    vp.setAutoFillBackground(not preserve)
+
+
 class InputListWidget(QListWidget):
     """Input list with thumbnail drag-sort (blue seam line) or list drag-select.
 
@@ -869,6 +904,9 @@ class InputListWidget(QListWidget):
         vp = self.viewport()
         if vp is not None:
             vp.setAttribute(Qt.WA_StaticContents, True)
+        # 子视口的自动底色会盖住父级圆角边框的四个角，见
+        # _frame_preserving_viewport 的说明。
+        _frame_preserving_viewport(self)
         # Replace Qt's built-in edge auto-scroll (which jumps ~6x/sec on this Qt
         # build) with our own smooth, interpolation-based scroller.
         self.setAutoScroll(False)
@@ -2132,6 +2170,8 @@ class ActionListWidget(QListWidget):
         super().__init__()
         self.main_window = main_window
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        # 同 InputListWidget：保住圆角边框的四个角。
+        _frame_preserving_viewport(self)
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
@@ -8328,6 +8368,25 @@ class MainWindow(QMainWindow):
             QApplication.setPalette(pal)
         else:
             QApplication.setPalette(pal)
+        # 样式换了 → 「圆角边框是否由外层绘制」也跟着变，列表子视口的底色填充
+        # 要重新对一次（Fusion 下必须保持自动填充，详见 _frame_preserving_viewport）。
+        self._refresh_view_frame_corners()
+
+    def _refresh_view_frame_corners(self):
+        """按当前样式重新同步列表子视口的底色填充。
+
+        ``_frame_preserving_viewport`` 的开关取决于样式名（只有圆角边框样式才关
+        子视口填充），所以样式切换后必须再跑一遍；UI 未建好时无控件，静默跳过。
+        """
+        preserve = QApplication.style().objectName() in ROUNDED_FRAME_STYLES
+        for name in ("input_list", "action_list"):
+            view = getattr(self, name, None)
+            if view is None:
+                continue
+            _frame_preserving_viewport(view, preserve)
+            vp = view.viewport()
+            if vp is not None:
+                vp.update()
 
     def _apply_tab_pane_style(self, theme=None):
         """Apply (or clear) the Fusion dark override on the QTabWidget pane.
