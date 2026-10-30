@@ -42,6 +42,14 @@ if not defined PY goto :no_py
 echo [INFO] Using Python: %PY%
 echo [%date% %time%] Using Python: %PY% >> "%LOG%"
 
+REM Preflight: reject a mixed PySide6 install BEFORE touching dist.
+REM v0.3.0 shipped a stale 6.11.1 style plugin for exactly this reason.
+echo.
+echo [PREFLIGHT] Checking PySide6 version consistency...
+echo [%date% %time%] preflight qt versions >> "%LOG%"
+"%PY%" "%~dp0check_qt_versions.py" --env
+if errorlevel 1 goto :qt_ver_fail
+
 REM Rename old dist aside before build (not a delete; safe-delete guard safe).
 REM On Windows a move fails (WinError 32) if the dir has open file handles.
 REM If it fails we MUST abort -- otherwise PyInstaller will try to clean the
@@ -63,6 +71,14 @@ echo [%date% %time%] PyInstaller rc=%RC% >> "%LOG%"
 if %RC% NEQ 0 goto :build_fail
 
 echo [%date% %time%] PyInstaller done >> "%LOG%"
+
+REM Post-build gate: a clean environment can still pick up stale files from
+REM the build cache, so re-scan the produced package before the selftest.
+echo.
+echo [CHECK] Scanning built package for mixed Qt versions...
+echo [%date% %time%] post-build qt versions >> "%LOG%"
+"%PY%" "%~dp0check_qt_versions.py" "%DIST%\_internal" --label "dist _internal"
+if errorlevel 1 goto :qt_ver_fail
 
 echo.
 echo [SELFTEST] Running packaged exe integrity check...
@@ -116,6 +132,16 @@ echo [FAIL] No usable Python interpreter found.
 echo        Expected E:/Python/Python312/python.exe, or py/python on PATH.
 echo        Install Python 3.10+ with PyInstaller, then retry.
 echo [%date% %time%] [FAIL] no interpreter resolved >> "%LOG%"
+set "RC=1"
+goto :halt
+
+:qt_ver_fail
+echo.
+echo [FAIL] Mixed Qt versions detected -- refusing to ship this build.
+echo        Two or more Qt versions in one package means a dirty install:
+echo        a stale style plugin makes every button render differently.
+echo        Fix: python -m pip install --force-reinstall --no-cache-dir PySide6==6.11.3 PySide6-Essentials==6.11.3 PySide6-Addons==6.11.3 shiboken6==6.11.3
+echo        Details above. Step log: %LOG%
 set "RC=1"
 goto :halt
 

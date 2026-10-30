@@ -55,6 +55,13 @@ def resolve_python():
     return None
 
 
+# Qt 版本一致性检查放在 check_qt_versions.py（中英文两个构建脚本共用一份实现）：
+# 构建前查「装好的 PySide6」、构建后查「dist/_internal」，出现 ≥2 个 Qt 版本就中止。
+# 背景见该模块的 docstring（v0.3.0 因混合安装混进 6.11.1 样式插件的事故）。
+sys.path.insert(0, HERE)
+import check_qt_versions  # noqa: E402
+
+
 def main():
     open(LOG, "w", encoding="utf-8").close()
     log("===== build_dist_zh 开始 =====")
@@ -65,6 +72,12 @@ def main():
         return 1
     log("解释器 = %s" % py)
     print("[信息] 使用 Python：%s" % py)
+
+    # 构建前先查「装好的 PySide6」有没有混装（v0.3.0 的按钮外观事故就出在这）。
+    # 放在改动 dist 之前：环境不干净就什么都别动。
+    print("[预检] 检查 PySide6 环境的版本一致性...")
+    if not check_qt_versions.check_environment(log, python_exe=py):
+        return 1
 
     # 构建前把旧 dist 改名移开（不是删除，安全守卫安全）。
     if os.path.isdir(DIST):
@@ -100,6 +113,20 @@ def main():
         return rc
 
     log("PyInstaller 完成")
+
+    # 构建后再查一遍产物：环境一时干净，也可能收到旧 build/ 缓存里的陈文件。
+    if not check_qt_versions.check_dir(os.path.join(DIST, "_internal"),
+                                       "打包产物 _internal", log):
+        bad = DIST + "_QtVersionMixed"
+        try:
+            os.rename(DIST, bad)
+            log("不合格产物已隔离 -> %s" % bad)
+            print("[提示] 不合格的产物已改名隔离：%s" % bad)
+        except Exception as e:
+            log("隔离不合格产物失败：%s" % e)
+            print("[提示] 无法改名隔离，请手工删除：%s" % DIST)
+        return 1
+
     print()
     print("[自检] 正在运行打包 exe 完整性检查...")
     log("selftest 开始")
