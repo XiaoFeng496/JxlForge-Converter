@@ -7,6 +7,9 @@ __pycache__/
 # ===== 本地 WorkBuddy 工作区元数据（非项目代码，勿提交） =====
 .workbuddy/
 
+# ===== 本地临时目录（调试脚本、截图、A/B 对照素材等，随用随弃，勿提交） =====
+_tmp/
+
 # ===== 对比/差异工具（临时 A/B 测试用副本，非主程序） =====
 compare_old/
 compare_old_ini_backup/
