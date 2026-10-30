@@ -113,6 +113,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QProgressBar,
+    QProxyStyle,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -122,6 +123,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyleFactory,
     QStyledItemDelegate,
+    QStyleOptionButton,
     QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
@@ -2247,6 +2249,79 @@ def _fusion_style():
     return QStyleFactory.create("Fusion")
 
 
+# ----------------------------------------------------------------------
+# 按钮绘制内缩：复现 PySide6 6.11.1 版 windows11 样式插件的按钮外观
+# ----------------------------------------------------------------------
+# 背景（2026-10-30 实测定位）：PySide6 自带的 qmodernwindowsstyle 插件从
+# **6.11.2** 起，把圆角药丸改成「几乎填满整个按钮矩形」（四周只留 1 物理像素）；
+# 6.11.1 及更早是「四周内缩约 2 逻辑像素的实边框」。
+# v0.3.0 那个发行包因构建机混合安装，PyInstaller 收进了 **6.11.1** 版插件，所以
+# 它的按钮看起来小一圈、按钮之间更松；环境升到 6.11.3 后按钮"变大了一点点"：
+#   药丸 116×45 → 119×49（物理像素，150% 缩放），按钮间隙 15px → 11px，
+#   而按钮槽位始终是 121×51 —— 槽位没变，只有绘制矩形变了。
+# 这里**不动控件几何**（槽位、点击区域、布局间距一律不变），只在绘制时把按钮
+# 矩形向内收 BUTTON_DRAW_INSET，把旧观感原样复现回来。
+# 只用于原生主题：Fusion 主题从来没有这个插件的差别，内缩只会让它的按钮凭空变小。
+# 取值 1（逻辑像素）：150% 缩放下 1 逻辑 = 1.5 物理，四周合计收 3 物理像素，
+# 正好把药丸从 119×49 收回 116×46、按钮间隙从 11px 撑回 14px（旧包 116×45 / 15px，
+# 视觉上的一致度在 1px 以内）。实测 2 会收过头（113×43 / 17px）。
+BUTTON_DRAW_INSET = 1
+
+# 只有显式带上这个动态属性的按钮才内缩（见 _InsetPushButtonStyle）。
+# 目前只给底部三个按钮（转换 / 停止 / 关闭）挂——用户要的是「只有这三个和
+# v0.3.0 一致」，页面里的其它按钮保持 6.11.3 的默认观感。
+BUTTON_INSET_PROPERTY = "jxlButtonDrawInset"
+
+
+class _InsetPushButtonStyle(QProxyStyle):
+    """把「带 opt-in 属性」的 QPushButton 的绘制矩形向内收 BUTTON_DRAW_INSET。
+
+    用动态属性而不是控件级 setStyle：控件级 setStyle 会把该按钮钉死在某个
+    style 实例上，切主题（原生 ↔ Fusion）时得逐个重设，而且和 _apply_app_style
+    「每次新建 style」的既有约定冲突；属性方案只影响绘制分支，style 生命周期不变。
+
+    只拦顶层 ``CE_PushButton``：交给 base style 之后，base 内部还会回调
+    ``drawControl(CE_PushButtonBevel)`` / ``(CE_PushButtonLabel)``，这些嵌套调用
+    拿到的已经是内缩后的 option，必须原样透传，否则会二次内缩（``_insetting``
+    标志负责挡住）。
+
+    尺寸保护：矩形小于 2*inset+4 时不做内缩，免得图标按钮被压没。
+    """
+
+    def __init__(self, base):
+        # ⚠️ 必须在 super().__init__ 之前取名字：QProxyStyle 接管 base 的 C++
+        # 所有权后，base 的 Python 包装就失效了（再访问报 "Internal C++ object
+        # already deleted"）。
+        name = base.objectName() if base is not None else ""
+        super().__init__(base)
+        self._insetting = False
+        # 让 QApplication.style().objectName() 仍报 base 的名字（如 "windows11"）：
+        # 测试和诊断脚本用它判断当前样式，报成空串会误导。
+        if name:
+            self.setObjectName(name)
+
+    def drawControl(self, element, opt, painter, widget=None):
+        if (element == QStyle.CE_PushButton
+                and not self._insetting
+                and widget is not None
+                and widget.property(BUTTON_INSET_PROPERTY)
+                and isinstance(opt, QStyleOptionButton)):
+            r = opt.rect
+            if (r.width() > 2 * BUTTON_DRAW_INSET + 4
+                    and r.height() > 2 * BUTTON_DRAW_INSET + 4):
+                self._insetting = True
+                try:
+                    shrunk = QStyleOptionButton(opt)
+                    shrunk.rect = r.adjusted(
+                        BUTTON_DRAW_INSET, BUTTON_DRAW_INSET,
+                        -BUTTON_DRAW_INSET, -BUTTON_DRAW_INSET)
+                    super().drawControl(element, shrunk, painter, widget)
+                finally:
+                    self._insetting = False
+                return
+        super().drawControl(element, opt, painter, widget)
+
+
 
 
 # Application-wide theme. One of:
@@ -3398,6 +3473,11 @@ class MainWindow(QMainWindow):
         self.close_button = QPushButton(i18n.t("关闭"))
         self.close_button.setMinimumHeight(34)
         self.close_button.clicked.connect(self.close)
+        # 底部三个按钮挂上「绘制内缩」标记：只有它们复现 v0.3.0（6.11.1 样式插件）
+        # 的药丸尺寸，页面内其它按钮保持当前 Qt 的默认观感。
+        # 见 _InsetPushButtonStyle / BUTTON_DRAW_INSET 的说明。
+        for button in (self.convert_button, self.stop_button, self.close_button):
+            button.setProperty(BUTTON_INSET_PROPERTY, True)
         bottom.addWidget(self.convert_button)
         bottom.addWidget(self.stop_button)
         bottom.addStretch(1)
@@ -4982,12 +5062,48 @@ class MainWindow(QMainWindow):
         outer.addWidget(scroll)
         return widget
 
+    def _link_html(self, url, text):
+        """富文本链接 HTML：把当前 ``QPalette::Link`` 的颜色显式写进 ``span``。
+
+        ⚠️ 为什么要显式着色（实测结论，与 PySide6 版本无关）：
+        QLabel 的富文本锚点在**首帧**就把 ``QApplication.palette()`` 的 Link
+        色固化进内部的 QTextDocument，之后明暗切换**不会**重新解析——实测暗色
+        启动再切亮色时，背景已变浅、app palette 的 Link 也已更新成深蓝，但网址
+        仍渲染成暗色那支淡青蓝（对比度仅 1.21:1，近乎隐形）。
+        另外 ``setPalette(Link=...)`` 对富文本锚点**完全无效**：锚点取的是
+        QApplication 的 Link，不看控件 palette。
+        因此改为显式写死当前 Link 色，并在方案 / 主题切换后用**新颜色**重新
+        setText。注意：``setText`` 传入**相同**字符串会被 Qt 短路（不重建文档），
+        这也是「切换后重设文本无效」的根因——颜色变化刚好让内容不同，得以重建。
+        """
+        color = QApplication.palette().color(QPalette.Link).name()
+        # 用 span 包一层：Qt 的富文本解析器对 <a style="..."> 的支持不稳，
+        # 对 <span style="color:..."> 是稳定支持的。
+        return '<a href="%s"><span style="color: %s;">%s</span></a>' % (
+            url, color, text)
+
+    def _refresh_about_link(self):
+        """重建关于页网址的富文本，使锚点颜色跟随当前明暗方案。
+
+        需在 palette 已更新之后调用（方案切换 / 主题切换 / 系统明暗切换）。
+        """
+        label = getattr(self, "_about_home_label", None)
+        url = getattr(self, "_about_project_url", None)
+        text = getattr(self, "_about_project_host", None)
+        if label is None or not url or not text:
+            return
+        label.setText(self._link_html(url, text))
+
     def _build_about_tab(self):
         """构建「关于 / 系统信息」页：版本快照、第三方许可、诊断信息复制。
 
         内容在构建时探测一次后即为静态（引擎与解释器版本在运行期不变；界面
         语言切换同样按既有约定重启生效），因此不像设置页那样注册进
         ``_apply_theme`` —— 控件继承 palette，亮/暗色自动跟随，无需额外处理。
+
+        ⚠️ 唯一的例外是网址链接：富文本锚点的颜色在首帧固化、不随明暗切换
+        重解析（详见 ``_link_html`` 注释），所以本页只把网址这一项挂进
+        ``_refresh_about_link()``，由方案 / 主题 / 系统明暗三条切换路径调用。
         """
         import platform
         import sys as _sys
@@ -5065,15 +5181,10 @@ class MainWindow(QMainWindow):
             label.setTextInteractionFlags(
                 Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse
                 if allow_select else Qt.LinksAccessibleByMouse)
-            # 链接同样跟随主题默认的黑 / 白，不再硬编码纯白（浅色主题下会
-            # 整行消失），也不再靠 span 内联死色。富文本锚点的取色来源是
-            # QPalette::Link，把它对齐到 WindowText 即可，主题切换后随
-            # palette 自动跟随。
-            pal = label.palette()
-            normal = pal.color(QPalette.WindowText)
-            pal.setColor(QPalette.Link, normal)
-            pal.setColor(QPalette.LinkVisited, normal)
-            label.setPalette(pal)
+            # ⚠️ 不要再对控件 setPalette(Link=...)：富文本锚点的取色来源是
+            # QApplication.palette() 的 Link（Windows 主题链接蓝），**不看控件
+            # palette**，所以那段设置从未生效（实测：控件 Link 是黑/白，渲染
+            # 出来却是主题蓝）。链接色统一由 _link_html() 显式写进 HTML。
             return label
 
         def _copy_project_url():
@@ -5086,8 +5197,7 @@ class MainWindow(QMainWindow):
 
         # 作者名不进 i18n：人名按项目约定保持原文（与品牌名同规）。
         _contact_row(0, i18n.t("作者："), _value_label("XiaoFeng496"))
-        home = _value_label('<a href="%s">%s</a>'
-                            % (project_url, project_host))
+        home = _value_label(self._link_html(project_url, project_host))
         # Qt 自带的链接右键菜单文案不随界面语言切换（简中下会露英语），
         # 因此自己挂一个走 i18n 的动作，文案与复制行为都可控。
         home.setContextMenuPolicy(Qt.ActionsContextMenu)
@@ -5096,6 +5206,11 @@ class MainWindow(QMainWindow):
         copy_url_act.triggered.connect(_copy_project_url)
         home.addAction(copy_url_act)
         _contact_row(1, i18n.t("项目主页："), home)
+        # 明暗切换后锚点色不会自动重解析（见 _link_html 注释），存下重建所需的
+        # 三要素，供 _refresh_about_link() 在方案 / 主题切换后重建富文本。
+        self._about_home_label = home
+        self._about_project_url = project_url
+        self._about_project_host = project_host
         layout.addLayout(contact)
 
         def _section(title_text):
@@ -7870,6 +7985,8 @@ class MainWindow(QMainWindow):
             # 明暗切换影响 Fusion 的暗色判定：切到暗色挂 pane 覆盖、切回亮色摘掉。
             # ⚠️ offscreen 段错误限制见 FUSION_DARK_* 常量块注释（真机稳定）。
             self._apply_tab_pane_style()
+            # 跟随系统时的明暗切换同样要重建网址富文本（锚点色不自动重解析）。
+            self._refresh_about_link()
         super().changeEvent(event)
 
     # ---- output location / filename persistence (QSettings) ----------
@@ -8185,6 +8302,12 @@ class MainWindow(QMainWindow):
         re-applying the same QStyle instance never collides on ownership."""
         name = "Fusion" if theme == "fusion" else self._native_style_name
         style = QStyleFactory.create(name)
+        if style is not None and theme != "fusion":
+            # 原生主题套一层绘制内缩，复现 6.11.1 版样式插件的按钮外观；
+            # Fusion 主题不套（那里从来没有这个插件的差别）。详见
+            # _InsetPushButtonStyle 的说明。每次新建一层，沿用「不重用
+            # QStyle 实例」的既有约定（见 _fusion_style 的注释）。
+            style = _InsetPushButtonStyle(style)
         if style is not None:
             QApplication.setStyle(style)
         # 调色板一律从「当前方案对应的快照」重建（显式 setPalette 会冻住
@@ -8277,6 +8400,8 @@ class MainWindow(QMainWindow):
         # setStyleSheet，真机/offscreen 都会在几轮内段错误（已实测）。
         # 挂在末尾则真机 8 轮交替稳定。详见 FUSION_DARK_* 常量块注释。
         self._apply_tab_pane_style(theme)
+        # 锚点色不随 palette 重解析，需按新 palette 重建网址富文本。
+        self._refresh_about_link()
 
     def _refresh_combo_styles(self):
         """Re-apply the active style and palette to every dropdown.
@@ -8397,6 +8522,8 @@ class MainWindow(QMainWindow):
         # the previous scheme until the style is switched away and back.
         self._refresh_combo_styles()
         self._sync_inactive_palette()
+        # 锚点色不随 palette 重解析，需按新 palette 重建网址富文本。
+        self._refresh_about_link()
         self.statusBar().showMessage(
             i18n.t("颜色方案已切换为：%s") % i18n.t(_COLOR_SCHEME_LABELS.get(scheme, scheme)))
 
