@@ -56,10 +56,10 @@ check("ACTION_TYPES 含 3 个新动作",
       all(t in processor.ACTION_TYPES
           for t in ("饱和度", "自然饱和度", "模糊")),
       str(processor.ACTION_TYPES))
-for t in ("饱和度", "自然饱和度", "模糊"):
-    check("DEFAULT_PARAMS 有 %s" % t, t in processor.DEFAULT_PARAMS)
+for t, aid in (("饱和度", "saturation"), ("自然饱和度", "vibrance"), ("模糊", "blur")):
+    check("DEFAULT_PARAMS 有 %s" % t, aid in processor.DEFAULT_PARAMS)
 check("模糊默认用高斯",
-      processor.DEFAULT_PARAMS["模糊"]["method"] == "GAUSSIAN")
+      processor.DEFAULT_PARAMS["blur"]["method"] == "GAUSSIAN")
 check("BLUR_METHODS 的 ID 是英文（要进配置）",
       all(mid.isascii() for mid, _ in processor.BLUR_METHODS))
 
@@ -78,7 +78,7 @@ rgba = Image.new("RGBA", (4, 4), (200, 100, 100, 77))
 check("饱和度保留 alpha",
       processor._saturation(rgba, {"factor": 0.0}).getpixel((0, 0))[3] == 77)
 check("apply_actions 能派发饱和度",
-      processor.apply_actions(src, [{"type": "饱和度",
+      processor.apply_actions(src, [{"type": "saturation",
                                      "params": {"factor": 0.5}}]) is not None)
 
 # --- 自然饱和度 ---
@@ -162,13 +162,13 @@ def widget_of(item):
 menu_ids = [a.data() for a in win.add_action_menu.actions()
             if not a.isSeparator()]
 check("菜单里有 3 个新动作",
-      all(t in menu_ids for t in ("饱和度", "自然饱和度", "模糊")),
+      all(t in menu_ids for t in ("saturation", "vibrance", "blur")),
       str(menu_ids))
 check("菜单项数 = ACTION_TYPES 数",
       len(menu_ids) == len(processor.ACTION_TYPES))
 
 # --- 饱和度 ---
-it = add_action("饱和度")
+it = add_action("saturation")
 w = widget_of(it)
 check("饱和度有 factor 控件", "factor" in w._param_widgets)
 spin = w._param_widgets["factor"]
@@ -183,7 +183,7 @@ spin.setValue(1.5)
 check("factor=1.5 写回", it.data(Qt.UserRole)["params"]["factor"] == 1.5)
 
 # --- 自然饱和度 ---
-it2 = add_action("自然饱和度")
+it2 = add_action("vibrance")
 w2 = widget_of(it2)
 check("自然饱和度有 factor 控件", "factor" in w2._param_widgets)
 w2._param_widgets["factor"].setValue(1.6)
@@ -193,7 +193,7 @@ check("自然饱和度上限 2.0（内部增量夹 ±1）",
       w2._param_widgets["factor"].maximum() == 2.0)
 
 # --- 模糊 ---
-it3 = add_action("模糊")
+it3 = add_action("blur")
 w3 = widget_of(it3)
 check("模糊有 radius 与 method 两个控件",
       "radius" in w3._param_widgets and "method" in w3._param_widgets)
@@ -229,7 +229,7 @@ check("摘要含半径与滤波器名",
 # （PySide6 的 item.setData 是拷贝，测试里不能原地改 item 的 dict，
 #  必须走 _add_action_item 重新构造，与启动时读配置的路径一致）。
 it4 = win._add_action_item(
-    {"type": "模糊", "params": {"method": "MEDIAN", "radius": 40.0},
+    {"type": "blur", "params": {"method": "MEDIAN", "radius": 40.0},
      "enabled": True})
 w4 = widget_of(it4)
 rad4 = w4._param_widgets["radius"]
@@ -242,13 +242,13 @@ check("载入越界配置：摘要也按 9 显示（不出现 r=40）",
 # --- 启用的动作能被 collect 到 ---
 enabled = [a["type"] for a in win._collect_actions()]
 check("3 个新动作都进 _collect_actions",
-      all(t in enabled for t in ("饱和度", "自然饱和度", "模糊")),
+      all(t in enabled for t in ("saturation", "vibrance", "blur")),
       str(enabled))
 
 # --- 端到端：真的按参数处理出图 ---
-acts = [{"type": "饱和度", "params": {"factor": 0.0}},
-        {"type": "自然饱和度", "params": {"factor": 1.5}},
-        {"type": "模糊", "params": {"radius": 2.0, "method": "GAUSSIAN"}}]
+acts = [{"type": "saturation", "params": {"factor": 0.0}},
+        {"type": "vibrance", "params": {"factor": 1.5}},
+        {"type": "blur", "params": {"radius": 2.0, "method": "GAUSSIAN"}}]
 try:
     out = processor.apply_actions(Image.new("RGB", (8, 8), (180, 90, 40)), acts)
     check("三动作链式执行不抛异常", out.size == (8, 8))

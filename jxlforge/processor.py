@@ -23,68 +23,99 @@ except ImportError:
     AVAILABLE = False
 
 
-# 「动作」标签页里可添加的动作类型。中文既是显示名又是内部 ID（会被存进
-# QSettings，并在 apply_actions 里做字面量比较），显示时一律走 i18n.t()。
+# ── 动作规格：唯一事实源 ─────────────────────────────────────────────
+# 每个动作 = (稳定英文 ID, 中文显示名, 分组 ID)。
+#
+# ⚠️ 铁律：
+#   * 英文 ID **只**用于存盘 / 比较 / 查表，绝不用于显示；
+#   * 显示一律 ``i18n.t(ACTION_LABELS[id])``（字典 key 仍是中文显示名，
+#     所以改文案只需要改这里 + 补译文，不必动任何存储数据）；
+#   * ID 一旦发布**不可再改**——改了旧 ini 里的动作会被静默跳过
+#     （apply_actions 没有 else 兜底）。要改文案请只改第 2 列。
 #
 # 顺序 = 菜单里的展示顺序，按类别排（与 ACTION_GROUPS 一致），不是添加先后。
-ACTION_TYPES = [
+ACTION_SPECS = [
     # 几何与尺寸
-    "调整大小", "裁剪", "旋转",
+    ("resize", "调整大小", "geometry"),
+    ("crop", "裁剪", "geometry"),
+    ("rotate", "旋转", "geometry"),
     # 明暗与影调
-    "亮度", "对比度", "曝光", "阴影/高光", "规格化",
+    ("brightness", "亮度", "tone"),
+    ("contrast", "对比度", "tone"),
+    ("exposure", "曝光", "tone"),
+    ("shadow_highlight", "阴影/高光", "tone"),
+    ("normalize", "规格化", "tone"),
     # 色彩
-    "饱和度", "自然饱和度",
+    ("saturation", "饱和度", "color"),
+    ("vibrance", "自然饱和度", "color"),
     # 清晰度
-    "锐化", "模糊",
+    ("sharpen", "锐化", "clarity"),
+    ("blur", "模糊", "clarity"),
     # 叠加
-    "水印",
+    ("watermark", "水印", "overlay"),
 ]
 
-# 「添加动作 ▶」菜单的分组（组名也是中文 ID，显示走 i18n.t）。
-# ⚠️ 组内 id 必须覆盖 ACTION_TYPES 且一一对应：菜单按顺序渲染这两个结构，
-# 测试（test_i18n_id_separation）按菜单顺序对账 ACTION_TYPES。
+ACTION_IDS = [spec[0] for spec in ACTION_SPECS]
+ACTION_LABELS = {spec[0]: spec[1] for spec in ACTION_SPECS}
+ACTION_ID_BY_LABEL = {spec[1]: spec[0] for spec in ACTION_SPECS}
+
+# 历史名字：这里仍是**中文显示名**列表（抽取器 / 旧测试依赖它）。
+# 需要内部 ID 请用 ``ACTION_IDS``；需要某语言的显示名用
+# ``i18n.t(ACTION_LABELS[id])``。
+ACTION_TYPES = [spec[1] for spec in ACTION_SPECS]
+
+# 「添加动作 ▶」菜单的分组：组名是中文显示名，组内**存英文稳定 ID**。
+# 组内不再抄一遍中文动作名——那份重复曾导致「改了 SPECS 忘了改这里 →
+# 菜单构建时 ACTION_ID_BY_LABEL 查不到 → KeyError，窗口直接建不出来」。
+# 现在改显示名只动 ACTION_SPECS 第 2 列 + 译文，本表不受影响。
+# ⚠️ 组内动作必须覆盖 ACTION_IDS 且一一对应、不重不漏：菜单按顺序渲染，测试对账。
 ACTION_GROUPS = [
-    ("几何与尺寸", ["调整大小", "裁剪", "旋转"]),
-    ("明暗与影调", ["亮度", "对比度", "曝光", "阴影/高光", "规格化"]),
-    ("色彩", ["饱和度", "自然饱和度"]),
-    ("清晰度", ["锐化", "模糊"]),
-    ("叠加", ["水印"]),
+    ("几何与尺寸", ["resize", "crop", "rotate"]),
+    ("明暗与影调", ["brightness", "contrast", "exposure", "shadow_highlight",
+                    "normalize"]),
+    ("色彩", ["saturation", "vibrance"]),
+    ("清晰度", ["sharpen", "blur"]),
+    ("叠加", ["watermark"]),
 ]
 
-# Sensible defaults per action type (also used by the param dialog).
+#: 动作列表持久化格式版本。1 = 中文 ID（旧），2 = 英文稳定 ID。
+ACTIONS_SCHEMA_VERSION = 2
+
+# Sensible defaults per action type (also used by the param widget builder).
+# 键是英文稳定 ID（与 ACTION_IDS 一致），不是显示名。
 DEFAULT_PARAMS = {
-    "调整大小": {"width": 0, "height": 0, "algorithm": "LANCZOS"},
-    "旋转": {"angle": 90, "expand": True},
-    "水印": {
+    "resize": {"width": 0, "height": 0, "algorithm": "LANCZOS"},
+    "rotate": {"angle": 90, "expand": True},
+    "watermark": {
         "text": "Sample", "font_size": 32, "opacity": 128,
-        "position": "右下", "color": "white",
+        "position": "bottom_right", "color": "white",
     },
     # 旧版「亮度/对比度」已拆成「亮度」「对比度」两个独立动作（2026-09-09）。
     # 这个键只用于兼容已存进 ini 的老数据（见 migrate_legacy_actions），
     # 菜单里不再出现，新代码不要再用它。
-    "亮度/对比度": {"brightness": 1.0, "contrast": 1.0},
-    "亮度": {"factor": 1.0},
-    "对比度": {"factor": 1.0},
-    "锐化": {"factor": 1.5},
-    "裁剪": {"left": 0, "top": 0, "width": 0, "height": 0},
+    "brightness_contrast": {"brightness": 1.0, "contrast": 1.0},
+    "brightness": {"factor": 1.0},
+    "contrast": {"factor": 1.0},
+    "sharpen": {"factor": 1.5},
+    "crop": {"left": 0, "top": 0, "width": 0, "height": 0},
     # 规格化：cutoff=0 等价于纯拉满直方图，cutoff=N 截掉各端 N‰ 的极值再拉满。
     # 0 是默认（与「规格化」字面意义最贴），>0 用于避开噪点/过曝像素。
-    "规格化": {"cutoff": 0},
+    "normalize": {"cutoff": 0},
     # 曝光：以 EV（曝光档位）为单位。0=不变，+1=亮一倍（2.0x），-1=暗一半（0.5x）。
     # 范围 [-3, +3] 步进 0.1，便于细调。
-    "曝光": {"ev": 0.0},
+    "exposure": {"ev": 0.0},
     # 阴影/高光：分别调整暗部（阴影）与亮部（高光）的亮度系数。
     # 1.0=不变；>1.0 提亮阴影 / 压低高光，<1.0 反之。范围 [0.0, 2.0]。
-    "阴影/高光": {"shadow": 1.0, "highlight": 1.0},
+    "shadow_highlight": {"shadow": 1.0, "highlight": 1.0},
     # 饱和度：全局均匀调整，等价于「与灰度图按 factor 混合」。
     # 1.0=不变，0.0=完全去色（灰度），>1.0 更浓。范围 [0.0, 3.0]。
-    "饱和度": {"factor": 1.0},
+    "saturation": {"factor": 1.0},
     # 自然饱和度（vibrance）：只强化低饱和像素，已经够艳的像素几乎不动，
     # 因此不会像全局饱和度那样把肤色/天空一次性推到溢色。
     # 同样以 1.0=不变、0.0=完全去色，范围 [0.0, 2.0]（内部增量夹到 ±1）。
-    "自然饱和度": {"factor": 1.0},
+    "vibrance": {"factor": 1.0},
     # 模糊：radius 为半径（像素），0=不处理；method 见 BLUR_METHODS。
-    "模糊": {"radius": 2.0, "method": "GAUSSIAN"},
+    "blur": {"radius": 2.0, "method": "GAUSSIAN"},
 }
 
 # 「模糊」可选的滤波器。内部 ID 为英文（存进 QSettings / 配置），
@@ -123,12 +154,18 @@ def _resolve_resample(name):
     except AttributeError:
         return Image.Resampling.LANCZOS
 
-# Nine-grid positions for the watermark, in the same order shown in the combo.
-WATERMARK_POSITIONS = [
-    "左上", "中上", "右上",
-    "左中", "居中", "右中",
-    "左下", "中下", "右下",
+# 水印九宫格位置：稳定英文 ID + 中文显示名，顺序 = 下拉里的展示顺序。
+# 与动作类型同一条铁律：存盘/查表用 ID，显示用 t(label)。
+WATERMARK_POSITION_SPECS = [
+    ("top_left", "左上"), ("top_center", "中上"), ("top_right", "右上"),
+    ("middle_left", "左中"), ("center", "居中"), ("middle_right", "右中"),
+    ("bottom_left", "左下"), ("bottom_center", "中下"), ("bottom_right", "右下"),
 ]
+WATERMARK_POSITION_IDS = [p[0] for p in WATERMARK_POSITION_SPECS]
+WATERMARK_POSITION_LABELS = {p[0]: p[1] for p in WATERMARK_POSITION_SPECS}
+WATERMARK_POSITION_ID_BY_LABEL = {p[1]: p[0] for p in WATERMARK_POSITION_SPECS}
+# 兼容旧引用：中文显示名列表（旧测试 / 抽取器依赖）。
+WATERMARK_POSITIONS = [p[1] for p in WATERMARK_POSITION_SPECS]
 
 
 def _clamp(v, lo, hi):
@@ -177,39 +214,110 @@ def _load_font(size):
 
 
 def _watermark_offset(position, img_w, img_h, tw, th, margin):
-    hmap = {"左": margin, "中": (img_w - tw) // 2, "右": img_w - tw - margin}
-    vmap = {"上": margin, "中": (img_h - th) // 2, "下": img_h - th - margin}
+    # 兼容兜底：旧配置可能还带中文位置（正常路径下 migrate 已转换）。
+    # 用冻结的旧映射，不用当前标签反查——见 LEGACY_WATERMARK_POSITION_MAP 的说明。
+    position = LEGACY_WATERMARK_POSITION_MAP.get(position, position)
+    hmap = {"left": margin, "center": (img_w - tw) // 2,
+            "right": img_w - tw - margin}
+    vmap = {"top": margin, "middle": (img_h - th) // 2,
+            "bottom": img_h - th - margin}
     grid = {
-        "左上": ("左", "上"), "中上": ("中", "上"), "右上": ("右", "上"),
-        "左中": ("左", "中"), "居中": ("中", "中"), "右中": ("右", "中"),
-        "左下": ("左", "下"), "中下": ("中", "下"), "右下": ("右", "下"),
+        "top_left": ("left", "top"), "top_center": ("center", "top"),
+        "top_right": ("right", "top"),
+        "middle_left": ("left", "middle"), "center": ("center", "middle"),
+        "middle_right": ("right", "middle"),
+        "bottom_left": ("left", "bottom"), "bottom_center": ("center", "bottom"),
+        "bottom_right": ("right", "bottom"),
     }
-    hpos, vpos = grid.get(position, ("右", "下"))
+    hpos, vpos = grid.get(position, ("right", "bottom"))
     return _clamp(hmap[hpos], 0, img_w), _clamp(vmap[vpos], 0, img_h)
 
 
-def migrate_legacy_actions(actions):
-    """把旧版动作类型升级成当前形式（读 QSettings 时调用一次即可）。
+#: 旧中文动作类型 → 英文稳定 ID（读取 v1 配置时用）。
+#:
+#: ⚠️ 这是**冻结的历史快照**，不是 ``ACTION_ID_BY_LABEL`` 的别名，两者必须分开维护。
+#: 原因：显示名会随文案优化而变（例如「调整大小」改成「缩放」），但旧 ini 里已经
+#: 落盘的中文串不会跟着变。如果迁移表继续由当前标签反查派生，改名当天所有老用户
+#: 的动作就会匹配不上——``apply_actions`` 只会 warn 一句然后跳过，用户拿到的是
+#: 一张没处理的图，属于**静默失效**。
+#:
+#: 维护规则：
+#:   * 只收 schema v1（中文 ID）时代真实落过盘的中文串，**永不追加新动作**；
+#:   * 显示名改名时，改 ``ACTION_SPECS`` 第 2 列，**不动这里**；
+#:   * 新增动作只进 ``ACTION_SPECS``，不会出现在本表（新数据一律写英文 ID）。
+#:
+#: ``tools/test_i18n_id_separation.py`` 会在显示名与下表不一致时报警，
+#: 提醒你确认「新文案 + 旧映射」是否都照顾到了。
+LEGACY_ACTION_TYPE_MAP = {
+    # v1 的 13 个动作（当时的显示名）
+    "调整大小": "resize",
+    "裁剪": "crop",
+    "旋转": "rotate",
+    "亮度": "brightness",
+    "对比度": "contrast",
+    "曝光": "exposure",
+    "阴影/高光": "shadow_highlight",
+    "规格化": "normalize",
+    "饱和度": "saturation",
+    "自然饱和度": "vibrance",
+    "锐化": "sharpen",
+    "模糊": "blur",
+    "水印": "watermark",
+    # 更早的合并动作：2026-09 拆成 brightness + contrast，仍是 v1 合法值
+    "亮度/对比度": "brightness_contrast",
+}
 
-    目前只有一条规则：旧版「亮度/对比度」拆成「亮度」+「对比度」两个动作。
-    拆开后按列表顺序链式执行（先亮度、后对比度）与旧实现**完全等价**，
-    所以老配置升级后出图结果不变，只是参数变成两个可单独开关的动作。
+#: 旧中文水印位置 → 英文稳定 ID（冻结值，理由同上）。
+LEGACY_WATERMARK_POSITION_MAP = {
+    "左上": "top_left",
+    "中上": "top_center",
+    "右上": "top_right",
+    "左中": "middle_left",
+    "居中": "center",
+    "右中": "middle_right",
+    "左下": "bottom_left",
+    "中下": "bottom_center",
+    "右下": "bottom_right",
+}
+
+
+def migrate_legacy_actions(actions):
+    """把旧版动作列表升级到当前 schema（读 QSettings 时调用一次即可，幂等）。
+
+    两类规则：
+      1. 旧中文 ID → 英文稳定 ID（schema v2，2026-10）；
+      2. 旧版「亮度/对比度」拆成「亮度」+「对比度」两个动作。
+
+    ⚠️ 必须幂等：已经是英文 ID 的动作原样通过，不能重复拆分。
     """
     out = []
     for a in actions or []:
-        if not isinstance(a, dict) or a.get("type") != "亮度/对比度":
+        if not isinstance(a, dict):
             out.append(a)
             continue
-        p = a.get("params", {}) or {}
-        for new_type, key in (("亮度", "brightness"), ("对比度", "contrast")):
-            item = dict(a)
-            item["type"] = new_type
-            params = dict(p)
-            params.pop("brightness", None)
-            params.pop("contrast", None)
-            params["factor"] = _num(p, key, 1.0)
-            item["params"] = params
-            out.append(item)
+        atype = LEGACY_ACTION_TYPE_MAP.get(a.get("type"), a.get("type"))
+        if atype == "brightness_contrast":
+            p = a.get("params", {}) or {}
+            for new_type, key in (("brightness", "brightness"),
+                                  ("contrast", "contrast")):
+                item = dict(a)
+                item["type"] = new_type
+                params = dict(p)
+                params.pop("brightness", None)
+                params.pop("contrast", None)
+                params["factor"] = _num(p, key, 1.0)
+                item["params"] = params
+                out.append(item)
+            continue
+        item = dict(a)
+        item["type"] = atype
+        params = dict(a.get("params", {}) or {})
+        # 水印位置：旧中文 → 英文 ID（英文值原样保留）。
+        pos = params.get("position")
+        if atype == "watermark" and pos in LEGACY_WATERMARK_POSITION_MAP:
+            params["position"] = LEGACY_WATERMARK_POSITION_MAP[pos]
+        item["params"] = params
+        out.append(item)
     return out
 
 
@@ -270,35 +378,43 @@ def apply_actions(image, actions):
     for action in actions:
         atype = action.get("type")
         params = action.get("params", {}) or {}
-        if atype == "调整大小":
+        # ⚠️ 这里比较的是**英文稳定 ID**（schema v2）。旧数据在
+        # migrate_legacy_actions 里已升级；若仍落到 else，说明 ID 漂移，
+        # 必须显式告警——静默跳过会让用户拿到一张"没处理"的原图。
+        if atype == "resize":
             img = _resize(img, params)
-        elif atype == "旋转":
+        elif atype == "rotate":
             img = _rotate(img, params)
-        elif atype == "水印":
+        elif atype == "watermark":
             img = _watermark(img, params)
-        elif atype == "亮度/对比度":
+        elif atype == "brightness_contrast":
             # 旧数据兼容（见 DEFAULT_PARAMS 的注释）；菜单已不再提供。
             img = _brightness_contrast(img, params)
-        elif atype == "亮度":
+        elif atype == "brightness":
             img = _brightness(img, params)
-        elif atype == "对比度":
+        elif atype == "contrast":
             img = _contrast(img, params)
-        elif atype == "锐化":
+        elif atype == "sharpen":
             img = _sharpen(img, params)
-        elif atype == "裁剪":
+        elif atype == "crop":
             img = _crop(img, params)
-        elif atype == "规格化":
+        elif atype == "normalize":
             img = _normalize(img, params)
-        elif atype == "曝光":
+        elif atype == "exposure":
             img = _exposure(img, params)
-        elif atype == "阴影/高光":
+        elif atype == "shadow_highlight":
             img = _shadow_highlight(img, params)
-        elif atype == "饱和度":
+        elif atype == "saturation":
             img = _saturation(img, params)
-        elif atype == "自然饱和度":
+        elif atype == "vibrance":
             img = _vibrance(img, params)
-        elif atype == "模糊":
+        elif atype == "blur":
             img = _blur(img, params)
+        else:
+            import warnings
+            warnings.warn(
+                "unknown action type %r skipped (stale config? run migration)"
+                % (atype,), RuntimeWarning, stacklevel=2)
     return img
 
 
@@ -630,7 +746,7 @@ def _watermark(img, p):
         return img
     size = int(p.get("font_size", 32) or 32)
     opacity = _clamp(int(p.get("opacity", 128) or 128), 0, 255)
-    position = p.get("position", "右下") or "右下"
+    position = p.get("position", "bottom_right") or "bottom_right"
     color_name = p.get("color") or "white"
     rgb = (0, 0, 0) if color_name == "black" else (255, 255, 255)
     font = _load_font(size)

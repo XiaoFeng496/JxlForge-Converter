@@ -69,7 +69,7 @@ check("添加动作菜单含规格化/曝光/阴影高光",
 
 # --- 2) 调整大小 inline：width/height/algorithm 三控件 -----------------
 win._add_action_item(
-    {"type": "调整大小", "params": {"width": 800, "height": 600,
+    {"type": "resize", "params": {"width": 800, "height": 600,
                                 "algorithm": "LANCZOS"}, "enabled": True},
     render_preview=False,
 )
@@ -162,7 +162,7 @@ check("摘要包含算法名",
 
 
 # --- 3) 新增 3 个动作能正确生成 inline 控件 ----------------------------
-for new_type in ("规格化", "曝光", "阴影/高光"):
+for new_type in ("normalize", "exposure", "shadow_highlight"):
     win._add_action_item(
         {"type": new_type, "params": dict(processor.DEFAULT_PARAMS[new_type]),
          "enabled": True},
@@ -174,9 +174,9 @@ check(f"{new_type} 项至少有一个 inline 控件", len(w._param_widgets) > 0)
 
 # 验证各类型有正确的参数键
 expect_keys = {
-    "规格化": ("cutoff",),
-    "曝光": ("ev",),
-    "阴影/高光": ("shadow", "highlight"),
+    "normalize": ("cutoff",),
+    "exposure": ("ev",),
+    "shadow_highlight": ("shadow", "highlight"),
 }
 for new_type, keys in expect_keys.items():
     idx = next(i for i in range(win.action_list.count())
@@ -187,11 +187,11 @@ for new_type, keys in expect_keys.items():
 
 # 改曝光 EV → 写回
 ev_widget = widget_at(next(i for i in range(win.action_list.count())
-                           if get_action(i)["type"] == "曝光"))\
+                           if get_action(i)["type"] == "exposure"))\
     ._param_widgets["ev"]
 ev_widget.setValue(1.5)
 idx = next(i for i in range(win.action_list.count())
-           if get_action(i)["type"] == "曝光")
+           if get_action(i)["type"] == "exposure")
 check("改 EV 后 action 数据已更新", get_action(idx)["params"]["ev"] == 1.5)
 
 
@@ -201,7 +201,7 @@ check("改 EV 后 action 数据已更新", get_action(idx)["params"]["ev"] == 1.
 # 模态菜单而阻塞；trigger() 同步走完「点菜单项 → 添加动作」的完整链路。
 _action_ids = {a.data(): a for a in win.add_action_menu.actions()
                if not a.isSeparator()}
-_action_ids["规格化"].trigger()
+_action_ids["normalize"].trigger()
 last = get_action(win.action_list.count() - 1)
 check("添加规格化后默认 cutoff=0", last["params"]["cutoff"] == 0)
 check("添加规格化后 enabled=True", last["enabled"] is True)
@@ -212,44 +212,44 @@ from PIL import Image
 test_img = Image.new("RGB", (4, 4), (128, 128, 128))
 
 # 规格化
-out = processor.apply_actions(test_img, [{"type": "规格化", "params": {"cutoff": 0}}])
+out = processor.apply_actions(test_img, [{"type": "normalize", "params": {"cutoff": 0}}])
 check("规格化可调用", out.size == (4, 4))
 
 # 曝光（用 100 输入：×2 = 200，不踩 255 clamp）
 src = Image.new("RGB", (2, 2), (100, 100, 100))
-out = processor.apply_actions(src, [{"type": "曝光", "params": {"ev": 1.0}}])
+out = processor.apply_actions(src, [{"type": "exposure", "params": {"ev": 1.0}}])
 px = list(out.getdata())[0]
 check("曝光 +1 EV 后 100→200", px[0] == 200)
 
 # 阴影/高光
 dark_img = Image.new("RGB", (2, 2), (50, 50, 50))
 out = processor.apply_actions(
-    dark_img, [{"type": "阴影/高光", "params": {"shadow": 2.0, "highlight": 1.0}}]
+    dark_img, [{"type": "shadow_highlight", "params": {"shadow": 2.0, "highlight": 1.0}}]
 )
 check("阴影 2.0 提亮暗部", list(out.getdata())[0][0] > 50)
 
 bright_img = Image.new("RGB", (2, 2), (200, 200, 200))
 out = processor.apply_actions(
-    bright_img, [{"type": "阴影/高光", "params": {"shadow": 1.0, "highlight": 0.5}}]
+    bright_img, [{"type": "shadow_highlight", "params": {"shadow": 1.0, "highlight": 0.5}}]
 )
 check("高光 0.5 压低亮部", list(out.getdata())[0][0] < 200)
 
 # 算法选择
 out = processor.apply_actions(
-    test_img, [{"type": "调整大小", "params": {"width": 2, "height": 2,
+    test_img, [{"type": "resize", "params": {"width": 2, "height": 2,
                                             "algorithm": "BICUBIC"}}]
 )
 check("BICUBIC 调整大小可调用", out.size == (2, 2))
 
 # 默认无 algorithm 键 → LANCZOS
 out = processor.apply_actions(
-    test_img, [{"type": "调整大小", "params": {"width": 2, "height": 2}}]
+    test_img, [{"type": "resize", "params": {"width": 2, "height": 2}}]
 )
 check("无 algorithm 键回退到 LANCZOS", out.size == (2, 2))
 
 # 错误 algorithm 字符串回退 LANCZOS
 out = processor.apply_actions(
-    test_img, [{"type": "调整大小", "params": {"width": 2, "height": 2,
+    test_img, [{"type": "resize", "params": {"width": 2, "height": 2,
                                             "algorithm": "BOGUS"}}]
 )
 check("错误 algorithm 字符串回退 LANCZOS", out.size == (2, 2))
@@ -259,7 +259,7 @@ check("错误 algorithm 字符串回退 LANCZOS", out.size == (2, 2))
 from PySide6.QtCore import QElapsedTimer
 win._on_clear_actions()
 win._add_action_item(
-    {"type": "旋转", "params": {"angle": 90}, "enabled": True},
+    {"type": "rotate", "params": {"angle": 90}, "enabled": True},
     render_preview=False,
 )
 w = widget_at(0)
@@ -367,7 +367,7 @@ win.fit_on_source_change_check.setChecked(True)
 # --- 8) 折叠按钮：点击可折叠/展开，状态持久化 ------------------------
 win._on_clear_actions()
 win._add_action_item(
-    {"type": "水印", "params": {"text": "X"}}, render_preview=False,
+    {"type": "watermark", "params": {"text": "X"}}, render_preview=False,
 )
 item = win.action_list.item(0)
 w = widget_at(0)
@@ -395,7 +395,7 @@ check("展开后 _collapsed=False",
 # 重新创建动作项时，_collapsed=True 的应保持折叠
 win._on_clear_actions()
 win._add_action_item(
-    {"type": "水印", "params": {"text": "Y"}, "_collapsed": True},
+    {"type": "watermark", "params": {"text": "Y"}, "_collapsed": True},
     render_preview=False,
 )
 w2 = widget_at(0)

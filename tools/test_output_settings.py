@@ -358,7 +358,7 @@ _mw10._APP_THEME = "native_noflicker"
 # 本组断言基于基准 FIT_EXTRA_H 常量；fit 逻辑本身与主题无关，但默认主题
 # 已是「原生（NoFlicker框）」（拿 +6px 的 native 附加高度），故显式固定为
 # 基准主题，测完恢复。
-vp_h = 3 * GRID_SIZES["缩略图"].height() + 17 + FIT_EXTRA_H
+vp_h = 3 * GRID_SIZES["thumb"].height() + 17 + FIT_EXTRA_H
 x0, y0 = win.x(), win.y()
 # fresh_window() 的 show()+processEvents() 会在 offscreen 下先触发一次真实 fit，
 # 把窗口 minimumHeight() 设为基于虚拟几何的大值（~959）。此处显式复位为 0，

@@ -83,7 +83,7 @@ if have_jxl:
     # ---- Test 1: 详情视图刷新时主线程不同步解码 ----
     _main_calls.clear()
     win.input_files = [jxl_path]
-    win._last_view = "详细信息"
+    win._last_view = "details"
     win.input_stack.setCurrentWidget(win.input_table)
     win._refresh_table()
     check("refresh_table does NOT synchronously decode on main thread",

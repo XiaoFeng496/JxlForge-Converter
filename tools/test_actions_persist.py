@@ -67,8 +67,8 @@ check("勾选后 save_on_exit 持久化为 true", s.value("save_on_exit", False,
 s.endGroup()
 
 # 3) 添加动作 + 退出时写入 JSON 列表。
-w._add_action_item({"type": "旋转", "params": {"angle": 90}}, render_preview=False)
-w._add_action_item({"type": "水印", "params": {"text": "demo", "size": 24}}, render_preview=False)
+w._add_action_item({"type": "rotate", "params": {"angle": 90}}, render_preview=False)
+w._add_action_item({"type": "watermark", "params": {"text": "demo", "size": 24}}, render_preview=False)
 acts = w._collect_actions()
 check("已收集 2 个动作", len(acts) == 2)
 w.close()
@@ -76,13 +76,13 @@ QSettings().sync()
 raw = QSettings().value("actions/list", "", type=str)
 stored = json.loads(raw) if raw else []
 check("closeEvent 写入动作列表（数量=2）", len(stored) == 2)
-check("动作顺序与类型正确", stored[0]["type"] == "旋转" and stored[1]["type"] == "水印")
+check("动作顺序与类型正确", stored[0]["type"] == "rotate" and stored[1]["type"] == "watermark")
 
 # 4) 全新启动恢复列表与勾选态。
 w2 = MainWindow()
 restored = w2._collect_actions()
 check("重启恢复动作列表（数量=2）", len(restored) == 2)
-check("重启恢复第 2 个动作类型=水印", restored[1]["type"] == "水印")
+check("重启恢复第 2 个动作类型=水印", restored[1]["type"] == "watermark")
 check("重启恢复勾选态=开启", w2.save_actions_on_exit_check.isChecked() is True)
 w2.close()
 
@@ -96,7 +96,7 @@ w3.close()
 
 # 6) 退出时若已取消勾选，下次启动动作列表仍为空（不残留旧数据）。
 w4 = MainWindow()
-w4._add_action_item({"type": "锐化", "params": {"factor": 1.5}}, render_preview=False)
+w4._add_action_item({"type": "sharpen", "params": {"factor": 1.5}}, render_preview=False)
 w4.save_actions_on_exit_check.setChecked(False)
 w4.close()
 QSettings().sync()

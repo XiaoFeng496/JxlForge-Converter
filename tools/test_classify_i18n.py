@@ -5,8 +5,11 @@
 数字只会让测试变成负担。所以断言全部走相对口径：
 指定一批有代表性的字符串，断言它们落在哪一档。
 
-最要紧的一条：**持久化标识绝不能被判成「翻」**。
-那会让老用户的配置文件失配，属于损坏用户数据，比漏翻危险得多。
+阶段 7 起持久化标识已全部改成英文（resize / thumb / overwrite），
+中文只承担显示名角色。最要紧的一条因此变成两个方向：
+
+* **英文稳定 ID 绝不能进入待翻清单**（英文本来不会被抽，靠这条锁住规则漂移）；
+* **中文显示名必须放行**（否则英文/繁体界面会退回中文）。
 
 运行::
 
@@ -25,14 +28,9 @@ import classify_i18n as cl  # noqa: E402
 
 TRANSLATE, SKIP, MANUAL = cl.TRANSLATE, cl.SKIP, cl.MANUAL
 
-# 已知「ID 兼显示名」：中文既是界面文字又被存进 QSettings，不能翻。
-MUST_SKIP = [
-    "调整大小",   # ACTION_TYPES
-    "右下",      # WATERMARK_POSITIONS
-    "缩略图",    # VIEW_MODES / GRID_SIZES
-]
-
-# 已知「纯显示名」：程序内部用的是配对的英文 ID，翻译安全。
+# 阶段 7 起：动作 / 水印位置 / 视图模式 / 冲突策略都改成了
+# 「英文稳定 ID + 中文显示名」，持久化里不再出现中文 ——
+# 因此下面这些中文**只承担显示名**角色，必须翻译。
 MUST_TRANSLATE = [
     "空闲",        # CPU 优先级 addItem(label, "idle")
     "低于正常",     # CPU 优先级 addItem(label, "below_normal")
@@ -53,6 +51,10 @@ MUST_TRANSLATE = [
     "编码策略",   # "group": "编码策略"
     "保真合成",   # "group": "保真合成"
     "容器输出",   # "group": "容器输出"
+    # 阶段 7：SPECS 表里的中文显示名（内部 ID 分别是 resize / bottom_right / thumb）
+    "调整大小",
+    "右下",
+    "缩略图",
 ]
 
 # 报错文案：raise 出来后会被 ``except Exception as exc`` 用 str(exc) 拼进
@@ -98,12 +100,13 @@ def main():
     check("置信度取值合法",
           all(e.get("confidence") in ("高", "中", "低") for e in entries))
 
-    # --- 2. 持久化标识必须被拦住（数据安全红线）---
-    missing = [t for t in MUST_SKIP if t not in by_text]
-    check("ID 样本都还在清单里", not missing, str(missing))
-    wrong = [t for t in MUST_SKIP
-             if t in by_text and by_text[t]["verdict"] != SKIP]
-    check("ID 兼显示名一律不翻", not wrong, str(wrong))
+    # --- 2. 英文稳定 ID 不得进入翻译清单（阶段 7 新契约）---
+    # 抽取器只收含中文的串，正常情况天然为空；这条是防回归锁：
+    # 若有人把 ID 又写回中文，或抽取规则放宽，这里会立刻报警。
+    sys.path.insert(0, REPO_ROOT)
+    from jxlforge import processor as _proc  # noqa: E402
+    leaked = [i for i in _proc.ACTION_IDS if i in by_text]
+    check("英文动作 ID 不进翻译清单", not leaked, str(leaked))
 
     # --- 3. 纯显示名必须放行（否则界面翻不干净）---
     missing = [t for t in MUST_TRANSLATE if t not in by_text]

@@ -40,6 +40,7 @@ import shlex
 import tempfile
 import threading
 import queue
+import warnings
 
 # 移到回收站依赖 send2trash（Windows 上走 IFileOperation）；缺失时不阻断整个
 # 程序启动，_move_to_recycle_bin 会给出清晰报错，调用方据此保留原文件。
@@ -665,23 +666,115 @@ def _format_size_change(in_bytes, out_bytes, tag=""):
     return line
 
 
-VIEW_MODES = ["小缩略图", "缩略图", "大缩略图", "列表", "详细信息"]
+# ── 输入页「查看」模式的规格：稳定英文 ID + 中文显示名 ──────────────
+# 与处理器动作同一条铁律：存盘 / 查表用 ID，显示一律 t(label)。
+VIEW_MODE_SPECS = [
+    ("small_thumb", "小缩略图"),
+    ("thumb", "缩略图"),
+    ("large_thumb", "大缩略图"),
+    ("list", "列表"),
+    ("details", "详细信息"),
+]
+VIEW_MODE_IDS = [m[0] for m in VIEW_MODE_SPECS]
+VIEW_MODE_LABELS = {m[0]: m[1] for m in VIEW_MODE_SPECS}
+VIEW_MODE_ID_BY_LABEL = {m[1]: m[0] for m in VIEW_MODE_SPECS}
+# 兼容旧引用：中文显示名列表（旧测试 / 抽取器依赖）。
+VIEW_MODES = [m[1] for m in VIEW_MODE_SPECS]
+DEFAULT_VIEW_MODE = "thumb"
+
+# 旧中文视图模式 → 英文稳定 ID。⚠️ 冻结快照，不要用 VIEW_MODE_ID_BY_LABEL 代替：
+# 显示名一旦改文案，派生反查表就映射不到旧 ini 里的中文值（会静默退回默认视图）。
+# 只收 v1 落过盘的中文串，永不追加。详见 processor.LEGACY_ACTION_TYPE_MAP 的说明。
+LEGACY_VIEW_MODE_MAP = {
+    "小缩略图": "small_thumb",
+    "缩略图": "thumb",
+    "大缩略图": "large_thumb",
+    "列表": "list",
+    "详细信息": "details",
+}
 
 # Icon (thumbnail) size per view mode.
 THUMB_SIZES = {
-    "小缩略图": QSize(56, 56),
-    "缩略图": QSize(96, 96),
-    "大缩略图": QSize(160, 160),
+    "small_thumb": QSize(56, 56),
+    "thumb": QSize(96, 96),
+    "large_thumb": QSize(160, 160),
 }
 
 # Fixed grid cell per view mode so every image sits in a constant-ratio box
 # aligned to a grid; the text area below is fixed and the name is elided, so
 # the box ratio never changes with the file name length.
 GRID_SIZES = {
-    "小缩略图": QSize(74, 94),
-    "缩略图": QSize(122, 154),
-    "大缩略图": QSize(196, 238),
+    "small_thumb": QSize(74, 94),
+    "thumb": QSize(122, 154),
+    "large_thumb": QSize(196, 238),
 }
+
+# ── 输出文件冲突策略：稳定英文 ID + 中文显示名 ─────────────────────
+ON_EXIST_SPECS = [
+    ("overwrite", "替换"),
+    ("ask", "询问"),
+    ("skip", "跳过"),
+    ("rename", "重命名"),
+]
+ON_EXIST_IDS = [s[0] for s in ON_EXIST_SPECS]
+ON_EXIST_LABELS = {s[0]: s[1] for s in ON_EXIST_SPECS}
+ON_EXIST_ID_BY_LABEL = {s[1]: s[0] for s in ON_EXIST_SPECS}
+DEFAULT_ON_EXIST = "overwrite"
+
+# 旧中文冲突策略 → 英文稳定 ID。⚠️ 冻结快照（理由同 LEGACY_VIEW_MODE_MAP）：
+# 文案改名后，旧 ini 里的「重命名」必须仍然能映射到 rename。
+LEGACY_ON_EXIST_MAP = {
+    "替换": "overwrite",
+    "询问": "ask",
+    "跳过": "skip",
+    "重命名": "rename",
+}
+
+# 各语言显示名 → ID 的反查表，**惰性构建**（导入期不读文件，失败也不影响启动）。
+_ON_EXIST_ALIASES = None
+
+
+def _on_exist_aliases():
+    """把各语言的**显示名**也认出来（旧版本可能把 currentText 写进了 ini）。
+
+    历史事故：某版本在 userData 缺失时保存的是界面文本，于是英文界面下 ini 里
+    出现 "Rename"、繁中界面下出现「重新命名」。只认中文旧 ID 的加载逻辑会
+    ``findData``/``findText`` 双双落空，**静默**退回第一项（替换）——用户看到
+    「重命名悄悄变成替换」。这里把所有语言的译名都收进反查表。
+    """
+    global _ON_EXIST_ALIASES
+    if _ON_EXIST_ALIASES is not None:
+        return _ON_EXIST_ALIASES
+    alias = {}
+    try:
+        for code in i18n.available_languages():
+            table = i18n.translations(code)
+            for eid, label in ON_EXIST_LABELS.items():
+                shown = table.get(label)
+                if isinstance(shown, str) and shown:
+                    alias.setdefault(shown, eid)
+    except Exception:  # noqa: BLE001 -- 配置修复不能因为读不到译文而阻断启动
+        alias = {}
+    _ON_EXIST_ALIASES = alias
+    return alias
+
+
+def _on_exist_id(value):
+    """把 ini 里的历史值归一成英文稳定 ID；认不出返回 ``None``。
+
+    依次尝试：当前英文 ID → v1 中文旧 ID → 任意语言的显示名。
+    返回 None 表示「确实不认识」，由调用方回退默认值并**告警**，绝不静默改设置。
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text in ON_EXIST_IDS:
+        return text
+    if text in LEGACY_ON_EXIST_MAP:
+        return LEGACY_ON_EXIST_MAP[text]
+    return _on_exist_aliases().get(text)
 
 # Details-view ("详细信息") columns, Explorer-style. Each entry is:
 #   (key, label, default_visible, default_width_px, alignment)
@@ -1891,7 +1984,7 @@ class ActionItemWidget(QWidget):
         atype = self.action.get("type", "")
         widgets = {}
         self._param_sliders = {}
-        if atype == "调整大小":
+        if atype == "resize":
             w = QSpinBox()
             w.setRange(0, 100000)
             w.setValue(int(p.get("width", 0) or 0))
@@ -1920,7 +2013,7 @@ class ActionItemWidget(QWidget):
                 "方框最快，汉明/最近邻适合缩小或保留硬边缘。"))
             self._add_param(layout, i18n.t("算法"), algo)
             widgets["algorithm"] = algo
-        elif atype == "旋转":
+        elif atype == "rotate":
             a = QSpinBox()
             a.setRange(-360, 360)
             a.setValue(int(p.get("angle", 90) or 90))
@@ -1928,7 +2021,7 @@ class ActionItemWidget(QWidget):
             a.valueChanged.connect(lambda v, k="angle": self._emit(k, v))
             self._add_param(layout, i18n.t("角度"), a)
             widgets["angle"] = a
-        elif atype == "水印":
+        elif atype == "watermark":
             t = QLineEdit(p.get("text", "Sample") or "Sample")
             t.editingFinished.connect(lambda k="text", w=t: self._emit(k, w.text()))
             self._add_param(layout, i18n.t("文字"), t)
@@ -1948,9 +2041,9 @@ class ActionItemWidget(QWidget):
             pos = NoFlickerComboBox()
             # 显示名与内部 ID 分离：显示 t(位置)，userData 存原始中文位置，
             # 回写 action params 时用 currentData()，英文界面下也不会存成英文。
-            for _pid in processor.WATERMARK_POSITIONS:
-                pos.addItem(i18n.t(_pid), _pid)
-            _pi = pos.findData(p.get("position", "右下"))
+            for _pid in processor.WATERMARK_POSITION_IDS:
+                pos.addItem(i18n.t(processor.WATERMARK_POSITION_LABELS[_pid]), _pid)
+            _pi = pos.findData(p.get("position", "bottom_right"))
             if _pi >= 0:
                 pos.setCurrentIndex(_pi)
             pos.currentIndexChanged.connect(
@@ -1969,7 +2062,7 @@ class ActionItemWidget(QWidget):
                 lambda _idx, k="color": self._emit(k, col.itemData(_idx)))
             self._add_param(layout, i18n.t("颜色"), col)
             widgets["color"] = col
-        elif atype == "亮度":
+        elif atype == "brightness":
             # 旧版「亮度/对比度」已拆成两个独立动作（processor.migrate_legacy_actions
             # 负责升级老配置），这里只处理新的单参数形式。
             b = QDoubleSpinBox()
@@ -1981,7 +2074,7 @@ class ActionItemWidget(QWidget):
             b.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
             self._add_param(layout, i18n.t("强度"), b)
             widgets["factor"] = b
-        elif atype == "对比度":
+        elif atype == "contrast":
             c = QDoubleSpinBox()
             c.setRange(0.0, 3.0)
             c.setSingleStep(0.1)
@@ -1991,7 +2084,7 @@ class ActionItemWidget(QWidget):
             c.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
             self._add_param(layout, i18n.t("强度"), c)
             widgets["factor"] = c
-        elif atype == "锐化":
+        elif atype == "sharpen":
             f = QDoubleSpinBox()
             f.setRange(0.0, 5.0)
             f.setSingleStep(0.1)
@@ -1999,7 +2092,7 @@ class ActionItemWidget(QWidget):
             f.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
             self._add_param(layout, i18n.t("强度"), f)
             widgets["factor"] = f
-        elif atype == "裁剪":
+        elif atype == "crop":
             for label, key in (
                 ("左", "left"), ("上", "top"),
                 (i18n.t("宽"), "width"), (i18n.t("高"), "height"),
@@ -2010,7 +2103,7 @@ class ActionItemWidget(QWidget):
                 sp.valueChanged.connect(lambda v, k=key: self._emit(k, v))
                 self._add_param(layout, label, sp, no_slider=True)
                 widgets[key] = sp
-        elif atype == "规格化":
+        elif atype == "normalize":
             co = QSpinBox()
             co.setRange(0, 50)
             co.setValue(int(p.get("cutoff", 0) or 0))
@@ -2018,7 +2111,7 @@ class ActionItemWidget(QWidget):
             co.valueChanged.connect(lambda v, k="cutoff": self._emit(k, v))
             self._add_param(layout, i18n.t("截断"), co)
             widgets["cutoff"] = co
-        elif atype == "曝光":
+        elif atype == "exposure":
             ev = QDoubleSpinBox()
             ev.setRange(-3.0, 3.0)
             ev.setSingleStep(0.1)
@@ -2028,7 +2121,7 @@ class ActionItemWidget(QWidget):
             ev.valueChanged.connect(lambda v, k="ev": self._emit(k, v))
             self._add_param(layout, "曝光", ev)
             widgets["ev"] = ev
-        elif atype == "阴影/高光":
+        elif atype == "shadow_highlight":
             s = QDoubleSpinBox()
             s.setRange(0.0, 2.0)
             s.setSingleStep(0.05)
@@ -2045,7 +2138,7 @@ class ActionItemWidget(QWidget):
             h.valueChanged.connect(lambda v, k="highlight": self._emit(k, v))
             self._add_param(layout, i18n.t("高光"), h)
             widgets["highlight"] = h
-        elif atype == "饱和度":
+        elif atype == "saturation":
             f = QDoubleSpinBox()
             f.setRange(0.0, 3.0)
             f.setSingleStep(0.05)
@@ -2057,7 +2150,7 @@ class ActionItemWidget(QWidget):
             f.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
             self._add_param(layout, i18n.t("强度"), f)
             widgets["factor"] = f
-        elif atype == "自然饱和度":
+        elif atype == "vibrance":
             f = QDoubleSpinBox()
             f.setRange(0.0, 2.0)
             f.setSingleStep(0.05)
@@ -2067,7 +2160,7 @@ class ActionItemWidget(QWidget):
             f.valueChanged.connect(lambda v, k="factor": self._emit(k, v))
             self._add_param(layout, i18n.t("强度"), f)
             widgets["factor"] = f
-        elif atype == "模糊":
+        elif atype == "blur":
             rad = QDoubleSpinBox()
             rad.setRange(0.0, _BLUR_MAX_RADIUS)
             rad.setDecimals(_BLUR_RADIUS_DECIMALS)
@@ -3382,7 +3475,7 @@ class MainWindow(QMainWindow):
         relocating the window).
         """
         COLS, ROWS = 6, 3
-        grid = GRID_SIZES.get("缩略图", QSize(122, 154))
+        grid = GRID_SIZES.get(DEFAULT_VIEW_MODE, QSize(122, 154))
         lst = self.input_list
         vp = lst.viewport()
         if vp is None:
@@ -3574,15 +3667,16 @@ class MainWindow(QMainWindow):
         # menu-item click, eliminating that race entirely.
         self.view_button = QToolButton()
         toolbar.addWidget(QLabel(i18n.t("查看：")))
-        self.view_button.setText(i18n.t("缩略图"))
+        self.view_button.setText(i18n.t(VIEW_MODE_LABELS[DEFAULT_VIEW_MODE]))
         self.view_button.setPopupMode(QToolButton.InstantPopup)
         self.view_menu = QMenu(self.view_button)
-        for mode in VIEW_MODES:
-            # 菜单项显示译文，回调仍传原始中文 ID —— 持久化、GRID_SIZES 查表、
-            # "列表"/"详细信息" 分支判断全部依赖 ID，不能被翻译影响。
-            act = self.view_menu.addAction(i18n.t(mode))
+        for _mid in VIEW_MODE_IDS:
+            # 菜单项显示译文，回调传**英文稳定 ID** —— 持久化、GRID_SIZES
+            # 查表、"list"/"details" 分支判断全部依赖 ID，不能被翻译影响。
+            act = self.view_menu.addAction(i18n.t(VIEW_MODE_LABELS[_mid]))
+            act.setData(_mid)
             act.triggered.connect(
-                lambda _checked=False, m=mode: self._on_view_changed(m)
+                lambda _checked=False, m=_mid: self._on_view_changed(m)
             )
         self.view_button.setMenu(self.view_menu)
         toolbar.addWidget(self.view_button)
@@ -3611,10 +3705,10 @@ class MainWindow(QMainWindow):
         self.input_table.itemDoubleClicked.connect(
             lambda item: self._open_preview(item.data(Qt.UserRole))
         )
-        # Apply the default view (缩略图). setCurrentText() above fired its
-        # signal before this connection existed, so call it explicitly now that
-        # the list/stack widgets are built.
-        self._on_view_changed("缩略图")
+        # Apply the default view (thumb). Other signal connections are set up
+        # below, so call the handler explicitly now that the list/stack widgets
+        # are built.
+        self._on_view_changed(DEFAULT_VIEW_MODE)
         return widget
 
     def _build_actions_tab(self):
@@ -3636,17 +3730,19 @@ class MainWindow(QMainWindow):
         # 菜单是持久对象（而非点击时临时构造）：与 view_menu 同构，便于直接
         # 取 actions() 检查，也避免每次点击重建。
         #
-        # 菜单项显示译文 t(_aid)、userData 存原始中文 ID —— 与阶段 6 的
-        # ID/显示名分离约定一致：英文界面下显示 "Resize"，而 action dict
-        # 里仍存 "调整大小"，processor.apply_actions 的字面量判断不受影响。
+        # 菜单项显示译文 t(label)、userData 存**英文稳定 ID** ——
+        # 显示名与 ID 完全分离：英文界面下显示 "Resize"，action dict 与
+        # 配置文件里存 "resize"，processor.apply_actions 按 ID 分派。
         self.add_action_menu = QMenu(self)
         # 按类别分组展示（processor.ACTION_GROUPS）：组标题用 addSection。
+        # 组内存的是英文稳定 ID，显示名现查 ACTION_LABELS —— 所以改文案不用动分组表。
         # ⚠️ addSection 生成的是一个 isSeparator()==True 的 QAction，遍历
         # menu.actions() 取类型时要过滤掉（见 test_i18n_id_separation）。
         for _gname, _gids in processor.ACTION_GROUPS:
             self.add_action_menu.addSection(i18n.t(_gname))
             for _aid in _gids:
-                _act = self.add_action_menu.addAction(i18n.t(_aid))
+                _act = self.add_action_menu.addAction(
+                    i18n.t(processor.ACTION_LABELS[_aid]))
                 _act.setData(_aid)
                 _act.triggered.connect(
                     lambda _checked=False, _a=_aid: self._add_action_by_id(_a)
@@ -4078,12 +4174,12 @@ class MainWindow(QMainWindow):
         # NoFlickerComboBox：与输出格式下拉保持一致（框更大、支持滚轮），
         # 下拉弹窗去掉 Windows DWM 入场动画避免闪烁。
         self.on_exist_combo = NoFlickerComboBox()
-        # 与动作类型同构：显示 t(策略)，userData 存原始中文策略。
+        # 与动作类型同构：显示 t(策略)，userData 存**英文稳定 ID**。
         # 持久化与转换时的分支判断都读 currentData()，英文界面下不会把
         # "Overwrite" 当成策略存进 ini（否则下次启动 findData 落空、策略丢默认）。
-        for _eid in ("替换", "询问", "跳过", "重命名"):
-            self.on_exist_combo.addItem(i18n.t(_eid), _eid)
-        _ei = self.on_exist_combo.findData("替换")
+        for _eid in ON_EXIST_IDS:
+            self.on_exist_combo.addItem(i18n.t(ON_EXIST_LABELS[_eid]), _eid)
+        _ei = self.on_exist_combo.findData(DEFAULT_ON_EXIST)
         if _ei >= 0:
             self.on_exist_combo.setCurrentIndex(_ei)
         exist_row.addWidget(self.on_exist_combo)
@@ -5792,8 +5888,16 @@ class MainWindow(QMainWindow):
         # 输出格式（JXL / PNG / JPG）：与编码参数一起持久化。
         settings.setValue("output_format", self.format_combo.currentText())
         # 输出文件已存在时的冲突策略（替换/询问/跳过/重命名）。
-        settings.setValue("on_exist", self.on_exist_combo.currentData()
-                          or self.on_exist_combo.currentText())
+        # ⚠️ 只写英文 ID：绝不能退回 currentText() —— 那是当前语言的显示名
+        # （"Rename" / 「重新命名」），写进 ini 后下次启动或旧版本会认不出来，
+        # 表现为「策略自己变回替换」。取不到 ID 就告警并按默认值保存。
+        on_exist = self.on_exist_combo.currentData()
+        if on_exist not in ON_EXIST_IDS:
+            warnings.warn(
+                "冲突策略控件未取到英文 ID（%r），已按默认值 %r 保存"
+                % (on_exist, DEFAULT_ON_EXIST), RuntimeWarning)
+            on_exist = DEFAULT_ON_EXIST
+        settings.setValue("on_exist", on_exist)
         # 删除原文件：勾选后成功转换的源文件移入回收站（QSettings 直接存 bool）。
         settings.setValue("delete_original", self.delete_original_check.isChecked())
         # 保持时间戳：输出文件继承原文件的创建/修改时间（QSettings 直接存 bool）。
@@ -5871,15 +5975,21 @@ class MainWindow(QMainWindow):
         fmt = settings.value("output_format", "JPEG XL (*.jxl)")
         if self.format_combo.findText(fmt) >= 0:
             self.format_combo.setCurrentText(fmt)
-        # 恢复输出文件已存在时的冲突策略（替换/询问/跳过/重命名）。
-        on_exist = settings.value("on_exist", "替换")
-        # 按 userData 匹配（ini 里存的一直是中文 ID），找不到再退回按显示名匹配，
-        # 兼容早期可能写入的脏值。
-        if self.on_exist_combo.findData(on_exist) >= 0:
-            self.on_exist_combo.setCurrentIndex(
-                self.on_exist_combo.findData(on_exist))
-        elif self.on_exist_combo.findText(on_exist) >= 0:
-            self.on_exist_combo.setCurrentText(on_exist)
+        # 恢复输出文件已存在时的冲突策略（overwrite/ask/skip/rename）。
+        # 旧 ini 可能是中文 v1 ID，也可能是某语言显示名（历史脏值）——统一归一。
+        # 认不出的值**必须告警**，不能静默退回默认（曾表现为
+        # 「重命名悄悄变成替换」，用户完全无感）。
+        raw_on_exist = settings.value("on_exist", DEFAULT_ON_EXIST)
+        on_exist = _on_exist_id(raw_on_exist)
+        if on_exist is None:
+            warnings.warn(
+                "无法识别的「输出文件已存在时」策略 %r，已回退默认值 %r"
+                % (raw_on_exist, DEFAULT_ON_EXIST), RuntimeWarning)
+            on_exist = DEFAULT_ON_EXIST
+        _oi = self.on_exist_combo.findData(on_exist)
+        if _oi < 0:  # 兜底：控件项缺失时宁可回到默认，也不要 setCurrentIndex(-1)
+            _oi = max(0, self.on_exist_combo.findData(DEFAULT_ON_EXIST))
+        self.on_exist_combo.setCurrentIndex(_oi)
         # 恢复「删除原文件」勾选状态（INI 把 bool 存为字符串，需显式解析）。
         self.delete_original_check.setChecked(
             str(settings.value("delete_original", False)).strip().lower()
@@ -6086,7 +6196,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(i18n.t("已添加 %d 个文件") % len(self.input_files))
 
     def _refresh_list(self):
-        mode = getattr(self, "_last_view", "缩略图")
+        mode = getattr(self, "_last_view", DEFAULT_VIEW_MODE)
         is_icon = mode in THUMB_SIZES
         icon_size = THUMB_SIZES.get(mode, QSize(96, 96))
         # 作废上一轮任何在途的缩略图 worker：自增 epoch，旧 worker 的结果会被
@@ -7063,27 +7173,31 @@ class MainWindow(QMainWindow):
             return "%.1f MB" % (size / (1024.0 * 1024.0))
         return "%.1f KB" % (size / 1024.0)
 
-    def _on_view_changed(self, text):
+    def _on_view_changed(self, mode_id):
+        # 兼容：旧调用方 / 旧 ini 可能还传中文显示名，这里统一转成英文 ID。
+        # 用冻结的旧映射，避免显示名改文案后旧值失配（见 LEGACY_VIEW_MODE_MAP）。
+        mode_id = LEGACY_VIEW_MODE_MAP.get(mode_id, mode_id)
         # De-duplicate: currentIndexChanged and activated both fire on a popup
         # pick, and the user may re-pick the current item. Skip redundant work
         # (and the double _refresh_list flicker) when nothing actually changes.
-        if text == getattr(self, "_last_view", None):
+        if mode_id == getattr(self, "_last_view", None):
             return
-        self._last_view = text
+        self._last_view = mode_id
         if getattr(self, "view_button", None) is not None:
-            # text 是内部 ID，显示给用户的是它的译文
-            self.view_button.setText(i18n.t(text))
+            # mode_id 是内部 ID，显示给用户的是它的译文
+            self.view_button.setText(
+                i18n.t(VIEW_MODE_LABELS.get(mode_id, mode_id)))
         # Persist immediately so the choice survives even an abnormal exit.
-        # Must run before the per-mode early returns below (the "详细信息"
+        # Must run before the per-mode early returns below (the "details"
         # branch returns early and would otherwise skip the save).
         # The guard inside _save_view_mode blocks the load-time restore.
         self._save_view_mode()
-        if text == "详细信息":
+        if mode_id == "details":
             self.input_stack.setCurrentWidget(self.input_table)
             self._refresh_table()
             return
         self.input_stack.setCurrentWidget(self.input_list)
-        if text == "列表":
+        if mode_id == "list":
             # Drag-select only (no reorder); use the default delegate and let
             # Qt lay out normal list rows. Clear the grid (an empty QSize) and
             # the icon size so rows are packed normally; setting gridSize to
@@ -7115,9 +7229,10 @@ class MainWindow(QMainWindow):
             self.input_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
             self.input_list.setDragEnabled(True)
             self.input_list.setDefaultDropAction(Qt.MoveAction)
-            icon_size = THUMB_SIZES.get(text, QSize(96, 96))
+            icon_size = THUMB_SIZES.get(mode_id, QSize(96, 96))
             self.input_list.setIconSize(icon_size)
-            self.input_list.setGridSize(GRID_SIZES.get(text, QSize(122, 154)))
+            self.input_list.setGridSize(
+                GRID_SIZES.get(mode_id, QSize(122, 154)))
             self.input_list.setUniformItemSizes(True)
             self.input_list.setMovement(QListWidget.Snap)
             self.input_list.setResizeMode(QListWidget.Adjust)
@@ -7401,61 +7516,60 @@ class MainWindow(QMainWindow):
         btn = self.add_action_button
         self.add_action_menu.popup(btn.mapToGlobal(QPoint(0, btn.height())))
 
-    def _add_action_by_id(self, name):
-        """按给定的动作类型（**中文 ID**）以默认参数追加一个动作项。
+    def _add_action_by_id(self, action_id):
+        """按给定的动作**英文稳定 ID** 以默认参数追加一个动作项。
 
         参数改为 inline 暴露在列表项上：用户可即时调整任意参数，无需切换
         弹窗（旧 ActionParamDialog 已不再被 UI 调用，仅留作历史代码）。
 
-        ⚠️ ``name`` 必须是中文 ID（菜单项的 userData），不能是显示译文：
-        英文界面下菜单显示 "Resize"，但 action dict 必须存 "调整大小"，
-        否则 ``processor.apply_actions`` 的 40 处字面量判断会失效。
+        ⚠️ ``action_id`` 必须是英文 ID（菜单项的 userData），不能是显示译文：
+        英文界面下菜单显示 "Resize"，但 action dict 必须存 "resize"。
         """
-        defaults = dict(processor.DEFAULT_PARAMS.get(name, {}))
-        action = {"type": name, "params": defaults, "enabled": True}
+        defaults = dict(processor.DEFAULT_PARAMS.get(action_id, {}))
+        action = {"type": action_id, "params": defaults, "enabled": True}
         self._add_action_item(action)
-        self.statusBar().showMessage(i18n.t("已添加动作：%s") % i18n.t(name))
+        label = processor.ACTION_LABELS.get(action_id, action_id)
+        self.statusBar().showMessage(i18n.t("已添加动作：%s") % i18n.t(label))
 
     def _action_summary(self, action):
         """Short human-readable summary of an action (shown in the list).
 
-        ⚠️ ``atype`` 同时是内部 ID（下面所有分支判断、以及 processor 的
-        apply_actions 都按字面量比较它），不能直接拿来显示。显示一律用
-        ``name = i18n.t(atype)`` —— 英文界面下显示 "Resize"，而 action dict
-        与配置文件里仍然是 "调整大小"。
+        ⚠️ ``atype`` 是英文稳定 ID，只用于分支判断；显示一律用
+        ``name = i18n.t(processor.ACTION_LABELS[atype])``。
+        旧配置读入时已由 ``migrate_legacy_actions`` 升级成英文 ID。
         """
         atype = action.get("type", "")
-        name = i18n.t(atype)
+        name = i18n.t(processor.ACTION_LABELS.get(atype, atype))
         p = action.get("params", {}) or {}
-        if atype == "调整大小":
+        if atype == "resize":
             w, h = int(p.get("width", 0) or 0), int(p.get("height", 0) or 0)
             algo = p.get("algorithm") or "LANCZOS"
             size = ("%dx%d" % (w, h)) if (w and h) else (
                 (i18n.t("宽%d") % w) if w else ((i18n.t("高%d") % h) if h else i18n.t("自动")))
             return "%s (%s, %s)" % (name, size, algo)
-        if atype == "旋转":
+        if atype == "rotate":
             return "%s (%d°)" % (name, int(p.get("angle", 0) or 0))
-        if atype == "水印":
+        if atype == "watermark":
             return "%s (%s)" % (name, p.get("text", ""))
-        if atype in ("亮度", "对比度", "饱和度", "自然饱和度"):
+        if atype in ("brightness", "contrast", "saturation", "vibrance"):
             # 注意不能用 ``p.get("factor") or 1.0``：0.0（去色/全黑）是合法取值。
             return "%s (%.2f)" % (name, float(p.get("factor", 1.0)))
-        if atype == "锐化":
+        if atype == "sharpen":
             return "%s (%.1f)" % (name, float(p.get("factor", 1.0)))
-        if atype == "裁剪":
+        if atype == "crop":
             return "%s (%d,%d %dx%d)" % (
                 name, int(p.get("left", 0)), int(p.get("top", 0)),
                 int(p.get("width", 0)), int(p.get("height", 0)))
-        if atype == "规格化":
+        if atype == "normalize":
             co = int(p.get("cutoff", 0) or 0)
             return ("%s" % name) if co == 0 else ("%s (cutoff=%d‰)" % (name, co))
-        if atype == "曝光":
+        if atype == "exposure":
             return "%s (%+.1f EV)" % (name, float(p.get("ev", 0.0) or 0.0))
-        if atype == "阴影/高光":
+        if atype == "shadow_highlight":
             return i18n.t("%s (影%.2f/亮%.2f)") % (
                 name, float(p.get("shadow", 1.0) or 1.0),
                 float(p.get("highlight", 1.0) or 1.0))
-        if atype == "模糊":
+        if atype == "blur":
             mid = str(p.get("method") or "GAUSSIAN")
             mlab = next((l for i, l in processor.BLUR_METHODS if i == mid), mid)
             rad = float(p.get("radius", 2.0))
@@ -8259,6 +8373,9 @@ class MainWindow(QMainWindow):
             and self.save_actions_on_exit_check.isChecked()
         )
         settings.setValue("save_on_exit", save_on_exit)
+        # 写入 schema 版本：v1 = 中文 ID（老版本），v2 = 英文稳定 ID。
+        # 有了这个键，将来再改 ID 规则时可以按版本精确迁移，而不是靠猜。
+        settings.setValue("version", processor.ACTIONS_SCHEMA_VERSION)
         if save_on_exit:
             try:
                 settings.setValue(
@@ -8279,6 +8396,9 @@ class MainWindow(QMainWindow):
         settings = QSettings()
         settings.beginGroup("actions")
         save_on_exit = settings.value("save_on_exit", False, type=bool)
+        # 无 version 键 = 本版本之前写的老数据（v1，中文 ID）。
+        stored_version = settings.value(
+            "version", 1, type=int) or 1
         if getattr(self, "save_actions_on_exit_check", None) is not None:
             self.save_actions_on_exit_check.setChecked(bool(save_on_exit))
         if save_on_exit:
@@ -8290,8 +8410,11 @@ class MainWindow(QMainWindow):
                 except (TypeError, ValueError):
                     actions = []
             if isinstance(actions, list):
-                # 先跑一遍老配置升级（旧「亮度/对比度」拆成「亮度」+「对比度」），
-                # 再逐项建列表项，保证载入后列表里只有当前支持的动作类型。
+                # v1 中文 ID → v2 英文 ID；顺带拆分旧「亮度/对比度」。
+                # 迁移函数幂等，v2 数据再过一遍也不会变。
+                if stored_version > processor.ACTIONS_SCHEMA_VERSION:
+                    # 未来版本写的格式：按当前规则尽量解析，避免启动即空白。
+                    pass
                 for a in processor.migrate_legacy_actions(actions):
                     if isinstance(a, dict) and "type" in a:
                         self._add_action_item(a, render_preview=False)
@@ -8614,7 +8737,7 @@ class MainWindow(QMainWindow):
             return
         settings = QSettings()
         settings.beginGroup("input_view")
-        settings.setValue("mode", getattr(self, "_last_view", "缩略图"))
+        settings.setValue("mode", getattr(self, "_last_view", DEFAULT_VIEW_MODE))
         settings.endGroup()
         # Flush immediately so the choice survives even an abnormal exit
         # (the other settings rely on the closeEvent flush; view mode is
@@ -8631,10 +8754,12 @@ class MainWindow(QMainWindow):
         self._view_loading = True
         settings = QSettings()
         settings.beginGroup("input_view")
-        mode = settings.value("mode", "缩略图")
+        mode = settings.value("mode", DEFAULT_VIEW_MODE)
         settings.endGroup()
-        if mode not in VIEW_MODES:
-            mode = "缩略图"
+        # 旧 ini 里存的是中文显示名（schema v1）→ 升级为英文 ID。
+        mode = LEGACY_VIEW_MODE_MAP.get(mode, mode)
+        if mode not in VIEW_MODE_IDS:
+            mode = DEFAULT_VIEW_MODE
         self._on_view_changed(mode)
         self._view_loading = False
 
@@ -9309,21 +9434,24 @@ class MainWindow(QMainWindow):
         """
         # 每批次重新初始化「全部替换」标志，避免跨批次沿用。
         self._replace_all_pending = False
-        # 取 userData（中文 ID）而非显示文本 —— 下面的分支判断全靠它。
-        on_exist = (self.on_exist_combo.currentData()
-                    or self.on_exist_combo.currentText())
-        if on_exist == "替换":
+        # 取 userData（英文稳定 ID）而非显示文本 —— 下面的分支判断全靠它。
+        # 兜底认历史脏值（未走迁移的中文旧 ID / 某语言的显示名）；仍认不出就按
+        # 默认策略（替换）处理，宁可显式走默认，也不要把未知字符串当成分支命中。
+        on_exist = (_on_exist_id(self.on_exist_combo.currentData())
+                    or _on_exist_id(self.on_exist_combo.currentText())
+                    or DEFAULT_ON_EXIST)
+        if on_exist == "overwrite":
             return jobs, [], False
         resolved, skipped, cancelled = [], [], False
         for src, out_path, out_is_jxl in jobs:
             if not os.path.exists(out_path):
                 resolved.append((src, out_path, out_is_jxl))
                 continue
-            if on_exist == "跳过":
+            if on_exist == "skip":
                 skipped.append(out_path)
-            elif on_exist == "重命名":
+            elif on_exist == "rename":
                 resolved.append((src, self._uniquify_path(out_path), out_is_jxl))
-            elif on_exist == "询问":
+            elif on_exist == "ask":
                 if getattr(self, "_replace_all_pending", False):
                     resolved.append((src, out_path, out_is_jxl))
                     continue
@@ -9364,9 +9492,9 @@ class MainWindow(QMainWindow):
         box.setWindowTitle(i18n.t("输出文件已存在"))
         box.setText(i18n.t("输出文件已存在：\n%s\n\n如何处理该文件？") % out_path)
         b_replace_all = box.addButton(i18n.t("全部替换"), QMessageBox.AcceptRole)
-        b_replace = box.addButton("替换", QMessageBox.AcceptRole)
-        b_skip = box.addButton("跳过", QMessageBox.RejectRole)
-        b_rename = box.addButton("重命名", QMessageBox.ActionRole)
+        b_replace = box.addButton(i18n.t("替换"), QMessageBox.AcceptRole)
+        b_skip = box.addButton(i18n.t("跳过"), QMessageBox.RejectRole)
+        b_rename = box.addButton(i18n.t("重命名"), QMessageBox.ActionRole)
         b_cancel = box.addButton(i18n.t("取消全部"), QMessageBox.DestructiveRole)
         # 清空标准按钮，避免额外 OK/Cancel 与自定义按钮叠加。
         box.setStandardButtons(QMessageBox.NoButton)
@@ -10213,7 +10341,8 @@ class ActionParamDialog(QDialog):
 
     def __init__(self, action_type, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(i18n.t("动作参数 - %s") % action_type)
+        self.setWindowTitle(i18n.t("动作参数 - %s") % i18n.t(
+            processor.ACTION_LABELS.get(action_type, action_type)))
         self.action_type = action_type
         self._controls = {}  # name -> (widget, getter)
 
@@ -10221,7 +10350,7 @@ class ActionParamDialog(QDialog):
         form = QFormLayout()
         layout.addLayout(form)
 
-        if action_type == "调整大小":
+        if action_type == "resize":
             w = QSpinBox()
             w.setRange(0, 100000)
             w.setSpecialValueText(i18n.t("自动(按比例)"))
@@ -10232,13 +10361,13 @@ class ActionParamDialog(QDialog):
             form.addRow(i18n.t("目标高度 (像素, 0=自动):"), h)
             self._controls["width"] = (w, lambda: w.value())
             self._controls["height"] = (h, lambda: h.value())
-        elif action_type == "旋转":
+        elif action_type == "rotate":
             a = QSpinBox()
             a.setRange(-360, 360)
             a.setValue(90)
             form.addRow(i18n.t("顺时针角度 (度):"), a)
             self._controls["angle"] = (a, lambda: a.value())
-        elif action_type == "水印":
+        elif action_type == "watermark":
             t = QLineEdit("Sample")
             fs = QSpinBox()
             fs.setRange(8, 400)
@@ -10247,9 +10376,9 @@ class ActionParamDialog(QDialog):
             op.setRange(0, 255)
             op.setValue(128)
             pos = NoFlickerComboBox()
-            for _pid in processor.WATERMARK_POSITIONS:
-                pos.addItem(i18n.t(_pid), _pid)
-            _pi = pos.findData("右下")
+            for _pid in processor.WATERMARK_POSITION_IDS:
+                pos.addItem(i18n.t(processor.WATERMARK_POSITION_LABELS[_pid]), _pid)
+            _pi = pos.findData("bottom_right")
             if _pi >= 0:
                 pos.setCurrentIndex(_pi)
             col = NoFlickerComboBox()
@@ -10265,7 +10394,7 @@ class ActionParamDialog(QDialog):
             self._controls["opacity"] = (op, lambda: op.value())
             self._controls["position"] = (pos, lambda: pos.currentData())
             self._controls["color"] = (col, lambda: col.currentText())
-        elif action_type == "亮度/对比度":
+        elif action_type == "brightness_contrast":
             b = QDoubleSpinBox()
             b.setRange(0.0, 3.0)
             b.setSingleStep(0.1)
@@ -10278,14 +10407,14 @@ class ActionParamDialog(QDialog):
             form.addRow(i18n.t("对比度 (1.0=不变):"), c)
             self._controls["brightness"] = (b, lambda: b.value())
             self._controls["contrast"] = (c, lambda: c.value())
-        elif action_type == "锐化":
+        elif action_type == "sharpen":
             f = QDoubleSpinBox()
             f.setRange(0.0, 5.0)
             f.setSingleStep(0.1)
             f.setValue(1.5)
             form.addRow(i18n.t("锐化强度 (1.0=不变):"), f)
             self._controls["factor"] = (f, lambda: f.value())
-        elif action_type == "裁剪":
+        elif action_type == "crop":
             for label, name in (
                 (i18n.t("左边距 (像素):"), "left"),
                 (i18n.t("上边距 (像素):"), "top"),
@@ -10304,21 +10433,21 @@ class ActionParamDialog(QDialog):
         layout.addWidget(buttons)
 
     def accept(self):
-        if self.action_type == "调整大小":
+        if self.action_type == "resize":
             w = int(self._controls["width"][1]())
             h = int(self._controls["height"][1]())
             if w == 0 and h == 0:
                 self.parent()._show_warning_centered(
                     i18n.t("参数无效"), i18n.t("调整大小需至少设置宽度或高度之一。"))
                 return
-        elif self.action_type == "裁剪":
+        elif self.action_type == "crop":
             w = int(self._controls["width"][1]())
             h = int(self._controls["height"][1]())
             if w == 0 and h == 0:
                 self.parent()._show_warning_centered(
                     i18n.t("参数无效"), i18n.t("裁剪需至少设置宽度或高度之一。"))
                 return
-        elif self.action_type == "水印":
+        elif self.action_type == "watermark":
             if not (self._controls["text"][1]() or "").strip():
                 self.parent()._show_warning_centered(
                     i18n.t("参数无效"), i18n.t("水印文字不能为空。"))

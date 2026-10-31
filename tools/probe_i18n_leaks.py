@@ -44,7 +44,7 @@ QCoreApplication.setApplicationName("JxlForge-Converter")
 
 from jxlforge import i18n
 from jxlforge.__main__ import _apply_persisted_language
-from jxlforge.main_window import MainWindow, VIEW_MODES
+from jxlforge.main_window import MainWindow, VIEW_MODE_IDS
 
 # ---- 字体（offscreen 默认 0 字体，载入系统字体只为控件能正常建文本） ----
 app = QApplication.instance() or QApplication(["-platform", "offscreen"])
@@ -220,7 +220,7 @@ for tw in tabs:
             print("[warn] 切标签页 %d 失败: %s" % (i, e))
 
 # --- 3) 逐个输入页视图模式（详细信息视图的表头只在切过去后才重建） ---
-for mode in VIEW_MODES:
+for mode in VIEW_MODE_IDS:
     try:
         w._on_view_changed(mode)
         pump()

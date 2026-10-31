@@ -48,8 +48,8 @@ MANUAL = "待定"
 
 # ---------------------------------------------------------------- 规则表
 
-# (1) 已知「ID 兼显示名」的常量表：成员一律不翻。
-#     这些中文同时是 QSettings 的持久化值，翻译 = 老配置失配。
+# (1) 兜底规则：这些常量表在 schema v2 里应只含英文 ID / 派生值。
+#     一旦有人又把中文塞回去当 ID，这里会按「不翻」处理，避免污染持久化。
 ID_CONSTANT_MEMBERS = {
     "processor.py": {"ACTION_TYPES", "WATERMARK_POSITIONS"},
     "main_window.py": {"VIEW_MODES"},
@@ -68,7 +68,7 @@ ID_DICT_KEYS = {
 #     QGroupBox(sg) →  分组框标题（用户看到的文字）
 # 但两者用的是**同一个变量**，翻译成中文改英文时它们会一起变，查表不会断；
 # 而且这是函数内的局部变量，不写进 QSettings、不跨会话。
-# 对比 ACTION_TYPES：那个会把中文存进配置文件，才是真不能翻的。
+# 对比 ACTION_SPECS 里的中文显示名：只在界面显示，持久化用英文 ID，翻译安全。
 RUNTIME_LAYOUT_TABLES = {"sub_order", "sub_pos"}
 
 # 自定义命令模板：示例文本现在**可以翻译**。
@@ -115,29 +115,27 @@ I18N_INFRA_FILES = {"jxlforge/i18n.py"}
 EXCEPTION_CONTEXTS = {"ValueError", "RuntimeError", "TypeError", "KeyError",
                       "IOError", "OSError", "Exception"}
 
-# (5b) 阶段 6 已做「ID 与显示名分离」的标识。
+# (5b) 已做「ID 与显示名分离」的**显示名**集合（schema v2）。
 #
-# 这些中文在源码里**不翻**（它们要存进 QSettings、还要参与几十处字面量
-# 比较），但界面上显示的是 ``t(该中文)``，所以**字典里必须有它们的译文**。
-#
-# ⚠️ 这个区分很重要：如果阶段 2 看到「不翻」就跳过，英文界面上动作类型、
-# 水印位置、查看模式、冲突策略会全部退回中文，阶段 6 等于白做。
+# 这些中文只用于界面显示（``t(中文)``）；内部存盘 / 比较 / 查表用的是
+# 英文稳定 ID（``resize`` / ``thumb`` / ``overwrite``）。因此它们**必须翻译**
+# ——否则英文/繁体界面上动作类型、水印位置、查看模式、冲突策略会退回中文。
 # 这些条目在输出里会带 ``stage6 = True``，阶段 2 据此照样要翻。
 #
-# 名单刻意写死而不是 AST 扫描：这几张表是设计决策的产物，不是代码里
+# 名单刻意写死而不是 AST 扫描：这几张 SPECS 表是设计决策的产物，不是代码里
 # 偶然出现的同名变量。``tools/test_i18n_id_separation.py`` 会拿它和
-# processor / main_window 里的真实常量对账，改漏了会红。
+# processor / main_window 里的真实 SPECS 对账，改漏了会红。
 STAGE6_DISPLAY_IDS = {
-    # processor.ACTION_TYPES —— 动作类型（apply_actions 里 14 处字面量比较）
-    # 注：旧「亮度/对比度」已不在菜单里（仅兼容老数据），不再属于显示 ID。
+    # processor.ACTION_SPECS 的显示名（内部 ID：resize / crop / rotate ...）
+    # 注：旧「亮度/对比度」已不在菜单里（仅兼容老数据），不再属于显示名。
     "调整大小", "旋转", "水印", "锐化", "裁剪",
     "规格化", "曝光", "阴影/高光",
     "亮度", "对比度", "饱和度", "自然饱和度", "模糊",
-    # processor.WATERMARK_POSITIONS —— 水印九宫格位置（_watermark_offset 查表）
+    # processor.WATERMARK_POSITION_SPECS 的显示名（内部 ID：top_left ...）
     "左上", "中上", "右上", "左中", "居中", "右中", "左下", "中下", "右下",
-    # main_window.VIEW_MODES —— 输入标签页查看模式（GRID_SIZES / THUMB_SIZES 查表）
+    # main_window.VIEW_MODE_SPECS 的显示名（内部 ID：small_thumb / thumb ...）
     "小缩略图", "缩略图", "大缩略图", "列表", "详细信息",
-    # 输出文件已存在时的冲突策略（_resolve_existing_outputs 分支判断）
+    # main_window.ON_EXIST_SPECS 的显示名（内部 ID：overwrite / ask ...）
     "替换", "询问", "跳过", "重命名",
 }
 
@@ -443,8 +441,13 @@ def classify_record(rec, analyzer):
         return SKIP, "阶段 0 判定为内部标识", "高"
 
     # --- 常量表：整表成员是 ID，但表里的 label/group 字段是显示名 ---
+    # 阶段 7 起动作/水印/视图/冲突策略都拆成「英文 ID + 中文显示名」，
+    # 这些 SPECS 表里的中文只用于显示，翻译安全。
+    # ACTION_GROUPS 现在只存分组标题 + 英文 ID，仍按「组名是显示名」处理。
     if ctx in ("_ADVANCED_SCHEMA", "TABLE_COLUMNS", "DEFAULT_PARAMS",
-               "RESIZE_ALGORITHMS"):
+               "RESIZE_ALGORITHMS", "ACTION_SPECS", "ACTION_GROUPS",
+               "WATERMARK_POSITION_SPECS", "VIEW_MODE_SPECS",
+               "ON_EXIST_SPECS"):
         if _looks_like_id(text):
             return SKIP, "疑似内部标识，暂不翻（阶段 1 复核）", "中"
         return TRANSLATE, "界面上显示的分组名 / 列名 / 参数名", "高"
@@ -519,6 +522,13 @@ def build(source=RAW_JSON):
     # 排除 i18n 基础设施自身的文本（如语言自称名「简体中文」）。
     # 它们不是待翻内容，留着会永久占据「未翻译」，把覆盖率卡死在 99.x%。
     records = [r for r in records if r["file"] not in I18N_INFRA_FILES]
+
+    # 排除「冻结的迁移表」（LEGACY_*_MAP）。
+    # 这些表里是**历史落盘过的中文串**，永不显示、永不翻译；但它们与显示名同字面量，
+    # 若参与投票，会被结构分析判成 ID_MEMBER（"不翻"），进而把整条字符串的
+    # 最终结论从「翻」拉成「不翻」——显示名就漏翻了。
+    # 直接不参与分类：既不翻译，也不影响同文本的其他出现点。
+    records = [r for r in records if not r["context"].startswith("LEGACY_")]
 
     analyzers = {}
     by_text = collections.OrderedDict()

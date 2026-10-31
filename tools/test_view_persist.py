@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QApplication
 QCoreApplication.setOrganizationName("jxlforge_test")
 QCoreApplication.setApplicationName("view_persist")
 
-from jxlforge.main_window import MainWindow, VIEW_MODES
+from jxlforge.main_window import MainWindow, VIEW_MODE_IDS
 
 
 def check(label, cond):
@@ -48,23 +48,23 @@ def main():
 
     # --- 1. 默认视图 ---
     w = MainWindow()
-    check("默认视图 = 缩略图", getattr(w, "_last_view", None) == "缩略图")
+    check("默认视图 = thumb", getattr(w, "_last_view", None) == "thumb")
     check("默认按钮文字 = 缩略图", w.view_button.text() == "缩略图")
     # 构建期不应把已存的用户选择覆盖成默认
     check("构建后尚未写入 mode（不应提前覆盖）",
-          stored_mode() in (None, "缩略图"))
+          stored_mode() in (None, "thumb"))
 
     # --- 2. 切换并即时持久化 ---
-    w._on_view_changed("详细信息")
-    check("切换后 _last_view = 详细信息", w._last_view == "详细信息")
+    w._on_view_changed("details")
+    check("切换后 _last_view = details", w._last_view == "details")
     check("切换后按钮文字 = 详细信息", w.view_button.text() == "详细信息")
     check("load 守卫已复位（可正常保存）", w._view_loading is False)
     QSettings().sync()  # 确保落盘
-    check("即时持久化 mode=详细信息", stored_mode() == "详细信息")
+    check("即时持久化 mode=details", stored_mode() == "details")
 
     # --- 3. 模拟重启：新实例恢复 ---
     w2 = MainWindow()
-    check("重启后恢复 _last_view=详细信息", w2._last_view == "详细信息")
+    check("重启后恢复 _last_view=details", w2._last_view == "details")
     check("重启后恢复按钮文字=详细信息", w2.view_button.text() == "详细信息")
     # 当前应显示列表/详细信息视图（stack 切到 table）
     check("重启后显示详细信息表格", w2.input_stack.currentWidget() is w2.input_table)
@@ -76,11 +76,11 @@ def main():
     s.endGroup()
     s.sync()
     w3 = MainWindow()
-    check("非法 mode 回退到 缩略图", w3._last_view == "缩略图")
+    check("非法 mode 回退到 thumb", w3._last_view == "thumb")
     check("非法 mode 后按钮文字=缩略图", w3.view_button.text() == "缩略图")
 
     # --- 5. 所有合法模式均可恢复 ---
-    for mode in VIEW_MODES:
+    for mode in VIEW_MODE_IDS:
         s.beginGroup("input_view")
         s.setValue("mode", mode)
         s.endGroup()

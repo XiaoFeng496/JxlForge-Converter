@@ -43,7 +43,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 # 抓图前要展示的动作（用 ACTION_TYPES 里的中文 ID），挑参数控件类型不同的两个，
 # 这样「动作」页能同时展示数值行 + 下拉行两种布局。
-SHOT_ACTIONS = ["调整大小", "锐化"]
+SHOT_ACTIONS = ["resize", "sharpen"]
 SHOT_TABS = [("input", "输入"), ("actions", "动作"), ("output", "输出"),
              ("status", "状态"), ("settings", "设置")]
 

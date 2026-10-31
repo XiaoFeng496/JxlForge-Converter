@@ -10,9 +10,10 @@
   这两套都要给每个控件留句柄、还要缓存原始中文，复杂度和出错面都大得多。
 - **中文不建字典**：源码里写的就是中文，查不到时 ``t()`` 直接返回原文，
   所以 zh_CN 不需要维护一份「自己翻自己」的字典，也就不会和源码漂移。
-- **内部 ID 也能翻**：``ACTION_TYPES`` 这类中文既是显示名又是内部标识，
-  显示在界面上时走 ``t()`` 取译文，存进配置 / 参与判断时仍用原始中文。
-  ID 与显示名由此分离，两边互不干扰（详见下方 ``t()`` 的用法说明）。
+- **ID 与显示名彻底分离**（schema v2）：内部标识是英文稳定 ID
+  （``resize`` / ``thumb`` / ``overwrite``），存配置、参与判断只用它；
+  界面显示走 ``t(中文标签)``，中文标签只作字典 key。改文案只需改标签 + 补
+  译文，不会动到任何已存数据。
 
 用法::
 
@@ -86,6 +87,27 @@ def current_language():
     return _current
 
 
+def translations(code):
+    """返回指定语言的完整字典（``_`` 开头的元信息键已剔除）。
+
+    只读、**不改变当前语言**，用于「把历史配置里的译文反查回 ID」这类场景：
+    旧版本某些下拉在 userData 缺失时会把 ``currentText()``（当时的显示名）
+    写进 ini，读取时必须能把 "Rename" / "重新命名" 还原成 ``rename``。
+    语言代码不存在时返回空字典。
+    """
+    path = os.path.join(_I18N_DIR, "%s.json" % code)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (ValueError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if not k.startswith("_")}
+
+
 def set_language(code):
     """设置当前语言并立即加载字典。
 
@@ -125,8 +147,8 @@ def load(code):
 def t(text):
     """把中文原文译成的当前语言；没有译文就返回原文。
 
-    传入的 ``text`` 应当是**源码里写的中文原文**（也就是内部 ID 或待译文本），
-    不要传已经翻译过的字符串 —— 否则二次查询必然落空。
+    传入的 ``text`` 应当是**源码里写的中文原文**（显示名 / 待译文本），
+    不要传内部 ID（英文，没有译文）或已翻译的字符串 —— 后者二次查询必然落空。
     """
     if not _dict:
         return text

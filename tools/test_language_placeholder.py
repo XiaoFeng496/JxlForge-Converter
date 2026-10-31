@@ -236,8 +236,8 @@ def test_language_applied_on_next_launch():
                   if not a.isSeparator()][0]
         assert _first.text() == "Resize", \
             "重启后动作类型应为英文，实际=%r" % _first.text()
-        assert _first.data() == "调整大小", \
-            "内部 ID 必须是中文，实际=%r" % _first.data()
+        assert _first.data() == "resize", \
+            "内部 ID 必须是英文稳定 ID，实际=%r" % _first.data()
         # 设置页的语言下拉要回显当前语言，而不是复位成默认
         assert w.language_combo.currentData() == "en_US", \
             "语言下拉应回显 en_US，实际=%r" % w.language_combo.currentData()

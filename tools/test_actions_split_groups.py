@@ -8,8 +8,9 @@
    - 旧数据（已存进 ini 的老配置）仍能处理，载入时自动升级成两个动作。
 
 2) 「添加动作 ▶」菜单按类别分组
-   - ACTION_GROUPS 覆盖且仅覆盖 ACTION_TYPES（对账，防止漏/重复）。
-   - 菜单顺序 == ACTION_TYPES 顺序（组标题是 separator，不算动作项）。
+   - ACTION_GROUPS 组内存的是英文稳定 ID，覆盖且仅覆盖 ACTION_IDS（对账，防止漏/重复）。
+   - 菜单顺序 == ACTION_IDS 顺序（组标题是 separator，不算动作项）。
+   - 菜单项的 data() 是英文 ID、text() 是当前语言的译文。
 
 3) 模糊半径框不再比同类参数框宽
    - QDoubleSpinBox 的 sizeHint 按「能显示的最大值」算，范围 0–250 会撑到
@@ -54,37 +55,40 @@ check("菜单里不再有合并的「亮度/对比度」",
 check("新增独立的「亮度」「对比度」",
       "亮度" in processor.ACTION_TYPES and "对比度" in processor.ACTION_TYPES)
 check("两者各有 factor 默认参数",
-      processor.DEFAULT_PARAMS.get("亮度", {}).get("factor") == 1.0
-      and processor.DEFAULT_PARAMS.get("对比度", {}).get("factor") == 1.0)
+      processor.DEFAULT_PARAMS.get("brightness", {}).get("factor") == 1.0
+      and processor.DEFAULT_PARAMS.get("contrast", {}).get("factor") == 1.0)
 
 src = Image.new("RGB", (8, 8), (60, 120, 200))
-br = processor.apply_actions(src, [{"type": "亮度", "params": {"factor": 1.4}}])
+br = processor.apply_actions(src, [{"type": "brightness", "params": {"factor": 1.4}}])
 check("亮度 1.4 真的变亮",
       br.getpixel((0, 0))[1] > src.getpixel((0, 0))[1],
       str(br.getpixel((0, 0))))
-co = processor.apply_actions(src, [{"type": "对比度", "params": {"factor": 2.0}}])
+co = processor.apply_actions(src, [{"type": "contrast", "params": {"factor": 2.0}}])
 check("对比度 2.0 真的拉开明暗",
       (max(co.getpixel((0, 0))) - min(co.getpixel((0, 0))))
       > (max(src.getpixel((0, 0))) - min(src.getpixel((0, 0)))),
       str(co.getpixel((0, 0))))
 # apply_actions 统一按 RGBA 处理，比较时只看前 3 通道。
 check("亮度 factor=1 恒等",
-      processor.apply_actions(src, [{"type": "亮度", "params": {"factor": 1.0}}])
+      processor.apply_actions(src, [{"type": "brightness", "params": {"factor": 1.0}}])
       .getpixel((0, 0))[:3] == (60, 120, 200))
 check("对比度 factor=1 恒等",
-      processor.apply_actions(src, [{"type": "对比度", "params": {"factor": 1.0}}])
+      processor.apply_actions(src, [{"type": "contrast", "params": {"factor": 1.0}}])
       .getpixel((0, 0))[:3] == (60, 120, 200))
 check("亮度 factor=0 不被 ``or`` 吞掉（能压到全黑）",
-      processor.apply_actions(src, [{"type": "亮度", "params": {"factor": 0.0}}])
+      processor.apply_actions(src, [{"type": "brightness", "params": {"factor": 0.0}}])
       .getpixel((0, 0))[:3] == (0, 0, 0))
 
 # --- 老数据兼容 + 拆分等价性 ---
 old = {"type": "亮度/对比度", "params": {"brightness": 1.3, "contrast": 0.8},
        "enabled": True}
-legacy = processor.apply_actions(src, [old])
+# 旧实现的等价基准：迁移后不再是中文 type，所以直接用兼容 ID
+# "brightness_contrast"（apply_actions 仍认它）跑一遍。
+legacy = processor.apply_actions(
+    src, [dict(old, type="brightness_contrast")])
 migrated = processor.migrate_legacy_actions([old])
 check("迁移产出两个动作（亮度 + 对比度）",
-      [a["type"] for a in migrated] == ["亮度", "对比度"],
+      [a["type"] for a in migrated] == ["brightness", "contrast"],
       str([a["type"] for a in migrated]))
 check("迁移带上原 factor 值",
       [a["params"]["factor"] for a in migrated] == [1.3, 0.8],
@@ -97,8 +101,8 @@ check("迁移后出图与旧动作**逐像素等价**",
       processor.apply_actions(src, migrated).tobytes() == legacy.tobytes())
 check("旧类型仍能被处理（兼容手改 ini）", legacy.size == src.size)
 check("无关动作不被迁移函数改动",
-      processor.migrate_legacy_actions([{"type": "锐化", "params": {}}])
-      == [{"type": "锐化", "params": {}}])
+      processor.migrate_legacy_actions([{"type": "sharpen", "params": {}}])
+      == [{"type": "sharpen", "params": {}}])
 
 # --- UI：两个动作各有自己的参数控件 ---
 win = mw.MainWindow()
@@ -110,7 +114,7 @@ def add_action(name):
     return win.action_list.item(n)
 
 
-it_b = add_action("亮度")
+it_b = add_action("brightness")
 w_b = win.action_list.itemWidget(it_b)
 check("亮度项有 factor 控件", "factor" in w_b._param_widgets)
 w_b._param_widgets["factor"].setValue(1.25)
@@ -118,7 +122,7 @@ check("亮度 factor 写回 action dict",
       it_b.data(Qt.UserRole)["params"]["factor"] == 1.25)
 check("亮度摘要含数值", "1.25" in w_b.summary_label.text(),
       w_b.summary_label.text())
-it_c = add_action("对比度")
+it_c = add_action("contrast")
 w_c = win.action_list.itemWidget(it_c)
 w_c._param_widgets["factor"].setValue(0.75)
 check("对比度 factor 写回 action dict",
@@ -131,14 +135,21 @@ check("两个动作互不干扰",
 # ======================================================================
 print("\n=== 2. 添加动作菜单分组 ===")
 grouped = [aid for _, ids in processor.ACTION_GROUPS for aid in ids]
-check("ACTION_GROUPS 与 ACTION_TYPES 一一对应",
-      grouped == list(processor.ACTION_TYPES),
-      "groups=%s types=%s" % (grouped, list(processor.ACTION_TYPES)))
+# 组内存英文 ID：改中文显示名不再需要动分组表，也就不会再出现
+# 「SPECS 改了、GROUPS 没改 → 菜单构建 KeyError → 窗口建不出来」。
+check("ACTION_GROUPS 与 ACTION_IDS 一一对应",
+      grouped == list(processor.ACTION_IDS),
+      "groups=%s ids=%s" % (grouped, list(processor.ACTION_IDS)))
+check("ACTION_GROUPS 无重复项",
+      len(grouped) == len(set(grouped)), str(grouped))
+check("ACTION_GROUPS 里的 ID 都存在于 ACTION_LABELS",
+      all(aid in processor.ACTION_LABELS for aid in grouped),
+      str([aid for aid in grouped if aid not in processor.ACTION_LABELS]))
 acts = [a for a in win.add_action_menu.actions() if not a.isSeparator()]
-check("菜单动作项数 == ACTION_TYPES 数",
-      len(acts) == len(processor.ACTION_TYPES))
-check("菜单顺序 == ACTION_TYPES 顺序",
-      [a.data() for a in acts] == list(processor.ACTION_TYPES),
+check("菜单动作项数 == ACTION_IDS 数",
+      len(acts) == len(processor.ACTION_IDS))
+check("菜单顺序 == ACTION_IDS 顺序",
+      [a.data() for a in acts] == list(processor.ACTION_IDS),
       str([a.data() for a in acts]))
 seps = [a for a in win.add_action_menu.actions() if a.isSeparator()]
 check("分组标题数 == ACTION_GROUPS 数",
@@ -154,8 +165,8 @@ check("每个分组标题在字典里都有译文",
 i18n.set_language("zh_CN")
 # 分类合理性的粗校验：几何组在前、叠加（水印）在最后
 check("分组顺序：几何在前、水印在最后",
-      processor.ACTION_GROUPS[0][1][0] == "调整大小"
-      and processor.ACTION_GROUPS[-1][1] == ["水印"],
+      processor.ACTION_GROUPS[0][1][0] == "resize"
+      and processor.ACTION_GROUPS[-1][1] == ["watermark"],
       str([g[0] for g in processor.ACTION_GROUPS]))
 
 # ======================================================================
@@ -179,11 +190,11 @@ def _spin_max_of(window, action_name, spin_keys):
 
 
 # --- 模糊：SpinBox(半径)+下拉(算法) ---
-b_w, _ = _spin_max_of(win2, "模糊", ["radius"])
+b_w, _ = _spin_max_of(win2, "blur", ["radius"])
 rad = b_w._param_widgets["radius"]
 method_w = b_w._param_widgets["method"]
 # 锐化作为同类浮点框参照（不 cap，验证自然等宽）
-s_w, _ = _spin_max_of(win2, "锐化", ["factor"])
+s_w, _ = _spin_max_of(win2, "sharpen", ["factor"])
 ref = s_w._param_widgets["factor"]
 check("模糊半径框与锐化强度框自然等宽（sizeHint 一致）",
       rad.sizeHint().width() == ref.sizeHint().width(),
@@ -202,7 +213,7 @@ check("模糊算法下拉不是 setMinimumWidth 撑大（minW==0）",
       method_w.minimumWidth() == 0, "minW=%d" % method_w.minimumWidth())
 
 # --- 调整大小：算法下拉原标签 20+ 字符，sizeHint 234，是「撑宽」真凶 ---
-r_w, r_spin = _spin_max_of(win2, "调整大小", ["width", "height"])
+r_w, r_spin = _spin_max_of(win2, "resize", ["width", "height"])
 algo_w = r_w._param_widgets["algorithm"]
 check("调整大小算法下拉被 cap（不再 234 撑爆整列）",
       algo_w.maximumWidth() == r_spin and algo_w.maximumWidth() < 234,
@@ -212,7 +223,7 @@ check("调整大小算法下拉与同动作 SpinBox 等宽",
       "maxW=%d spin_max=%d" % (algo_w.maximumWidth(), r_spin))
 
 # --- 水印：位置/颜色下拉，cap 后应与同动作 SpinBox 等宽（且 >= 基准 84）---
-wm_w, wm_spin = _spin_max_of(win2, "水印", ["font_size", "opacity"])
+wm_w, wm_spin = _spin_max_of(win2, "watermark", ["font_size", "opacity"])
 pos_w = wm_w._param_widgets["position"]
 col_w = wm_w._param_widgets["color"]
 _wm_ref = max(wm_spin, main_window._PARAM_COMBO_REF_WIDTH)
@@ -290,7 +301,7 @@ check("拖滑块触发参数回写（_emit 被调用，实时预览链路打通�
 
 # --- 回归：调 MEDIAN 仍把半径上限收 9（功能不受影响）---
 n_blur = win2.action_list.count()
-win2._add_action_by_id("模糊")
+win2._add_action_by_id("blur")
 w_blur = win2.action_list.itemWidget(win2.action_list.item(n_blur))
 rad = w_blur._param_widgets["radius"]
 method_w = w_blur._param_widgets["method"]

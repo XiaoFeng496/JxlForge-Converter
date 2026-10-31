@@ -71,7 +71,7 @@ for i in range(30):
     paths.append(p)
 
 win = MainWindow()
-win._last_view = "缩略图"  # 图标模式才会走异步缩略图
+win._last_view = "thumb"  # 图标模式才会走异步缩略图
 
 # ---- 1) async pipeline fills items -----------------------------------------
 win.input_files = paths
@@ -101,8 +101,8 @@ check("decoded thumbnail cached for the file",
 # 直接驱动 drain，验证陈旧结果被丢弃、item 不被错误覆盖。
 win._thumb_epoch = 5
 placeholder = win._placeholder_thumbnail(
-    min(mw.GRID_SIZES["缩略图"].width(),
-        mw.GRID_SIZES["缩略图"].height() - win.list_delegate.NAME_BAND)
+    min(mw.GRID_SIZES["thumb"].width(),
+        mw.GRID_SIZES["thumb"].height() - win.list_delegate.NAME_BAND)
     - 2 * mw.THUMB_PAD)
 item0.setData(Qt.DecorationRole, placeholder)  # 重置为占位
 fake = QImage(50, 50, QImage.Format_ARGB32)

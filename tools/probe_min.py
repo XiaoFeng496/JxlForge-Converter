@@ -15,7 +15,7 @@ app.processEvents()
 window._fit_window_to_grid()
 app.processEvents()
 
-grid = mw.GRID_SIZES.get("缩略图")
+grid = mw.GRID_SIZES.get("thumb")
 print("6x3 content width (no frame):", 6 * grid.width() + 17 + mw.FIT_EXTRA_W)
 print("window width after fit :", window.width())
 print("window min width        :", window.minimumWidth())

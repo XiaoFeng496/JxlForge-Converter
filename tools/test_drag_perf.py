@@ -31,20 +31,20 @@ def check(name, cond):
 window = mw.MainWindow()
 
 # Thumbnail view: uniformItemSizes must be True (the O(1) layout fix).
-window._on_view_changed("缩略图")
+window._on_view_changed("thumb")
 check("thumbnail: uniformItemSizes is True", window.input_list.uniformItemSizes() is True)
 check("thumbnail: IconMode", window.input_list.viewMode() == QListWidget.IconMode)
 check("thumbnail: InternalMove (drag-sort)",
       window.input_list.dragDropMode() == QListWidget.InternalMove)
 
 # List view: still uniform (inherited True) and drag-select only.
-window._on_view_changed("列表")
+window._on_view_changed("list")
 check("list: uniformItemSizes still True", window.input_list.uniformItemSizes() is True)
 check("list: NoDragDrop (rubber-band select)",
       window.input_list.dragDropMode() == QListWidget.NoDragDrop)
 
 # Round trip back to thumbnails keeps the fix.
-window._on_view_changed("缩略图")
+window._on_view_changed("thumb")
 check("thumbnail (round-trip): uniformItemSizes is True",
       window.input_list.uniformItemSizes() is True)
 
