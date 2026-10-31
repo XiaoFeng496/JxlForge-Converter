@@ -98,27 +98,46 @@ python tools/check_i18n_coverage.py     # 它会自动重跑，不用手动
 查坐标用 `sub_pos[sg]`、当标题用 `QGroupBox(sg)`，是**同一个变量**，
 翻译后两边同步变化，查表不会断；而且不写 QSettings。→ 可翻。
 
-反之 `ACTION_TYPES` 的中文会存进配置 → 不可翻。
+反之，动作类型 / 水印位置 / 视图模式 / 冲突策略这类**持久化枚举**的中文旧值曾直接写进 ini → 不能裸翻。
+0.4.0 起它们已改为英文 ID 落盘、中文只作显示名，见第六节。
 
 ---
 
-## 六、阶段 6 留下的机制：ID 与显示名分离
+## 六、持久化枚举：ID 与显示名分离（schema v2）
 
-`ACTION_TYPES` / `WATERMARK_POSITIONS` / `VIEW_MODES` / 冲突策略这类
-中文**既是显示名又是内部 ID**（被字面量比较 40+ 处，还会存进 ini）。
+动作类型 / 水印位置 / 视图模式 / 冲突策略这四类枚举，原先用中文同时充当
+**显示名与内部 ID**（被字面量比较 40+ 处，还会写进 ini）。
+后果是：改一句文案，旧配置就失配；漏改一处分组表，窗口直接建不出来。
 
-做法：**源码一行不动，译文全部进 JSON 字典**。
+0.4.0 起改为双轨：
 
-```python
-combo.addItem(i18n.t(action_id), action_id)   # 显示译文，userData 存原 ID
-```
+| 角色 | 取值 | 举例 | 用途 |
+|---|---|---|---|
+| ID | 英文稳定串 | `resize` / `bottom_right` / `details` / `rename` | 存配置、参与比较、查表 |
+| 显示名 | 中文 | 调整大小 / 右下 / 详细信息 / 重命名 | 界面文本 + i18n 键 |
 
-- 显示取 `itemText()`，取值取 `itemData()`。
-- 分级表里这类条目的结论是「**不翻**」（源码不改），但会被打上 `stage6`
-  标记——**字典里必须有译文**，否则英文界面上它们会退回中文，阶段 6 白做。
-- 契约由 `tools/test_i18n_id_separation.py` 锁住（35 项）。
+- **单一真源**是 `*_SPECS` 表，其余常量都从表派生：
+  `processor.ACTION_SPECS`、`processor.WATERMARK_POSITION_SPECS`、
+  `main_window.VIEW_MODE_SPECS`、`main_window.ON_EXIST_SPECS`。
+- **Qt 写法**：下拉一律 `addItem(t(中文label), 英文id)`，取值用 `currentData()`；
+  `QAction` 必须 `setData(英文id)`，否则 `data()` 返回 `None`。
+- **中文仍是字典的键**，所以 `i18n/*.json` 写法不变；英文 ID 不进字典
+  （由 `probe_i18n_leaks.py` 守 0 泄漏）。
+- **迁移幂等**：`migrate_legacy_actions()` 须满足
+  `migrate(migrate(x)) == migrate(x)`。
+- **迁移表是冻结快照**：`LEGACY_ACTION_TYPE_MAP` / `LEGACY_WATERMARK_POSITION_MAP` /
+  `LEGACY_VIEW_MODE_MAP` / `LEGACY_ON_EXIST_MAP` 只收 v1 真正落过盘的中文串，
+  **永不追加新动作**；改显示名时**不要动它们**。
+- 契约由 `tools/test_i18n_id_separation.py`（59 项）与
+  `tools/test_on_exist_persist.py`（24 项）锁住。
 
-⚠️ 容易踩的坑：**「不翻」≠ 字典不需要译文**。这两件事是正交的。
+⚠️ 两个容易踩的坑：
+
+1. **方向单一**：只允许「ID → 显示名」呈现，不允许「显示名 → ID」持久化。
+   反查只用于读取历史配置，写端永远写 ID。
+2. **写端绝不写译文**：`currentData() or currentText()` 这种兜底会把当前语言的
+   显示名写进 ini，制造读取端认不出的脏值。取不到 ID 就告警并写默认值；
+   读取端认不出历史值时必须 `warn`，静默回退会表现为「设置自己变了」。
 
 ---
 
